@@ -320,3 +320,4 @@ export function exportAS9102Excel(partNumber: string, revision: string, characte
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+

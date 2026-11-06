@@ -1,4 +1,4 @@
-import { BoundingBox, DrawingSpec } from '../types/metrology';
+import { BoundingBox, DrawingSpec, Characteristic } from '../types/metrology';
 
 export interface RenderOptions {
   inverted: boolean; // Dark carbon vs clean white paper
@@ -607,3 +607,19 @@ export function cropCanvasSnippet(
 
   return offscreen.toDataURL('image/png');
 }
+
+/**
+ * Pre-generates high-contrast visual crops for all characteristics in a drawing
+ */
+export function generateAllCrops(
+  canvas: HTMLCanvasElement,
+  characteristics: Characteristic[]
+): Characteristic[] {
+  return characteristics.map((char) => {
+    if (char.cropDataUrl) return char;
+    const cropUrl = cropCanvasSnippet(canvas, char.bbox, 140, 48);
+    return { ...char, cropDataUrl: cropUrl };
+  });
+}
+
+

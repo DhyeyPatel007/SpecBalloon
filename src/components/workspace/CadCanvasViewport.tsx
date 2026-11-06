@@ -5,8 +5,9 @@ import {
   DrawingSpec,
   Point
 } from '../../types/metrology';
-import { renderCADBlueprint, cropCanvasSnippet } from '../../utils/cadRenderer';
+import { renderCADBlueprint, cropCanvasSnippet, generateAllCrops } from '../../utils/cadRenderer';
 import { ForceDirectedSimulator, PhysicsBalloon } from '../../utils/balloonPhysics';
+import { soundEngine } from '../../utils/audioSynthesizer';
 import {
   Move,
   Crop,
@@ -15,7 +16,9 @@ import {
   ZoomIn,
   ZoomOut,
   Crosshair,
-  Layers
+  Layers,
+  HelpCircle,
+  Upload
 } from 'lucide-react';
 
 interface CadCanvasViewportProps {
@@ -24,11 +27,13 @@ interface CadCanvasViewportProps {
   activeBalloonId: number | null;
   onSelectCharacteristic: (id: number) => void;
   onAddCharacteristic: (newChar: Characteristic) => void;
+  onBulkUpdateCharacteristics?: (chars: Characteristic[]) => void;
   onUpdateCharacteristicPosition: (id: number, pos: Point) => void;
   onReSortClockwise: () => void;
   inverted: boolean;
   onToggleInvert: () => void;
   customImage: HTMLImageElement | null;
+  onDropImageFile?: (file: File) => void;
 }
 
 export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
@@ -37,11 +42,13 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   activeBalloonId,
   onSelectCharacteristic,
   onAddCharacteristic,
+  onBulkUpdateCharacteristics,
   onUpdateCharacteristicPosition,
   onReSortClockwise,
   inverted,
   onToggleInvert,
   customImage,
+  onDropImageFile,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -51,6 +58,24 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   const [zoom, setZoom] = useState(1.0);
   const [pan, setPan] = useState<Point>({ x: 20, y: 20 });
   const [toolMode, setToolMode] = useState<'pan' | 'box_balloon'>('pan');
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Pre-generate crops for initial characteristics once
+  const cropsGenerated = useRef<string | null>(null);
+  useEffect(() => {
+    if (cropsGenerated.current === currentDrawing.id) return;
+    const canvas = canvasRef.current;
+    if (!canvas || !onBulkUpdateCharacteristics) return;
+
+    // Check if any characteristics lack cropDataUrl
+    const needsCrops = characteristics.some((c) => !c.cropDataUrl);
+    if (needsCrops) {
+      const enriched = generateAllCrops(canvas, characteristics);
+      cropsGenerated.current = currentDrawing.id;
+      onBulkUpdateCharacteristics(enriched);
+    }
+  }, [currentDrawing.id, characteristics, onBulkUpdateCharacteristics]);
 
   // Dragging & Interaction state
   const isPanning = useRef(false);
@@ -531,3 +556,4 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     </div>
   );
 };
+

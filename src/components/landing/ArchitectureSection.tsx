@@ -233,3 +233,4 @@ export const ArchitectureSection: React.FC = () => {
     </section>
   );
 };
+

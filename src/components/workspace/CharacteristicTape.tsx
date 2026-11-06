@@ -356,3 +356,4 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
     </div>
   );
 };
+

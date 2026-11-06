@@ -75,3 +75,4 @@ export const LaunchFooter: React.FC<LaunchFooterProps> = ({ onLaunchWorkspace })
     </footer>
   );
 };
+

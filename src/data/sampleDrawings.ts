@@ -836,3 +836,4 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
     ]
   }
 ];
+

@@ -182,3 +182,4 @@ export const BottleneckSection: React.FC = () => {
     </section>
   );
 };
+

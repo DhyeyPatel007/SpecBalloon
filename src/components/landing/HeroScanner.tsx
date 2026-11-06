@@ -299,3 +299,4 @@ export const HeroScanner: React.FC<HeroScannerProps> = ({ onLaunchWorkspace }) =
     </section>
   );
 };
+
