@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layers, Cpu, Compass, Sliders, CheckCircle2, ArrowRight } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 
 export const ArchitectureSection: React.FC = () => {
   const [activeStage, setActiveStage] = useState<1 | 2 | 3>(2);
@@ -33,7 +33,7 @@ export const ArchitectureSection: React.FC = () => {
             }`}
           >
             <span>STAGE 01 // VECTOR DECOMPOSITION</span>
-            <span className="text-[10px] text-acc-orange">0.15s</span>
+            <span className="text-[11px] text-acc-orange font-bold">0.15s</span>
           </button>
 
           <button
@@ -45,7 +45,7 @@ export const ArchitectureSection: React.FC = () => {
             }`}
           >
             <span>STAGE 02 // ISO MATH & SPRING PHYSICS</span>
-            <span className="text-[10px] text-acc-orange">0.25s</span>
+            <span className="text-[11px] text-acc-orange font-bold">0.25s</span>
           </button>
 
           <button
@@ -57,7 +57,7 @@ export const ArchitectureSection: React.FC = () => {
             }`}
           >
             <span>STAGE 03 // CROP-TAPE & CALIPER WEDGE</span>
-            <span className="text-[10px] text-acc-orange">0.05s</span>
+            <span className="text-[11px] text-acc-orange font-bold">0.05s</span>
           </button>
         </div>
 
@@ -74,21 +74,21 @@ export const ArchitectureSection: React.FC = () => {
                 </h3>
                 <p className="text-text-sec text-xs leading-relaxed font-sans">
                   Instead of rasterizing into blurry pixels, SpecBalloon traverses raw PDF Bézier curves, text glyphs, 
-                  and transformation matrices. We compute rotation angle $\theta$ and normalize text horizontal before running DBSCAN clustering.
+                  and transformation matrices. We compute rotation angle θ and normalize text horizontal before running DBSCAN clustering.
                 </p>
 
                 {/* Mathematical Formula Bay */}
                 <div className="border border-border-str bg-surface-2 p-4 text-xs space-y-3">
-                  <div className="text-[10px] text-text-mut font-bold">1. ROTATION MATRIX NORMALIZATION:</div>
+                  <div className="text-[11px] text-text-mut font-bold">1. ROTATION MATRIX NORMALIZATION:</div>
                   <div className="p-2 bg-surface-1 border border-border-str text-acc-orange font-bold">
                     θ = atan2(b, a) × (180 / π)
                   </div>
 
-                  <div className="text-[10px] text-text-mut font-bold">2. DBSCAN SPATIAL SUPERSCRIPT CLUSTERING:</div>
+                  <div className="text-[11px] text-text-mut font-bold">2. DBSCAN SPATIAL SUPERSCRIPT CLUSTERING:</div>
                   <div className="p-2 bg-surface-1 border border-border-str text-text-pri">
                     Δx &lt; 1.2 · h_nominal &nbsp;&amp;&nbsp; Δy &lt; 0.8 · h_nominal
                   </div>
-                  <div className="text-[10px] text-text-mut">
+                  <div className="text-[11px] text-text-mut">
                     Merges isolated superscript <span className="text-text-pri font-bold">+0.05</span> and subscript <span className="text-text-pri font-bold">-0.02</span> into parent nominal <span className="text-text-pri font-bold">25.00</span>.
                   </div>
                 </div>
@@ -97,16 +97,16 @@ export const ArchitectureSection: React.FC = () => {
               {/* Visual Interactive Diagram */}
               <div className="lg:col-span-6 border border-border-str bg-surface-2 p-6 flex flex-col items-center justify-center min-h-[320px]">
                 <div className="w-full max-w-md border border-border-str bg-surface-1 p-6 relative font-mono text-xs">
-                  <div className="absolute top-2 left-2 text-[9px] text-text-mut">AFFINE DECOMPOSED PATH</div>
+                  <div className="absolute top-2 left-2 text-[11px] text-text-mut font-bold">AFFINE DECOMPOSED PATH</div>
                   <div className="my-8 text-center">
                     <div className="text-3xl font-bold text-text-pri tracking-wider">
                       25.00 <span className="text-sm text-acc-orange align-super">+0.05</span>
                       <span className="text-sm text-st-fail align-sub ml-[-34px]">-0.02</span>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-[10px] border-t border-border-str pt-3 text-text-sec">
+                  <div className="flex items-center justify-between text-[11px] border-t border-border-str pt-3 text-text-sec">
                     <span>ROTATION: 0.00° [NORMALIZED]</span>
-                    <span className="text-st-pass">CLUSTER CONFIDENCE: 99.8%</span>
+                    <span className="text-st-pass font-bold">CLUSTER CONFIDENCE: 99.8%</span>
                   </div>
                 </div>
               </div>
@@ -130,15 +130,20 @@ export const ArchitectureSection: React.FC = () => {
 
                 {/* Mathematical Formula Bay */}
                 <div className="border border-border-str bg-surface-2 p-4 text-xs space-y-3">
-                  <div className="text-[10px] text-text-mut font-bold">1. ISO 286 TOLERANCE UNIT EQUATION:</div>
-                  <div className="p-2 bg-surface-1 border border-border-str text-acc-orange font-bold">
-                    i = 0.45 · ∛D + 0.001 · D  (µm)
+                  <div className="text-[11px] text-text-mut font-bold">1. ISO 286 TOLERANCE UNIT EQUATION:</div>
+                  <div className="p-2 bg-surface-1 border border-border-str text-acc-orange font-bold flex items-baseline gap-1">
+                    <span>i = 0.45 ·</span>
+                    <span className="inline-flex items-baseline">
+                      <sup className="text-[0.7em] font-bold -mr-0.5">3</sup>
+                      &radic;<span className="border-t border-acc-orange">D</span>
+                    </span>
+                    <span>+ 0.001 · D &nbsp;(µm)</span>
                   </div>
-                  <div className="text-[10px] text-text-mut">
+                  <div className="text-[11px] text-text-mut">
                     Calculates IT7 grade for D=30mm → <span className="text-text-pri font-bold">LSL: 30.000mm / USL: 30.021mm</span>
                   </div>
 
-                  <div className="text-[10px] text-text-mut font-bold">2. BALLOON NON-OVERLAP REPULSION SPRING:</div>
+                  <div className="text-[11px] text-text-mut font-bold">2. BALLOON NON-OVERLAP REPULSION SPRING:</div>
                   <div className="p-2 bg-surface-1 border border-border-str text-text-pri">
                     F_rep = k_r · (b_i - b_j) / ||b_i - b_j||²
                   </div>
@@ -148,22 +153,22 @@ export const ArchitectureSection: React.FC = () => {
               {/* Visual Interactive Diagram */}
               <div className="lg:col-span-6 border border-border-str bg-surface-2 p-6 flex flex-col items-center justify-center min-h-[320px]">
                 <div className="w-full max-w-md border border-acc-orange bg-surface-1 p-6 font-mono text-xs">
-                  <div className="flex items-center justify-between text-[10px] text-acc-orange font-bold mb-4">
+                  <div className="flex items-center justify-between text-[11px] text-acc-orange font-bold mb-4">
                     <span>FIT RESOLVED // ISO 286-1</span>
                     <span className="text-st-pass">DETERMINISTIC 0ms</span>
                   </div>
                   <div className="text-2xl font-bold text-text-pri mb-1">Ø30.00 H7</div>
                   <div className="grid grid-cols-2 gap-3 my-4 p-3 bg-surface-2 border border-border-str">
                     <div>
-                      <div className="text-[10px] text-text-mut">LOWER SPEC (LSL)</div>
+                      <div className="text-[11px] text-text-mut">LOWER SPEC (LSL)</div>
                       <div className="text-base font-bold text-text-pri">30.000 mm</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-text-mut">UPPER SPEC (USL)</div>
+                      <div className="text-[11px] text-text-mut">UPPER SPEC (USL)</div>
                       <div className="text-base font-bold text-text-pri">30.021 mm</div>
                     </div>
                   </div>
-                  <div className="text-[10px] text-text-sec flex items-center justify-between">
+                  <div className="text-[11px] text-text-sec flex items-center justify-between">
                     <span>TOLERANCE SPREAD: 21 µm</span>
                     <span className="text-acc-orange font-bold">GAUGE: Air Plug Gauge</span>
                   </div>
@@ -187,7 +192,7 @@ export const ArchitectureSection: React.FC = () => {
                 </p>
 
                 <div className="border border-border-str bg-surface-2 p-4 text-xs space-y-2">
-                  <div className="text-[10px] text-text-mut font-bold">KEY CAPABILITIES:</div>
+                  <div className="text-[11px] text-text-mut font-bold">KEY CAPABILITIES:</div>
                   <div className="flex items-center gap-2 text-text-pri">
                     <CheckCircle2 className="w-4 h-4 text-st-pass" />
                     <span>Real-time HTML5 coordinate patch extraction (140x48px)</span>
@@ -206,7 +211,7 @@ export const ArchitectureSection: React.FC = () => {
               {/* Visual Interactive Diagram */}
               <div className="lg:col-span-6 border border-border-str bg-surface-2 p-6 flex flex-col items-center justify-center min-h-[320px]">
                 <div className="w-full max-w-md border border-border-str bg-surface-1 p-4 font-mono text-xs">
-                  <div className="text-[10px] text-text-mut mb-2 flex items-center justify-between">
+                  <div className="text-[11px] text-text-mut mb-2 flex items-center justify-between">
                     <span>LIVE CHARACTERISTIC STRIP</span>
                     <span className="text-st-pass font-bold">IN SPEC // 30.012 mm</span>
                   </div>
@@ -217,11 +222,11 @@ export const ArchitectureSection: React.FC = () => {
                     </div>
                     <div className="flex-1">
                       <div className="font-bold text-text-pri text-xs">Ø30.00 H7</div>
-                      <div className="text-[10px] text-text-mut">[30.000 — 30.021 mm]</div>
+                      <div className="text-[11px] text-text-mut">[30.000 — 30.021 mm]</div>
                     </div>
                     <div className="text-right">
                       <div className="font-bold text-st-pass text-sm">30.012 mm</div>
-                      <div className="text-[9px] text-text-mut">CALIPER USB-HID</div>
+                      <div className="text-[11px] text-text-mut">CALIPER USB-HID</div>
                     </div>
                   </div>
                 </div>
@@ -233,4 +238,3 @@ export const ArchitectureSection: React.FC = () => {
     </section>
   );
 };
-

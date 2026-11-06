@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Characteristic,
   DrawingSpec,
@@ -13,6 +13,7 @@ import {
   getGeneralTolerance,
   calculateISO286
 } from '../../utils/metrologyMath';
+import { generateCropsFromSpec } from '../../utils/cadRenderer';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { CadCanvasViewport } from './CadCanvasViewport';
 import { CharacteristicTape } from './CharacteristicTape';
@@ -36,12 +37,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     return SAMPLE_DRAWINGS.find((d) => d.id === initialDrawingId) || SAMPLE_DRAWINGS[0];
   });
 
-  const [characteristics, setCharacteristics] = useState<Characteristic[]>(
-    currentDrawing.characteristics
-  );
-  const [activeBalloonId, setActiveBalloonId] = useState<number | null>(
-    currentDrawing.characteristics[0]?.id ?? null
-  );
+  // Pre-generate offscreen visual crops immediately on init (Fix 05)
+  const [characteristics, setCharacteristics] = useState<Characteristic[]>(() => {
+    const raw = SAMPLE_DRAWINGS.find((d) => d.id === initialDrawingId) || SAMPLE_DRAWINGS[0];
+    return generateCropsFromSpec(raw);
+  });
+
+  const [activeBalloonId, setActiveBalloonId] = useState<number | null>(() => {
+    return characteristics[0]?.id ?? null;
+  });
 
   const [selectedStandard, setSelectedStandard] = useState<GeneralToleranceStandard>(
     currentDrawing.standard
@@ -51,16 +55,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [caliperMode, setCaliperMode] = useState(false);
   const [inverted, setInverted] = useState(false);
   const [customImage, setCustomImage] = useState<HTMLImageElement | null>(null);
+  const [undoSnapshot, setUndoSnapshot] = useState<Characteristic[] | null>(null);
 
   // Switch drawing when selector changes
   const handleSelectDrawing = (drawingId: string) => {
     const found = SAMPLE_DRAWINGS.find((d) => d.id === drawingId);
     if (found) {
+      const withCrops = generateCropsFromSpec(found, { inverted });
       setCurrentDrawing(found);
-      setCharacteristics(found.characteristics);
-      setActiveBalloonId(found.characteristics[0]?.id ?? null);
+      setCharacteristics(withCrops);
+      setActiveBalloonId(withCrops[0]?.id ?? null);
       setSelectedStandard(found.standard);
       setCustomImage(null);
+      setUndoSnapshot(null);
     }
   };
 
@@ -68,18 +75,25 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const handleUploadCustom = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    loadLocalFile(file);
+  };
 
+  const handleDropImageFile = (file: File) => {
+    loadLocalFile(file);
+  };
+
+  const loadLocalFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
         setCustomImage(img);
         const customSpec: DrawingSpec = {
-          id: 'CUSTOM-UPLOAD',
+          id: 'CUSTOM-' + Date.now(),
           partNumber: file.name.replace(/\.[^/.]+$/, '').toUpperCase(),
           partName: 'User-Uploaded Blueprint',
           revision: 'REV 1.0',
-          standard: 'ISO 2768-m',
+          standard: selectedStandard,
           drawingWidth: 1200,
           drawingHeight: 800,
           scale: '1:1',
@@ -110,8 +124,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             },
           ],
         };
-        setCurrentDrawing(customSpec);
-        setCharacteristics(customSpec.characteristics);
+        const withCrops = generateCropsFromSpec(customSpec, { inverted, customImage: img });
+        setCurrentDrawing({ ...customSpec, characteristics: withCrops });
+        setCharacteristics(withCrops);
         setActiveBalloonId(1);
       };
       img.src = event.target?.result as string;
@@ -119,19 +134,25 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Dynamically update untoleranced dimensions on tolerance standard change
+  // Dynamically update untoleranced & general tolerance dimensions on standard change (Fix 09)
   const handleChangeStandard = (newStandard: GeneralToleranceStandard) => {
     setSelectedStandard(newStandard);
     setCharacteristics((prev) =>
       prev.map((c) => {
-        if (c.toleranceType === 'Bilateral' && c.rawCallout.includes('ISO 2768')) {
+        if (c.isGeneralTol || (c.toleranceType === 'Bilateral' && (c.rawCallout.includes('ISO 2768') || c.rawCallout.includes('±')))) {
           const { plusTol, minusTol } = getGeneralTolerance(c.nominal, newStandard);
+          const lsl = Number((c.nominal - minusTol).toFixed(4));
+          const usl = Number((c.nominal + plusTol).toFixed(4));
+          const status = c.measuredValue !== undefined
+            ? (c.measuredValue >= lsl && c.measuredValue <= usl ? 'in_spec' : 'out_of_spec')
+            : c.status;
           return {
             ...c,
             plusTolerance: plusTol,
             minusTolerance: minusTol,
-            lsl: Number((c.nominal - minusTol).toFixed(4)),
-            usl: Number((c.nominal + plusTol).toFixed(4)),
+            lsl,
+            usl,
+            status,
           };
         }
         return c;
@@ -151,9 +172,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     );
   };
 
-  // Delete characteristic
+  // Delete characteristic with sequential re-indexing 1..N (Fix 12)
   const handleDeleteCharacteristic = (id: number) => {
-    setCharacteristics((prev) => prev.filter((c) => c.id !== id));
+    setCharacteristics((prev) => {
+      const remaining = prev.filter((c) => c.id !== id);
+      return remaining.map((c, index) => ({
+        ...c,
+        balloonNumber: index + 1,
+      }));
+    });
     if (activeBalloonId === id) {
       const remaining = characteristics.filter((c) => c.id !== id);
       setActiveBalloonId(remaining[0]?.id ?? null);
@@ -171,7 +198,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const handleSortClockwise = () => {
     if (characteristics.length <= 1) return;
 
-    // Compute centroid
     const cx = characteristics.reduce((sum, c) => sum + c.bbox.x, 0) / characteristics.length;
     const cy = characteristics.reduce((sum, c) => sum + c.bbox.y, 0) / characteristics.length;
 
@@ -181,7 +207,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       return angleA - angleB;
     });
 
-    // Re-assign balloon numbers 1, 2, 3...
     const renumbered = sorted.map((c, idx) => ({
       ...c,
       balloonNumber: idx + 1,
@@ -190,20 +215,27 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     setCharacteristics(renumbered);
   };
 
-  // Auto-calculate all ISO 286 fits
+  // Non-destructive auto-calculate all ISO 286 fits (Fix 10)
   const handleAutoCalculateFits = () => {
+    setUndoSnapshot([...characteristics]);
     setCharacteristics((prev) =>
       prev.map((c) => {
-        if (c.rawCallout.includes('H7') || c.rawCallout.includes('g6') || c.rawCallout.includes('H8')) {
+        if (c.rawCallout.includes('H7') || c.rawCallout.includes('g6') || c.rawCallout.includes('H8') || c.rawCallout.includes('h6') || c.rawCallout.includes('js7')) {
           const fitMatch = c.rawCallout.match(/(H7|G6|H8|H6|JS7)/i);
           const fit = fitMatch ? fitMatch[1] : 'H7';
           const { plusTol, minusTol, instrument } = calculateISO286(c.nominal, fit);
+          const lsl = Number((c.nominal - minusTol).toFixed(4));
+          const usl = Number((c.nominal + plusTol).toFixed(4));
+          const status = c.measuredValue !== undefined
+            ? (c.measuredValue >= lsl && c.measuredValue <= usl ? 'in_spec' : 'out_of_spec')
+            : c.status;
           return {
             ...c,
             plusTolerance: plusTol,
             minusTolerance: minusTol,
-            lsl: Number((c.nominal - minusTol).toFixed(4)),
-            usl: Number((c.nominal + plusTol).toFixed(4)),
+            lsl,
+            usl,
+            status,
             instrument,
           };
         }
@@ -212,12 +244,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     );
   };
 
-  // Fill simulated production lot measurements
+  // Fill simulated production lot measurements with undo snapshot (Fix 10)
   const handleFillSimulatedLot = () => {
+    setUndoSnapshot([...characteristics]);
     setCharacteristics((prev) =>
       prev.map((c) => {
         const mid = (c.lsl + c.usl) / 2;
-        const spread = (c.usl - c.lsl) * 0.3;
+        const spread = (c.usl - c.lsl) * 0.28;
         const m1 = Number((mid + (Math.random() * spread - spread / 2)).toFixed(3));
         const m2 = Number((mid + (Math.random() * spread - spread / 2)).toFixed(3));
         const m3 = Number((mid + (Math.random() * spread - spread / 2)).toFixed(3));
@@ -232,6 +265,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         };
       })
     );
+  };
+
+  // Undo last bulk action (Fix 10)
+  const handleUndoBulkAction = () => {
+    if (undoSnapshot) {
+      setCharacteristics(undoSnapshot);
+      setUndoSnapshot(null);
+    }
   };
 
   // Caliper DRO measurement injection
@@ -313,7 +354,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-canvas text-text-pri selection:bg-acc-orange selection:text-white font-sans">
-      {/* 1. Top Hardware Bar (44px) */}
+      {/* 1. Top Hardware Bar */}
       <WorkspaceHeader
         currentDrawing={currentDrawing}
         drawingsList={SAMPLE_DRAWINGS}
@@ -336,8 +377,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         statusCounts={statusCounts}
       />
 
-      {/* 2. Main Workbench Area */}
-      <div className="flex-1 flex overflow-hidden relative">
+      {/* 2. Main Workbench Area: side-by-side on md+, stacked on mobile (Fix 04) */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
         {/* Left 65% Interactive CAD Viewport */}
         <CadCanvasViewport
           currentDrawing={currentDrawing}
@@ -350,6 +391,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           inverted={inverted}
           onToggleInvert={() => setInverted(!inverted)}
           customImage={customImage}
+          onDropImageFile={handleDropImageFile}
         />
 
         {/* Right 35% Characteristic Tape */}
@@ -360,6 +402,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           onUpdateCharacteristic={handleUpdateCharacteristic}
           onDeleteCharacteristic={handleDeleteCharacteristic}
           statusFilter={statusFilter}
+          onResetFilter={() => setStatusFilter('all')}
         />
       </div>
 
@@ -375,6 +418,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           onExportCSV={handleExportCSV}
           onExportExcel={handleExportExcel}
           onCloseSheetView={() => setViewMode('split')}
+          onUndoBulkAction={handleUndoBulkAction}
+          canUndo={undoSnapshot !== null}
         />
       )}
 
@@ -390,4 +435,3 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     </div>
   );
 };
-

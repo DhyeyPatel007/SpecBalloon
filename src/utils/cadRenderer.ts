@@ -100,30 +100,30 @@ function drawSheetBorder(ctx: CanvasRenderingContext2D, width: number, height: n
   // Title Block Typography
   ctx.textAlign = 'left';
   ctx.fillStyle = inverted ? '#FF5500' : '#EA580C';
-  ctx.font = '700 11px "Space Grotesk", sans-serif';
-  ctx.fillText('SPECBALLOON METROLOGY LABS', tbX + 10, tbY + 16);
+  ctx.font = '700 10px "Space Grotesk", sans-serif';
+  ctx.fillText('SPECBALLOON METROLOGY LABS', tbX + 10, tbY + 16, 170);
 
   ctx.fillStyle = textColor;
   ctx.font = '500 8px "JetBrains Mono", monospace';
-  ctx.fillText('AS9102 REV C // AIAG PPAP VERIFIED', tbX + 195, tbY + 16);
+  ctx.fillText('AS9102 REV C // AIAG PPAP', tbX + 190, tbY + 16, 140);
 
   ctx.fillStyle = inverted ? '#F5F4F0' : '#141413';
-  ctx.font = '700 12px "JetBrains Mono", monospace';
-  ctx.fillText(`PART: ${spec.partNumber}`, tbX + 10, tbY + 45);
+  ctx.font = '700 11px "JetBrains Mono", monospace';
+  ctx.fillText(`PART: ${spec.partNumber}`, tbX + 10, tbY + 45, 160);
 
   ctx.font = '500 9px "Inter", sans-serif';
   ctx.fillStyle = textColor;
-  ctx.fillText(spec.partName, tbX + 10, tbY + 58);
+  ctx.fillText(spec.partName, tbX + 10, tbY + 58, 165);
 
   ctx.font = '600 10px "JetBrains Mono", monospace';
   ctx.fillStyle = inverted ? '#F5F4F0' : '#141413';
-  ctx.fillText(`REV: ${spec.revision}`, tbX + 190, tbY + 45);
-  ctx.fillText(`SCALE: ${spec.scale}`, tbX + 260, tbY + 45);
+  ctx.fillText(`REV: ${spec.revision}`, tbX + 190, tbY + 45, 65);
+  ctx.fillText(`SCALE: ${spec.scale}`, tbX + 260, tbY + 45, 70);
 
   ctx.font = '500 8px "JetBrains Mono", monospace';
   ctx.fillStyle = textColor;
-  ctx.fillText(`STD: ${spec.standard}`, tbX + 10, tbY + 82);
-  ctx.fillText('UNITS: METRIC (mm)', tbX + 190, tbY + 82);
+  ctx.fillText(`STD: ${spec.standard}`, tbX + 10, tbY + 82, 165);
+  ctx.fillText('UNITS: METRIC (mm)', tbX + 190, tbY + 82, 140);
 
   ctx.restore();
 }
@@ -618,6 +618,28 @@ export function generateAllCrops(
   return characteristics.map((char) => {
     if (char.cropDataUrl) return char;
     const cropUrl = cropCanvasSnippet(canvas, char.bbox, 140, 48);
+    return { ...char, cropDataUrl: cropUrl };
+  });
+}
+
+/**
+ * Pre-generates high-contrast visual crops directly from offscreen buffer (Fix 05)
+ * Guarantees crisp visual callout snippets immediately without waiting for DOM canvas
+ */
+export function generateCropsFromSpec(
+  spec: DrawingSpec,
+  options?: { inverted?: boolean; customImage?: HTMLImageElement | null }
+): Characteristic[] {
+  const offscreen = document.createElement('canvas');
+  offscreen.width = spec.drawingWidth || 1200;
+  offscreen.height = spec.drawingHeight || 800;
+  renderCADBlueprint(offscreen, spec, {
+    inverted: options?.inverted ?? false,
+    showGrid: false,
+    customImage: options?.customImage
+  });
+  return spec.characteristics.map((char) => {
+    const cropUrl = cropCanvasSnippet(offscreen, char.bbox, 140, 48);
     return { ...char, cropDataUrl: cropUrl };
   });
 }

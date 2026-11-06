@@ -1,4 +1,4 @@
-export type GeneralToleranceStandard = 'ISO 2768-m' | 'ISO 2768-f' | 'ASME Y14.5';
+export type GeneralToleranceStandard = 'ISO 2768-m' | 'ISO 2768-f' | 'ISO 2768-c' | 'ASME Y14.5';
 
 export type CharacteristicDesignator = 'Critical' | 'Major' | 'Minor';
 
@@ -38,6 +38,8 @@ export interface Characteristic {
   bbox: BoundingBox; // coordinates on drawing canvas
   balloonPosition: Point; // current position of balloon circle
   cropDataUrl?: string; // high-contrast crop of CAD canvas
+  isGeneralTol?: boolean; // governed by general tolerance standard
+  mmcBonus?: string; // MMC bonus tolerance range e.g. '+0.000 TO +0.021mm'
 }
 
 export interface DrawingSpec {
@@ -63,4 +65,3 @@ export interface TelemetryMetrics {
   cpk: number;
   passPercentage: number;
 }
-

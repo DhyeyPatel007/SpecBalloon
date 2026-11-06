@@ -23,7 +23,7 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 h-12 w-full border-b border-border-str bg-surface-1/95 backdrop-blur-none px-4 flex items-center justify-between text-xs font-mono">
+    <header className="sticky top-0 z-50 h-12 w-full border-b border-border-str bg-surface-1 px-4 flex items-center justify-between text-xs font-mono">
       {/* Left: Reticle Logo + System Identifier */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 group cursor-pointer" onClick={() => onLaunchWorkspace()}>
@@ -39,7 +39,7 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
             </span>
           </div>
         </div>
-        <span className="border border-border-str px-1.5 py-0.5 text-[10px] text-acc-orange bg-surface-2">
+        <span className="border border-border-str px-1.5 py-0.5 text-[11px] text-acc-orange bg-surface-2">
           v2.4-AS9102
         </span>
       </div>
@@ -63,7 +63,7 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
       {/* Right Controls */}
       <div className="flex items-center gap-3">
         {/* Latency Ticker */}
-        <div className="hidden lg:flex items-center gap-1.5 border border-border-str px-2 py-1 bg-surface-2 text-[10px] text-text-sec">
+        <div className="hidden lg:flex items-center gap-1.5 border border-border-str px-2 py-1 bg-surface-2 text-[11px] text-text-sec">
           <Activity className="w-3 h-3 text-st-pass animate-pulse" />
           <span>ENGINE:</span>
           <span className="text-text-pri font-bold">{latency}ms</span>
@@ -73,7 +73,7 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
         {/* Theme Toggle */}
         <button
           onClick={onToggleTheme}
-          className="machined-btn border border-border-str px-2 py-1 bg-surface-2 hover:bg-surface-3 text-text-pri flex items-center gap-1.5 text-[11px]"
+          className="machined-btn border border-border-str px-2.5 py-1 bg-surface-2 hover:bg-surface-3 text-text-pri flex items-center gap-1.5 text-[11px]"
           title="Toggle Anodized Stone / Oxide Graphite"
         >
           {darkMode ? (
@@ -89,10 +89,10 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
           )}
         </button>
 
-        {/* Primary CTA */}
+        {/* Primary CTA: High-contrast structural hardware button */}
         <button
           onClick={() => onLaunchWorkspace()}
-          className="machined-btn bg-acc-orange hover:bg-orange-600 active:bg-orange-700 text-white font-bold px-3 py-1 flex items-center gap-1.5 text-xs shadow-sm"
+          className="machined-btn bg-text-pri text-canvas border border-text-pri hover:bg-acc-orange hover:text-white hover:border-acc-orange font-mono font-bold px-3 py-1 flex items-center gap-1.5 text-xs shadow-sm transition-colors"
         >
           <span>LAUNCH DATUM STUDIO</span>
           <ArrowRight className="w-3.5 h-3.5" />
@@ -101,4 +101,3 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
     </header>
   );
 };
-

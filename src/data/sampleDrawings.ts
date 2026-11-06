@@ -42,7 +42,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         designator: 'Critical',
         rawCallout: '|⌖|Ø0.05(M)|A|B|',
         featureDescription: 'Bore True Position to Datums A & B',
-        nominal: 0.050,
+        nominal: 0.000,
         toleranceType: 'GD&T',
         plusTolerance: 0.050,
         minusTolerance: 0.000,
@@ -55,7 +55,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         status: 'in_spec',
         confidence: 98.7,
         bbox: { x: 420, y: 345, width: 120, height: 26 },
-        balloonPosition: { x: 350, y: 370 }
+        balloonPosition: { x: 350, y: 370 },
+        mmcBonus: '+0.000 TO +0.021mm'
       },
       {
         id: 3,
@@ -77,7 +78,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         status: 'in_spec',
         confidence: 99.6,
         bbox: { x: 350, y: 170, width: 100, height: 28 },
-        balloonPosition: { x: 310, y: 130 }
+        balloonPosition: { x: 310, y: 130 },
+        isGeneralTol: true
       },
       {
         id: 4,
@@ -133,13 +135,13 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         nominal: 1.600,
         toleranceType: 'Surface',
         plusTolerance: 0.000,
-        minusTolerance: 1.600,
+        minusTolerance: 0.000,
         lsl: 0.000,
         usl: 1.600,
         units: 'µm',
         instrument: 'Taylor Hobson Surface Profilometer',
-        measuredValue: 1.150,
-        lotMeasurements: [1.120, 1.150, 1.200],
+        measuredValue: 1.240,
+        lotMeasurements: [1.180, 1.240, 1.290],
         status: 'in_spec',
         confidence: 96.5,
         bbox: { x: 440, y: 245, width: 85, height: 24 },
@@ -204,7 +206,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         usl: 18.030,
         units: 'mm',
         instrument: 'Mitutoyo 3-Point Holtest Bore Micrometer',
-        measuredValue: 18.042, // Intentional out-of-spec inspection finding for realism
+        measuredValue: 18.042, // Non-conforming measured value (> USL 18.030)
         lotMeasurements: [18.038, 18.042, 18.040],
         status: 'out_of_spec',
         confidence: 99.1,
@@ -240,7 +242,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         designator: 'Major',
         rawCallout: '|⟂|0.02|A|',
         featureDescription: 'End Face Perpendicularity to Datum A',
-        nominal: 0.020,
+        nominal: 0.000,
         toleranceType: 'GD&T',
         plusTolerance: 0.020,
         minusTolerance: 0.000,
@@ -270,7 +272,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         usl: 45.020,
         units: 'mm',
         instrument: 'Mitutoyo Digimatic Micrometer 25-50mm',
-        measuredValue: 44.972, // Intentional out-of-spec inspection finding for realism
+        measuredValue: 44.972, // Non-conforming measured value (< LSL 44.980)
         lotMeasurements: [44.975, 44.972, 44.974],
         status: 'out_of_spec',
         confidence: 99.2,
@@ -294,10 +296,11 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         instrument: 'Mitutoyo Digital Caliper',
         measuredValue: 15.050,
         lotMeasurements: [15.040, 15.050, 15.060],
-        status: 'in_spec',
-        confidence: 89.2, // Low confidence -> flagged for review
+        status: 'needs_review',
+        confidence: 89.2,
         bbox: { x: 190, y: 250, width: 75, height: 24 },
-        balloonPosition: { x: 140, y: 210 }
+        balloonPosition: { x: 140, y: 210 },
+        isGeneralTol: true
       },
       {
         id: 14,
@@ -316,8 +319,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         instrument: 'Optical Comparator 20X',
         measuredValue: 1.480,
         lotMeasurements: [1.460, 1.480, 1.500],
-        status: 'in_spec',
-        confidence: 88.5, // Low confidence -> flagged for review
+        status: 'needs_review',
+        confidence: 88.5,
         bbox: { x: 280, y: 150, width: 85, height: 24 },
         balloonPosition: { x: 230, y: 110 }
       }
@@ -364,7 +367,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         designator: 'Critical',
         rawCallout: '|↗|0.015|A-B|',
         featureDescription: 'Circular Runout to Bearing Centers',
-        nominal: 0.015,
+        nominal: 0.000,
         toleranceType: 'GD&T',
         plusTolerance: 0.015,
         minusTolerance: 0.000,
@@ -443,7 +446,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         status: 'in_spec',
         confidence: 99.4,
         bbox: { x: 360, y: 160, width: 90, height: 26 },
-        balloonPosition: { x: 310, y: 120 }
+        balloonPosition: { x: 310, y: 120 },
+        isGeneralTol: true
       },
       {
         id: 6,
@@ -455,7 +459,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         nominal: 0.400,
         toleranceType: 'Surface',
         plusTolerance: 0.000,
-        minusTolerance: 0.400,
+        minusTolerance: 0.000,
         lsl: 0.000,
         usl: 0.400,
         units: 'µm',
@@ -482,7 +486,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         usl: 32.039,
         units: 'mm',
         instrument: 'Involute Spline Plug Gauge',
-        measuredValue: 32.046, // Out of spec
+        measuredValue: 32.046, // Non-conforming measured value (> USL 32.039)
         lotMeasurements: [32.042, 32.046, 32.048],
         status: 'out_of_spec',
         confidence: 98.9,
@@ -509,7 +513,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         status: 'in_spec',
         confidence: 97.4,
         bbox: { x: 230, y: 530, width: 80, height: 24 },
-        balloonPosition: { x: 180, y: 580 }
+        balloonPosition: { x: 180, y: 580 },
+        isGeneralTol: true
       },
       {
         id: 9,
@@ -528,7 +533,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         instrument: 'Optical Comparator 10X',
         measuredValue: 1.950,
         lotMeasurements: [1.940, 1.950, 1.980],
-        status: 'in_spec',
+        status: 'needs_review',
         confidence: 88.0,
         bbox: { x: 720, y: 280, width: 70, height: 24 },
         balloonPosition: { x: 770, y: 240 }
@@ -562,7 +567,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         designator: 'Major',
         rawCallout: '|⌖|Ø0.08(M)|A|',
         featureDescription: 'Flange Hole Pattern True Position',
-        nominal: 0.080,
+        nominal: 0.000,
         toleranceType: 'GD&T',
         plusTolerance: 0.080,
         minusTolerance: 0.000,
@@ -575,7 +580,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         status: 'in_spec',
         confidence: 97.9,
         bbox: { x: 370, y: 550, width: 110, height: 26 },
-        balloonPosition: { x: 420, y: 600 }
+        balloonPosition: { x: 420, y: 600 },
+        mmcBonus: '+0.000 TO +0.035mm'
       },
       {
         id: 12,
@@ -699,7 +705,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         status: 'in_spec',
         confidence: 99.4,
         bbox: { x: 440, y: 160, width: 95, height: 26 },
-        balloonPosition: { x: 390, y: 110 }
+        balloonPosition: { x: 390, y: 110 },
+        isGeneralTol: true
       },
       {
         id: 5,
@@ -738,7 +745,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         usl: 6.030,
         units: 'mm',
         instrument: 'Keyway Width Caliper / Pin Gauge',
-        measuredValue: 6.035, // Out of spec
+        measuredValue: 6.035, // Non-conforming measured value (> USL 6.030)
         lotMeasurements: [6.032, 6.035, 6.036],
         status: 'out_of_spec',
         confidence: 99.0,
@@ -752,7 +759,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         designator: 'Critical',
         rawCallout: '|⌖|0.005|A-B|',
         featureDescription: 'Bearing Journal Concentricity / Runout',
-        nominal: 0.005,
+        nominal: 0.000,
         toleranceType: 'GD&T',
         plusTolerance: 0.005,
         minusTolerance: 0.000,
@@ -777,7 +784,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         nominal: 0.200,
         toleranceType: 'Surface',
         plusTolerance: 0.000,
-        minusTolerance: 0.200,
+        minusTolerance: 0.000,
         lsl: 0.000,
         usl: 0.200,
         units: 'µm',
@@ -806,7 +813,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         instrument: 'Optical Comparator 20X',
         measuredValue: 1.020,
         lotMeasurements: [1.000, 1.020, 1.040],
-        status: 'in_spec',
+        status: 'needs_review',
         confidence: 86.4,
         bbox: { x: 370, y: 470, width: 65, height: 24 },
         balloonPosition: { x: 320, y: 520 }
@@ -831,9 +838,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         status: 'in_spec',
         confidence: 96.0,
         bbox: { x: 680, y: 470, width: 75, height: 24 },
-        balloonPosition: { x: 740, y: 520 }
+        balloonPosition: { x: 740, y: 520 },
+        isGeneralTol: true
       }
     ]
   }
 ];
-

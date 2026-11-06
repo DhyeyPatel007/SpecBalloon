@@ -60,6 +60,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   const [toolMode, setToolMode] = useState<'pan' | 'box_balloon'>('pan');
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [showMinimap, setShowMinimap] = useState(true);
 
   // Pre-generate crops for initial characteristics once
   const cropsGenerated = useRef<string | null>(null);
@@ -418,6 +419,28 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     setPan({ x: 20, y: 20 });
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && onDropImageFile) {
+      onDropImageFile(file);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -425,8 +448,21 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className="relative flex-1 h-full bg-canvas overflow-hidden select-none cursor-crosshair"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className="relative flex-1 min-w-0 h-full bg-canvas overflow-hidden select-none cursor-crosshair"
     >
+      {/* Drag & Drop Overlay Indicator (Fix 08) */}
+      {isDragOver && (
+        <div className="absolute inset-0 bg-acc-orange/20 border-2 border-dashed border-acc-orange z-50 flex items-center justify-center pointer-events-none">
+          <div className="bg-surface-1 border border-acc-orange p-6 font-mono text-center shadow-xl">
+            <Upload className="w-8 h-8 text-acc-orange mx-auto mb-2 animate-bounce" />
+            <div className="font-bold text-text-pri text-sm">[+ DROP CAD BLUEPRINT OR PDF HERE]</div>
+            <div className="text-[11px] text-text-sec mt-1">Accepts PNG, JPG, WebP, SVG, and PDF drawings</div>
+          </div>
+        </div>
+      )}
       {/* CAD Canvas Render Node */}
       <div
         className="absolute transition-transform duration-75 origin-top-left"
@@ -452,7 +488,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
               height: `${boxSelection.height}px`,
             }}
           >
-            <div className="absolute -top-5 left-0 bg-acc-cobalt text-white font-mono text-[9px] px-1 font-bold whitespace-nowrap">
+            <div className="absolute -top-5 left-0 bg-acc-cobalt text-white font-mono text-[11px] px-1.5 py-0.5 font-bold whitespace-nowrap">
               + BOX BALLOON CROP
             </div>
           </div>
@@ -538,21 +574,34 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         >
           <Maximize className="w-3.5 h-3.5" />
         </button>
+
+        <div className="h-4 w-px bg-border-str mx-1"></div>
+
+        {/* Collapsible Minimap Toggle (Fix 12) */}
+        <button
+          onClick={() => setShowMinimap(!showMinimap)}
+          className="machined-btn px-2 py-1 text-[11px] hover:bg-surface-2 text-text-sec font-bold"
+          title="Toggle Radar Minimap"
+        >
+          <span>{showMinimap ? '[-] MINIMAP' : '[+] MINIMAP'}</span>
+        </button>
       </div>
 
-      {/* Bottom-Right Minimap Radar (140x90px) */}
-      <div className="absolute bottom-4 right-4 border border-border-str bg-surface-1 p-1 shadow-md hidden sm:block z-20">
-        <div className="text-[9px] font-mono text-text-mut mb-1 px-1 flex items-center justify-between">
-          <span>RADAR MINIMAP</span>
-          <span className="text-acc-orange">{characteristics.length} BALLOONS</span>
+      {/* Bottom-Right Minimap Radar (140x90px) (Fix 12) */}
+      {showMinimap && (
+        <div className="absolute bottom-4 right-4 border border-border-str bg-surface-1 p-1 shadow-md hidden sm:block z-20">
+          <div className="text-[11px] font-mono text-text-mut mb-1 px-1 flex items-center justify-between font-bold">
+            <span>RADAR MINIMAP</span>
+            <span className="text-acc-orange">{characteristics.length} BALLOONS</span>
+          </div>
+          <canvas
+            ref={minimapCanvasRef}
+            width={140}
+            height={90}
+            className="border border-border-str"
+          />
         </div>
-        <canvas
-          ref={minimapCanvasRef}
-          width={140}
-          height={90}
-          className="border border-border-str"
-        />
-      </div>
+      )}
     </div>
   );
 };

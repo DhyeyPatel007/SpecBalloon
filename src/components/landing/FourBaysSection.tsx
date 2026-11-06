@@ -1,17 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { calculateISO286, calculateSPC, recommendInstrument } from '../../utils/metrologyMath';
+import { calculateISO286, calculateSPC, recommendInstrument, fmtDim, fmtSpc } from '../../utils/metrologyMath';
 import { ForceDirectedSimulator, PhysicsBalloon } from '../../utils/balloonPhysics';
-import { Play, Check, RotateCcw, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Play, Check } from 'lucide-react';
+
+interface CalloutItem {
+  label: string;
+  nominal: number;
+  plus?: number;
+  minus?: number;
+  fit?: string;
+  type: 'Fit' | 'Bilateral' | 'General' | 'GD&T';
+  mmcBonus?: string;
+}
 
 export const FourBaysSection: React.FC = () => {
   // BAY 01 STATE
   const [selectedCallout, setSelectedCallout] = useState('Ø30 H7');
-  const callouts = [
+  const callouts: CalloutItem[] = [
     { label: 'Ø30 H7', nominal: 30.0, fit: 'H7', type: 'Fit' },
     { label: 'Ø50 g6', nominal: 50.0, fit: 'G6', type: 'Fit' },
     { label: '18.5 ±0.15', nominal: 18.5, plus: 0.15, minus: 0.15, type: 'Bilateral' },
     { label: '64 (ISO 2768-m)', nominal: 64.0, plus: 0.3, minus: 0.3, type: 'General' },
-    { label: '|⌖|Ø0.04(M)|A|B|', nominal: 0.04, plus: 0.04, minus: 0.0, type: 'GD&T' }
+    { label: '|⌖|Ø0.04(M)|A|B|', nominal: 0.000, plus: 0.040, minus: 0.000, type: 'GD&T', mmcBonus: '+0.000 TO +0.021mm' }
   ];
 
   const currentCallout = callouts.find(c => c.label === selectedCallout) || callouts[0];
@@ -19,20 +29,31 @@ export const FourBaysSection: React.FC = () => {
   let bay1Plus = 0.021;
   let bay1Minus = 0.0;
   let bay1Instrument = 'Air Plug Gauge / Bore Micrometer';
+  let bay1Lsl = 30.000;
+  let bay1Usl = 30.021;
 
-  if (currentCallout.type === 'Fit') {
+  if (currentCallout.type === 'GD&T') {
+    bay1Nominal = 0.000;
+    bay1Minus = 0.000;
+    bay1Plus = currentCallout.plus ?? 0.040;
+    bay1Lsl = 0.000;
+    bay1Usl = bay1Plus;
+    bay1Instrument = 'Zeiss Prismo CMM Probe';
+  } else if (currentCallout.type === 'Fit') {
     const res = calculateISO286(currentCallout.nominal, currentCallout.fit || 'H7');
     bay1Plus = res.plusTol;
     bay1Minus = res.minusTol;
     bay1Instrument = res.instrument;
+    bay1Lsl = bay1Nominal - bay1Minus;
+    bay1Usl = bay1Nominal + bay1Plus;
   } else {
-    bay1Plus = currentCallout.plus || 0.1;
-    bay1Minus = currentCallout.minus || 0.1;
+    bay1Plus = currentCallout.plus !== undefined ? currentCallout.plus : 0.100;
+    bay1Minus = currentCallout.minus !== undefined ? currentCallout.minus : 0.100;
+    bay1Lsl = bay1Nominal - bay1Minus;
+    bay1Usl = bay1Nominal + bay1Plus;
     bay1Instrument = recommendInstrument(currentCallout.label, (bay1Plus + bay1Minus));
   }
 
-  const bay1Lsl = bay1Nominal - bay1Minus;
-  const bay1Usl = bay1Nominal + bay1Plus;
   const bay1MicronSpread = Math.round((bay1Usl - bay1Lsl) * 1000);
 
   // BAY 02 STATE: Force-Directed Physics Sandbox
@@ -41,13 +62,14 @@ export const FourBaysSection: React.FC = () => {
   const [draggedBalloon, setDraggedBalloon] = useState<number | null>(null);
 
   useEffect(() => {
+    // 6 anchors with >=95px horizontal, >=65px vertical separation (Fix 06 & 20 #2)
     const initialBalloons: PhysicsBalloon[] = [
-      { id: 1, label: '01', x: 120, y: 80, vx: 0, vy: 0, anchorX: 100, anchorY: 140, radius: 14 },
-      { id: 2, label: '02', x: 130, y: 90, vx: 0, vy: 0, anchorX: 110, anchorY: 150, radius: 14 }, // Intentional cluster
-      { id: 3, label: '03', x: 220, y: 70, vx: 0, vy: 0, anchorX: 230, anchorY: 130, radius: 14 },
-      { id: 4, label: '04', x: 230, y: 80, vx: 0, vy: 0, anchorX: 240, anchorY: 140, radius: 14 }, // Intentional cluster
-      { id: 5, label: '05', x: 310, y: 160, vx: 0, vy: 0, anchorX: 300, anchorY: 110, radius: 14 },
-      { id: 6, label: '06', x: 330, y: 170, vx: 0, vy: 0, anchorX: 320, anchorY: 115, radius: 14 }
+      { id: 1, label: '01', x: 95, y: 35, vx: 0, vy: 0, anchorX: 70, anchorY: 45, radius: 14 },
+      { id: 2, label: '02', x: 160, y: 35, vx: 0, vy: 0, anchorX: 180, anchorY: 45, radius: 14 },
+      { id: 3, label: '03', x: 335, y: 35, vx: 0, vy: 0, anchorX: 310, anchorY: 45, radius: 14 },
+      { id: 4, label: '04', x: 95, y: 145, vx: 0, vy: 0, anchorX: 70, anchorY: 135, radius: 14 },
+      { id: 5, label: '05', x: 160, y: 145, vx: 0, vy: 0, anchorX: 180, anchorY: 135, radius: 14 },
+      { id: 6, label: '06', x: 335, y: 145, vx: 0, vy: 0, anchorX: 310, anchorY: 135, radius: 14 }
     ];
 
     simRef.current = new ForceDirectedSimulator(initialBalloons);
@@ -73,7 +95,7 @@ export const FourBaysSection: React.FC = () => {
         ctx.fillRect(b.anchorX - 25, b.anchorY - 10, 50, 20);
 
         ctx.fillStyle = '#66645E';
-        ctx.font = '9px "JetBrains Mono", monospace';
+        ctx.font = '10px "JetBrains Mono", monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(`DIM #${i + 1}`, b.anchorX, b.anchorY);
@@ -94,7 +116,7 @@ export const FourBaysSection: React.FC = () => {
 
         // Number
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 10px "JetBrains Mono", monospace';
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(b.label, b.x, b.y);
@@ -117,7 +139,7 @@ export const FourBaysSection: React.FC = () => {
     for (const b of simRef.current.balloons) {
       const dx = b.x - x;
       const dy = b.y - y;
-      if (Math.sqrt(dx * dx + dy * dy) <= b.radius + 6) {
+      if (Math.sqrt(dx * dx + dy * dy) <= b.radius + 8) {
         b.isDragging = true;
         setDraggedBalloon(b.id);
         break;
@@ -149,18 +171,38 @@ export const FourBaysSection: React.FC = () => {
   const handleSandboxPointerUp = () => {
     if (simRef.current && draggedBalloon !== null) {
       const b = simRef.current.balloons.find(item => item.id === draggedBalloon);
-      if (b) b.isDragging = false;
+      if (b) {
+        b.isDragging = false;
+        // Lock new resting anchor point near drag release (Fix 20 #2)
+        b.vx = 0;
+        b.vy = 0;
+      }
       setDraggedBalloon(null);
     }
   };
 
-  // BAY 03 STATE: Zero-Ping-Pong Tape
+  // BAY 03 STATE: Zero-Ping-Pong Tape with Keyboard & Clickable Badges (Fix 20 #3)
   const [tapeIndex, setTapeIndex] = useState(0);
   const [tapeRows, setTapeRows] = useState([
     { id: 1, callout: 'Ø30.00 H7', lsl: 30.000, usl: 30.021, measured: 30.012, verified: true },
     { id: 2, callout: '|⌖|Ø0.05(M)|A|B|', lsl: 0.000, usl: 0.050, measured: 0.028, verified: true },
     { id: 3, callout: '120.0 ±0.15', lsl: 119.850, usl: 120.150, measured: 120.080, verified: false }
   ]);
+
+  // Window key listener for keys '1', '2', '3'
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        return;
+      }
+      if (e.key === '1') setTapeIndex(0);
+      if (e.key === '2') setTapeIndex(1);
+      if (e.key === '3') setTapeIndex(2);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const toggleVerify = (index: number) => {
     setTapeRows(prev => prev.map((r, i) => i === index ? { ...r, verified: !r.verified } : r));
@@ -173,7 +215,6 @@ export const FourBaysSection: React.FC = () => {
   const spcMetrics = calculateSPC(30.000, 30.021, caliperSamples);
 
   const pulseCaliper = () => {
-    // Generate realistic measurement within or near tolerance
     const val = Number((30.006 + Math.random() * 0.013).toFixed(3));
     setLastCaliperPulse(val);
     setCaliperSamples(prev => [...prev.slice(-9), val]);
@@ -203,13 +244,13 @@ export const FourBaysSection: React.FC = () => {
           <div className="structural-bay p-6 flex flex-col justify-between">
             <div>
               {/* Top Mechanical Header Strip */}
-              <div className="flex items-center justify-between font-mono text-[10px] pb-3 mb-4 border-b border-border-str text-text-sec">
+              <div className="flex items-center justify-between font-mono text-[11px] pb-3 mb-4 border-b border-border-str text-text-sec">
                 <span className="text-text-pri font-bold">BAY 01 // ISO 286 & GD&T LIMIT RESOLVER</span>
-                <span className="text-acc-orange">ACTIVE TELEMETRY</span>
+                <span className="text-acc-orange font-bold">ACTIVE TELEMETRY</span>
               </div>
 
               {/* Callout Pills Selector */}
-              <div className="text-[10px] font-mono text-text-mut mb-2">SELECT TEST ENGINEERING CALLOUT:</div>
+              <div className="text-[11px] font-mono text-text-mut mb-2 font-bold">SELECT TEST ENGINEERING CALLOUT:</div>
               <div className="flex flex-wrap gap-1.5 mb-6">
                 {callouts.map((c) => (
                   <button
@@ -230,32 +271,43 @@ export const FourBaysSection: React.FC = () => {
               <div className="border border-border-str bg-surface-2 p-4 font-mono text-xs mb-4">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center mb-4 pb-3 border-b border-border-str">
                   <div>
-                    <div className="text-[9px] text-text-mut uppercase">Nominal</div>
-                    <div className="text-base font-bold text-text-pri">{bay1Nominal.toFixed(3)} mm</div>
+                    <div className="text-[11px] text-text-mut uppercase font-bold">Nominal</div>
+                    <div className="text-base font-bold text-text-pri">{fmtDim(bay1Nominal)} mm</div>
                   </div>
                   <div>
-                    <div className="text-[9px] text-text-mut uppercase">+Tol / -Tol</div>
-                    <div className="text-sm font-bold text-text-pri">+{bay1Plus.toFixed(3)} / -{bay1Minus.toFixed(3)}</div>
+                    <div className="text-[11px] text-text-mut uppercase font-bold">+Tol / -Tol</div>
+                    <div className="text-sm font-bold text-text-pri">+{fmtDim(bay1Plus)} / -{fmtDim(bay1Minus)}</div>
                   </div>
                   <div>
-                    <div className="text-[9px] text-text-mut uppercase">Lower Limit (LSL)</div>
-                    <div className="text-base font-bold text-st-pass">{bay1Lsl.toFixed(3)} mm</div>
+                    <div className="text-[11px] text-text-mut uppercase font-bold">Lower Limit (LSL)</div>
+                    <div className="text-base font-bold text-st-pass">{fmtDim(bay1Lsl)} mm</div>
                   </div>
                   <div>
-                    <div className="text-[9px] text-text-mut uppercase">Upper Limit (USL)</div>
-                    <div className="text-base font-bold text-acc-orange">{bay1Usl.toFixed(3)} mm</div>
+                    <div className="text-[11px] text-text-mut uppercase font-bold">Upper Limit (USL)</div>
+                    <div className="text-base font-bold text-acc-orange">{fmtDim(bay1Usl)} mm</div>
                   </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] pt-1">
                   <div>TOLERANCE SPREAD: <span className="text-text-pri font-bold">{bay1MicronSpread} µm</span></div>
-                  <div className="text-acc-orange font-bold">TOOL: {bay1Instrument}</div>
+                  <div className="text-acc-orange font-bold truncate">TOOL: {bay1Instrument}</div>
                 </div>
+
+                {currentCallout.mmcBonus && (
+                  <div className="mt-3 p-2 bg-acc-orange/10 border border-acc-orange/30 text-acc-orange text-[11px] font-bold text-center">
+                    MMC BONUS: {currentCallout.mmcBonus} (MAX MATERIAL CONDITION)
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="font-mono text-[10px] text-text-mut border-t border-border-str pt-3">
-              EQUATION: i = 0.45 · ∛D + 0.001 · D [MICRO-EXACT DETERMINISTIC OUTPUT]
+            <div className="font-mono text-[11px] text-text-mut border-t border-border-str pt-3 flex items-baseline gap-1">
+              <span>EQUATION: i = 0.45 ·</span>
+              <span className="inline-flex items-baseline">
+                <sup className="text-[0.7em] font-bold -mr-0.5">3</sup>
+                &radic;<span className="border-t border-text-mut">D</span>
+              </span>
+              <span>+ 0.001 · D [MICRO-EXACT DETERMINISTIC OUTPUT]</span>
             </div>
           </div>
 
@@ -263,9 +315,9 @@ export const FourBaysSection: React.FC = () => {
           <div className="structural-bay p-6 flex flex-col justify-between">
             <div>
               {/* Top Mechanical Header Strip */}
-              <div className="flex items-center justify-between font-mono text-[10px] pb-3 mb-2 border-b border-border-str text-text-sec">
-                <span className="text-text-pri font-bold">BAY 02 // FORCE-DIRECTED BALLOON PHYSICS</span>
-                <span className="text-st-pass">60 FPS RUNNING</span>
+              <div className="flex items-center justify-between font-mono text-[11px] pb-3 mb-2 border-b border-border-str text-text-sec">
+                <span className="text-text-pri font-bold">BAY 02 // FORCE-DIRECTED SPRING REPULSION SOLVER (60FPS)</span>
+                <span className="text-st-pass font-bold">60 FPS RUNNING</span>
               </div>
 
               <div className="text-[11px] text-text-sec font-mono mb-3">
@@ -286,9 +338,9 @@ export const FourBaysSection: React.FC = () => {
               </div>
             </div>
 
-            <div className="font-mono text-[10px] text-text-mut border-t border-border-str pt-3 flex items-center justify-between">
+            <div className="font-mono text-[11px] text-text-mut border-t border-border-str pt-3 flex items-center justify-between">
               <span>REPULSION: F_rep = k_r / dist²</span>
-              <span className="text-acc-orange">ZERO TEXT OVERLAP GUARANTEED</span>
+              <span className="text-acc-orange font-bold">ZERO TEXT OVERLAP GUARANTEED</span>
             </div>
           </div>
 
@@ -296,9 +348,25 @@ export const FourBaysSection: React.FC = () => {
           <div className="structural-bay p-6 flex flex-col justify-between">
             <div>
               {/* Top Mechanical Header Strip */}
-              <div className="flex items-center justify-between font-mono text-[10px] pb-3 mb-3 border-b border-border-str text-text-sec">
+              <div className="flex items-center justify-between font-mono text-[11px] pb-3 mb-3 border-b border-border-str text-text-sec">
                 <span className="text-text-pri font-bold">BAY 03 // ZERO-PING-PONG CROP-TAPE</span>
-                <span className="text-acc-orange">KEYBOARD: 1, 2, 3</span>
+                {/* Clickable keyboard badges (Fix 20 #3) */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-text-mut">KEYS:</span>
+                  {[0, 1, 2].map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => setTapeIndex(k)}
+                      className={`machined-btn px-2 py-0.5 text-[11px] border font-bold ${
+                        tapeIndex === k
+                          ? 'bg-acc-orange text-white border-acc-orange'
+                          : 'bg-surface-2 text-text-pri border-border-str'
+                      }`}
+                    >
+                      {k + 1}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="text-[11px] text-text-sec font-mono mb-3">
@@ -313,24 +381,24 @@ export const FourBaysSection: React.FC = () => {
                     onClick={() => setTapeIndex(idx)}
                     className={`p-2.5 border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
                       tapeIndex === idx
-                        ? 'border-acc-orange bg-surface-2'
+                        ? 'border-acc-orange bg-surface-2 ring-1 ring-acc-orange'
                         : 'border-border-str bg-surface-1 hover:border-text-mut'
                     }`}
                   >
                     {/* Balloon Number */}
-                    <div className="w-6 h-6 rounded-full bg-acc-orange text-white flex items-center justify-center font-bold text-[10px] flex-shrink-0">
+                    <div className="w-6 h-6 rounded-full bg-acc-orange text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
                       0{row.id}
                     </div>
 
                     {/* Simulated High-Contrast CAD Crop Patch */}
-                    <div className="w-28 h-8 border border-border-str bg-white text-black flex items-center justify-center font-bold text-[10px] px-1 overflow-hidden select-none">
+                    <div className="w-32 h-8 border border-border-str bg-white text-black flex items-center justify-center font-bold text-[11px] px-1 overflow-hidden select-none">
                       {row.callout}
                     </div>
 
                     {/* Numeric Metrology Data */}
                     <div className="flex-1 text-[11px]">
-                      <div className="font-bold text-text-pri">{row.measured.toFixed(3)} mm</div>
-                      <div className="text-[9px] text-text-mut">[{row.lsl.toFixed(3)} - {row.usl.toFixed(3)}]</div>
+                      <div className="font-bold text-text-pri">{fmtDim(row.measured)} mm</div>
+                      <div className="text-[11px] text-text-mut">[{fmtDim(row.lsl)} - {fmtDim(row.usl)}]</div>
                     </div>
 
                     {/* Verification Action */}
@@ -339,13 +407,13 @@ export const FourBaysSection: React.FC = () => {
                         e.stopPropagation();
                         toggleVerify(idx);
                       }}
-                      className={`machined-btn px-2 py-1 text-[10px] border font-bold flex items-center gap-1 ${
+                      className={`machined-btn px-2 py-1 text-[11px] border font-bold flex items-center gap-1 ${
                         row.verified
                           ? 'bg-st-pass text-white border-st-pass'
                           : 'bg-surface-1 text-text-sec border-border-str'
                       }`}
                     >
-                      <Check className="w-3 h-3" />
+                      <Check className="w-3.5 h-3.5" />
                       <span>{row.verified ? 'VERIFIED' : 'REVIEW'}</span>
                     </button>
                   </div>
@@ -353,7 +421,7 @@ export const FourBaysSection: React.FC = () => {
               </div>
             </div>
 
-            <div className="font-mono text-[10px] text-text-mut border-t border-border-str pt-3">
+            <div className="font-mono text-[11px] text-text-mut border-t border-border-str pt-3">
               BENEFIT: Eliminates 300+ eye gaze saccades per drawing.
             </div>
           </div>
@@ -362,9 +430,9 @@ export const FourBaysSection: React.FC = () => {
           <div className="structural-bay p-6 flex flex-col justify-between">
             <div>
               {/* Top Mechanical Header Strip */}
-              <div className="flex items-center justify-between font-mono text-[10px] pb-3 mb-3 border-b border-border-str text-text-sec">
+              <div className="flex items-center justify-between font-mono text-[11px] pb-3 mb-3 border-b border-border-str text-text-sec">
                 <span className="text-text-pri font-bold">BAY 04 // USB-HID CALIPER & SPC ENGINE</span>
-                <span className="text-st-pass">USB-HID ACTIVE</span>
+                <span className="text-st-pass font-bold">USB-HID ACTIVE</span>
               </div>
 
               {/* Caliper Action Controls */}
@@ -378,14 +446,14 @@ export const FourBaysSection: React.FC = () => {
                 </button>
 
                 <div className="border border-border-str bg-surface-2 px-3 py-1.5 font-mono text-center">
-                  <div className="text-[9px] text-text-mut">LAST PULSE</div>
-                  <div className="text-base font-bold text-text-pri">{lastCaliperPulse.toFixed(3)} mm</div>
+                  <div className="text-[11px] text-text-mut font-bold">LAST PULSE</div>
+                  <div className="text-base font-bold text-text-pri">{fmtDim(lastCaliperPulse)} mm</div>
                 </div>
               </div>
 
               {/* Control Chart Visual [LSL ---|--- USL] */}
               <div className="border border-border-str bg-surface-2 p-3 font-mono text-xs mb-3">
-                <div className="flex justify-between text-[10px] text-text-mut mb-1">
+                <div className="flex justify-between text-[11px] text-text-mut mb-1 font-bold">
                   <span>LSL: 30.000</span>
                   <span className="text-text-pri font-bold">TARGET: 30.0105</span>
                   <span>USL: 30.021</span>
@@ -403,7 +471,7 @@ export const FourBaysSection: React.FC = () => {
                         key={idx}
                         className="absolute top-0.5 bottom-0.5 w-1 bg-acc-orange"
                         style={{ left: `${pct}%` }}
-                        title={`${s} mm`}
+                        title={`${fmtDim(s)} mm`}
                       />
                     );
                   })}
@@ -411,22 +479,22 @@ export const FourBaysSection: React.FC = () => {
 
                 <div className="grid grid-cols-3 gap-2 mt-3 pt-2 border-t border-border-str text-center">
                   <div>
-                    <div className="text-[9px] text-text-mut">PROCESS Cp</div>
-                    <div className="font-bold text-text-pri">{spcMetrics.cp}</div>
+                    <div className="text-[11px] text-text-mut font-bold">PROCESS Cp</div>
+                    <div className="font-bold text-text-pri">{fmtSpc(spcMetrics.cp)}</div>
                   </div>
                   <div>
-                    <div className="text-[9px] text-text-mut">PROCESS Cpk</div>
-                    <div className="font-bold text-st-pass">{spcMetrics.cpk}</div>
+                    <div className="text-[11px] text-text-mut font-bold">PROCESS Cpk</div>
+                    <div className="font-bold text-st-pass">{fmtSpc(spcMetrics.cpk)}</div>
                   </div>
                   <div>
-                    <div className="text-[9px] text-text-mut">SAMPLE COUNT</div>
+                    <div className="text-[11px] text-text-mut font-bold">SAMPLE COUNT</div>
                     <div className="font-bold text-text-pri">{caliperSamples.length}</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="font-mono text-[10px] text-text-mut border-t border-border-str pt-3">
+            <div className="font-mono text-[11px] text-text-mut border-t border-border-str pt-3">
               HARDWARE: Compatible with Mitutoyo Digimatic, Fowler, Mahr, and Starrett USB wedges.
             </div>
           </div>
@@ -435,4 +503,3 @@ export const FourBaysSection: React.FC = () => {
     </section>
   );
 };
-
