@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-canvas: #E6E5E0;
+  --bg-surface-1: #F4F3EF;
+  --bg-surface-2: #EAE8E1;
+  --bg-surface-3: #DDDAD0;
+  --border-structural: #C8C4B8;
+  --border-focus: #EA580C;
+  --text-primary: #141413;
+  --text-secondary: #575652;
+  --text-muted: #8C8A82;
+  --accent-orange: #EA580C;
+  --accent-cobalt: #2563EB;
+  --status-pass: #15803D;
+  --status-warn: #B45309;
+  --status-fail: #B91C1C;
+}
+
+.dark {
+  --bg-canvas: #0B0B0A;
+  --bg-surface-1: #141413;
+  --bg-surface-2: #1C1C1A;
+  --bg-surface-3: #262623;
+  --border-structural: #2E2E2A;
+  --border-focus: #FF5500;
+  --text-primary: #F5F4F0;
+  --text-secondary: #A3A19A;
+  --text-muted: #66645E;
+  --accent-orange: #FF5500;
+  --accent-cobalt: #3B82F6;
+  --status-pass: #22C55E;
+  --status-warn: #F59E0B;
+  --status-fail: #EF4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono, [data-mono] {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Machined tactile button click effect */
+.machined-btn {
+  box-shadow: 0 1px 0 var(--border-structural);
+  transition: transform 0.05s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.machined-btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 0 0 var(--border-structural);
+}
+
+/* Structural Bays */
+.structural-bay {
+  border: 1px solid var(--border-structural);
+  background: var(--bg-surface-1);
+  position: relative;
+  border-radius: 2px;
+}
+
+/* Blueprint Grid Background */
+.bg-grid-pattern {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, var(--border-structural) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border-structural) 1px, transparent 1px);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-surface-2);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-structural);
+  border-radius: 0px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
