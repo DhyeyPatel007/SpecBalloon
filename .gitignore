@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+vendor/
+venv/
+.venv/
+env/
+
+# Build outputs & caches
+dist/
+build/
+out/
+*.log
+*.tmp
+*.temp
+__pycache__/
+*.pyc
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
