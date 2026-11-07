@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Crosshair, ArrowRight, Sun, Moon, Activity } from 'lucide-react';
+import React from 'react';
+import { ArrowRight, Sun, Moon } from 'lucide-react';
 
 interface LandingHeaderProps {
   darkMode: boolean;
@@ -12,91 +12,78 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
   onToggleTheme,
   onLaunchWorkspace,
 }) => {
-  const [latency, setLatency] = useState(14.2);
-
-  // Live fluctuating telemetry ticker for realistic engine latency
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setLatency(Number((13.8 + Math.random() * 0.9).toFixed(1)));
-    }, 2400);
-    return () => clearInterval(timer);
-  }, []);
-
   return (
-    <header className="sticky top-0 z-50 h-12 w-full border-b border-border-str bg-surface-1 px-4 flex items-center justify-between text-xs font-mono">
-      {/* Left: Reticle Logo + System Identifier */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 group cursor-pointer" onClick={() => onLaunchWorkspace()}>
-          <div className="w-6 h-6 border border-acc-orange flex items-center justify-center bg-surface-2 text-acc-orange">
-            <Crosshair className="w-3.5 h-3.5" />
+    <header className="sticky top-0 z-50 w-full bg-surface/80 backdrop-blur-md border-b border-border-hairline transition-colors">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        {/* Brand Reticle Logo */}
+        <div
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="flex items-center gap-2.5 cursor-pointer group select-none"
+        >
+          <div className="w-7 h-7 rounded-full border-2 border-accent-primary flex items-center justify-center relative transition-transform group-hover:scale-105">
+            <div className="w-2.5 h-2.5 rounded-full bg-accent-primary" />
+            <div className="absolute inset-0 rounded-full border border-accent-primary/30 animate-ping opacity-25" />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="font-display font-bold text-sm tracking-tight text-text-pri">
-              SPECBALLOON
-            </span>
-            <span className="text-text-mut text-[11px] hidden sm:inline">
-              // DATUM STUDIO
-            </span>
-          </div>
-        </div>
-        <span className="border border-border-str px-1.5 py-0.5 text-[11px] text-acc-orange bg-surface-2">
-          v2.4-AS9102
-        </span>
-      </div>
-
-      {/* Center: Nav Anchors */}
-      <nav className="hidden md:flex items-center gap-6 text-text-sec text-[11px]">
-        <a href="#bottleneck" className="hover:text-text-pri transition-colors">
-          [01. THE BOTTLENECK]
-        </a>
-        <a href="#architecture" className="hover:text-text-pri transition-colors">
-          [02. ARCHITECTURE]
-        </a>
-        <a href="#telemetry-bays" className="hover:text-text-pri transition-colors">
-          [03. LIVE BAYS]
-        </a>
-        <a href="#roi" className="hover:text-text-pri transition-colors">
-          [04. ROI & ECONOMICS]
-        </a>
-      </nav>
-
-      {/* Right Controls */}
-      <div className="flex items-center gap-3">
-        {/* Latency Ticker */}
-        <div className="hidden lg:flex items-center gap-1.5 border border-border-str px-2 py-1 bg-surface-2 text-[11px] text-text-sec">
-          <Activity className="w-3 h-3 text-st-pass animate-pulse" />
-          <span>ENGINE:</span>
-          <span className="text-text-pri font-bold">{latency}ms</span>
-          <span className="text-text-mut">/ VEC+VLM</span>
+          <span className="font-display font-bold text-lg text-text-pri tracking-tight">
+            SpecBalloon
+          </span>
+          <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-subtle border border-border-hairline text-[11px] font-mono text-text-sec font-medium">
+            AS9102 Rev C
+          </span>
         </div>
 
-        {/* Theme Toggle */}
-        <button
-          onClick={onToggleTheme}
-          className="machined-btn border border-border-str px-2.5 py-1 bg-surface-2 hover:bg-surface-3 text-text-pri flex items-center gap-1.5 text-[11px]"
-          title="Toggle Anodized Stone / Oxide Graphite"
-        >
-          {darkMode ? (
-            <>
-              <Moon className="w-3 h-3 text-acc-orange" />
-              <span className="hidden sm:inline">GRAPHITE</span>
-            </>
-          ) : (
-            <>
-              <Sun className="w-3 h-3 text-acc-orange" />
-              <span className="hidden sm:inline">STONE</span>
-            </>
-          )}
-        </button>
+        {/* Apple Pill Navigation */}
+        <nav className="hidden md:flex items-center gap-1 bg-subtle/80 px-2 py-1 rounded-full border border-border-hairline text-xs font-medium text-text-sec">
+          <a
+            href="#architecture"
+            className="px-3 py-1.5 rounded-full hover:text-text-pri hover:bg-surface transition-all"
+          >
+            Architecture
+          </a>
+          <a
+            href="#caliper-sync"
+            className="px-3 py-1.5 rounded-full hover:text-text-pri hover:bg-surface transition-all"
+          >
+            Caliper Sync
+          </a>
+          <a
+            href="#balloon-physics"
+            className="px-3 py-1.5 rounded-full hover:text-text-pri hover:bg-surface transition-all"
+          >
+            Physics Engine
+          </a>
+          <a
+            href="#roi-calculator"
+            className="px-3 py-1.5 rounded-full hover:text-text-pri hover:bg-surface transition-all"
+          >
+            ROI Calculator
+          </a>
+          <a
+            href="#compliance"
+            className="px-3 py-1.5 rounded-full hover:text-text-pri hover:bg-surface transition-all"
+          >
+            Compliance
+          </a>
+        </nav>
 
-        {/* Primary CTA: High-contrast structural hardware button */}
-        <button
-          onClick={() => onLaunchWorkspace()}
-          className="machined-btn bg-text-pri text-canvas border border-text-pri hover:bg-acc-orange hover:text-white hover:border-acc-orange font-mono font-bold px-3 py-1 flex items-center gap-1.5 text-xs shadow-sm transition-colors"
-        >
-          <span>LAUNCH DATUM STUDIO</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </button>
+        {/* Actions: Theme Toggle & Launch Workspace */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onToggleTheme}
+            className="w-9 h-9 rounded-full border border-border-hairline bg-surface text-text-sec hover:text-text-pri hover:bg-subtle flex items-center justify-center transition-all shadow-apple-sm"
+            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {darkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+          </button>
+
+          <button
+            onClick={() => onLaunchWorkspace('AS-4092-C')}
+            className="apple-btn-primary px-4 sm:px-5 py-2 text-xs sm:text-sm flex items-center gap-2"
+          >
+            <span>Open Workspace</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </header>
   );

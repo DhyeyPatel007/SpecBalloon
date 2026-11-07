@@ -3,16 +3,27 @@ import {
   ArrowLeft,
   Sun,
   Moon,
-  Download,
   FileSpreadsheet,
+  Download,
   Image as ImageIcon,
   Columns,
-  Cpu,
-  Upload
+  Upload,
+  Move,
+  Crop,
+  Maximize2,
+  MoonStar,
+  Sparkles,
+  RotateCw,
+  RefreshCw,
+  Calculator,
+  Radio,
+  CheckCircle2,
+  AlertTriangle,
+  FolderOpen
 } from 'lucide-react';
 import { DrawingSpec, GeneralToleranceStandard, InspectionStatus } from '../../types/metrology';
 
-interface WorkspaceHeaderProps {
+export interface WorkspaceHeaderProps {
   currentDrawing: DrawingSpec;
   drawingsList: DrawingSpec[];
   onSelectDrawing: (drawingId: string) => void;
@@ -37,6 +48,17 @@ interface WorkspaceHeaderProps {
     outOfSpec: number;
     needsReview: number;
   };
+  toolMode?: 'pan' | 'box_balloon';
+  onSetToolMode?: (mode: 'pan' | 'box_balloon') => void;
+  onFitSheet?: () => void;
+  onToggleInvert?: () => void;
+  inverted?: boolean;
+  onReSortClockwise?: () => void;
+  onAutoBalloonDetect?: () => void;
+  onResetBalloons?: () => void;
+  onPulseConforming?: () => void;
+  onPulseScrap?: () => void;
+  onAutoCalcFits?: () => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -46,8 +68,6 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onUploadCustom,
   selectedStandard,
   onChangeStandard,
-  statusFilter,
-  onFilterChange,
   viewMode,
   onToggleViewMode,
   caliperMode,
@@ -59,6 +79,17 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onExportPNG,
   onExitToLanding,
   statusCounts,
+  toolMode = 'pan',
+  onSetToolMode,
+  onFitSheet,
+  onToggleInvert,
+  inverted = false,
+  onReSortClockwise,
+  onAutoBalloonDetect,
+  onResetBalloons,
+  onPulseConforming,
+  onPulseScrap,
+  onAutoCalcFits,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -67,193 +98,302 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   };
 
   return (
-    <header className="min-h-[44px] h-auto w-full border-b border-border-str bg-surface-1 px-3 py-1.5 flex flex-wrap items-center justify-between gap-y-1.5 text-xs font-mono select-none z-30">
-      {/* Left: Navigation + Drawing Selector + Upload + Tolerance Std */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={onExitToLanding}
-          className="machined-btn border border-border-str px-2.5 py-1 bg-surface-2 hover:bg-surface-3 text-text-pri flex items-center gap-1.5 font-bold text-[11px]"
-          title="Exit to Landing Page"
-        >
-          <ArrowLeft className="w-3.5 h-3.5 text-acc-orange" />
-          <span className="hidden sm:inline">LANDING</span>
-        </button>
-
-        {/* Part Selector Dropdown */}
-        <div className="flex items-center border border-border-str bg-surface-2 px-2 py-0.5 text-[11px]">
-          <select
-            value={currentDrawing.id}
-            onChange={(e) => {
-              if (e.target.value === 'upload') {
-                handleUploadClick();
-              } else {
-                onSelectDrawing(e.target.value);
-              }
-            }}
-            className="bg-transparent text-text-pri font-bold focus:outline-none cursor-pointer pr-1"
+    <header className="w-full bg-surface border-b border-border-hairline shadow-ribbon select-none z-30 flex flex-col">
+      {/* 1. Windows 11 / Office Top Title Bar */}
+      <div className="h-9 w-full px-3 bg-subtle/70 border-b border-border-hairline flex items-center justify-between text-xs font-sans">
+        {/* Left: Reticle + App Title + Part Information */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onExitToLanding}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-text-sec hover:text-text-pri hover:bg-surface border border-transparent hover:border-border-hairline transition-all text-xs font-semibold"
+            title="Return to Landing Page"
           >
-            {drawingsList.map((d) => {
-              const count = d.id === currentDrawing.id ? statusCounts.total : d.characteristics.length;
-              return (
-                <option key={d.id} value={d.id} className="bg-surface-1 text-text-pri">
-                  {d.partNumber} ({count} DIMS)
-                </option>
-              );
-            })}
-            <option value="upload" className="bg-surface-1 text-acc-orange font-bold">
-              + UPLOAD CUSTOM CAD / PDF
-            </option>
-          </select>
-          <span className="border-l border-border-str pl-2 ml-1 text-text-mut text-[11px]">
-            {currentDrawing.revision}
-          </span>
+            <ArrowLeft className="w-3.5 h-3.5 text-accent-primary" />
+            <span>Landing</span>
+          </button>
+
+          <div className="h-4 w-px bg-border-hairline" />
+
+          {/* Precision Reticle Logo */}
+          <div className="flex items-center gap-1.5 font-bold text-text-pri">
+            <div className="w-4 h-4 rounded-full border-2 border-accent-primary flex items-center justify-center relative">
+              <div className="w-1.5 h-1.5 rounded-full bg-accent-primary" />
+            </div>
+            <span className="tracking-tight text-xs">SpecBalloon</span>
+          </div>
+
+          <div className="h-4 w-px bg-border-hairline" />
+
+          {/* Active Blueprint Meta */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-mono font-semibold text-text-pri">{currentDrawing.partNumber}</span>
+            <span className="text-text-mut">—</span>
+            <span className="text-text-sec truncate max-w-[280px] hidden md:inline">{currentDrawing.partName}</span>
+            <span className="px-1.5 py-0.5 rounded bg-surface border border-border-hairline font-mono font-medium text-[11px] text-text-mut">
+              {currentDrawing.revision}
+            </span>
+          </div>
         </div>
 
-        {/* Explicit [+ UPLOAD CAD] Button (Fix 08) */}
-        <button
-          onClick={handleUploadClick}
-          className="machined-btn border border-border-str px-2 py-1 bg-surface-2 hover:bg-surface-3 text-acc-orange flex items-center gap-1 font-bold text-[11px]"
-          title="Upload Local CAD Image or PDF"
-        >
-          <Upload className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">+ UPLOAD CAD</span>
-        </button>
+        {/* Right: Quick View Switcher & Theme */}
+        <div className="flex items-center gap-2">
+          {/* Split vs Full Sheet Mode */}
+          <button
+            onClick={onToggleViewMode}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-all ${
+              viewMode === 'sheet'
+                ? 'bg-accent-primary text-white border-accent-primary'
+                : 'bg-surface text-text-sec border-border-hairline hover:bg-subtle'
+            }`}
+            title="Toggle between Split View and Full AS9102 Sheet"
+          >
+            {viewMode === 'sheet' ? (
+              <>
+                <Columns className="w-3.5 h-3.5" />
+                <span>Split View</span>
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="w-3.5 h-3.5 text-status-pass" />
+                <span>AS9102 Sheet View</span>
+              </>
+            )}
+          </button>
 
+          {/* Theme Toggle */}
+          <button
+            onClick={onToggleTheme}
+            className="w-7 h-7 flex items-center justify-center rounded-md border border-border-hairline bg-surface text-text-sec hover:text-text-pri hover:bg-subtle transition-all"
+            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {darkMode ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Modern Office Command Ribbon */}
+      <div className="min-h-[72px] h-auto w-full px-3 py-1.5 flex flex-wrap items-stretch gap-x-3 gap-y-2 overflow-x-auto text-xs">
+        {/* Hidden File Input */}
         <input
           ref={fileInputRef}
-          id="custom-blueprint-upload"
           type="file"
-          accept="image/*,.pdf,.dxf"
+          accept=".png,.jpg,.jpeg,.svg,.pdf"
           onChange={onUploadCustom}
           className="hidden"
+          id="custom-blueprint-upload"
         />
 
-        {/* General Tolerance Standard Selector - Always Visible (Fix 09) */}
-        <div className="flex items-center border border-border-str bg-surface-2 px-2 py-0.5 text-[11px]">
-          <span className="text-text-mut mr-1.5 font-bold">TOL:</span>
-          <select
-            value={selectedStandard}
-            onChange={(e) => onChangeStandard(e.target.value as GeneralToleranceStandard)}
-            className="bg-transparent text-text-pri font-bold focus:outline-none cursor-pointer"
-          >
-            <option value="ISO 2768-m" className="bg-surface-1">ISO 2768-m (Medium)</option>
-            <option value="ISO 2768-f" className="bg-surface-1">ISO 2768-f (Fine)</option>
-            <option value="ISO 2768-c" className="bg-surface-1">ISO 2768-c (Coarse)</option>
-            <option value="ASME Y14.5" className="bg-surface-1">ASME Y14.5 (Decimal)</option>
-          </select>
+        {/* Ribbon Group 1: File & Blueprint */}
+        <div className="flex flex-col justify-between pr-3 border-r border-border-hairline">
+          <div className="flex items-center gap-2">
+            {/* Blueprint Switcher Dropdown */}
+            <div className="flex flex-col">
+              <label className="text-[11px] font-medium text-text-mut mb-0.5">Active CAD Blueprint</label>
+              <select
+                value={currentDrawing.id}
+                onChange={(e) => {
+                  if (e.target.value === 'upload') {
+                    handleUploadClick();
+                  } else {
+                    onSelectDrawing(e.target.value);
+                  }
+                }}
+                className="h-8 px-2.5 rounded-md border border-border-strong bg-surface text-text-pri font-mono font-semibold text-xs focus:outline-none focus:ring-1 focus:ring-accent-primary cursor-pointer"
+              >
+                {drawingsList.map((d) => {
+                  const count = d.id === currentDrawing.id ? statusCounts.total : d.characteristics.length;
+                  return (
+                    <option key={d.id} value={d.id}>
+                      {d.partNumber} ({count} DIMS)
+                    </option>
+                  );
+                })}
+                <option value="upload">+ Upload Custom CAD Drawing...</option>
+              </select>
+            </div>
+
+            {/* Upload Button */}
+            <button
+              onClick={handleUploadClick}
+              className="mt-4 h-8 px-2.5 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-sec hover:text-text-pri flex items-center gap-1.5 transition-all text-xs font-medium"
+              title="Upload 2D CAD Image or PDF"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-accent-primary" />
+              <span>Upload</span>
+            </button>
+          </div>
+          <span className="text-[10px] text-text-mut text-center font-medium mt-1">File</span>
         </div>
-      </div>
 
-      {/* Center: Instant Status Filter Pills (0ms filtering) */}
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => onFilterChange('all')}
-          className={`machined-btn px-2 py-0.5 text-[11px] border font-bold ${
-            statusFilter === 'all'
-              ? 'bg-text-pri text-canvas border-text-pri'
-              : 'bg-surface-2 border-border-str text-text-sec hover:text-text-pri'
-          }`}
-        >
-          ALL: {statusCounts.total}
-        </button>
+        {/* Ribbon Group 2: Canvas Tools */}
+        <div className="flex flex-col justify-between px-3 border-r border-border-hairline">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onSetToolMode && onSetToolMode('pan')}
+              className={`ribbon-btn h-12 min-w-[50px] ${toolMode === 'pan' ? 'active' : ''}`}
+              title="Pan & Select Tool [V]"
+            >
+              <Move className="w-4 h-4 mb-0.5" />
+              <span className="text-[11px] font-medium">Pan [V]</span>
+            </button>
 
-        <button
-          onClick={() => onFilterChange('needs_review')}
-          className={`machined-btn px-2 py-0.5 text-[11px] border font-bold flex items-center gap-1 ${
-            statusFilter === 'needs_review'
-              ? 'bg-st-warn text-white border-st-warn'
-              : 'bg-surface-2 border-border-str text-st-warn hover:bg-st-warn/10'
-          }`}
-        >
-          <span>REVIEW: {statusCounts.needsReview}</span>
-        </button>
+            <button
+              onClick={() => onSetToolMode && onSetToolMode('box_balloon')}
+              className={`ribbon-btn h-12 min-w-[50px] ${toolMode === 'box_balloon' ? 'active' : ''}`}
+              title="Box Balloon Callout Tool [B]"
+            >
+              <Crop className="w-4 h-4 mb-0.5" />
+              <span className="text-[11px] font-medium">Box [B]</span>
+            </button>
 
-        <button
-          onClick={() => onFilterChange('in_spec')}
-          className={`machined-btn px-2 py-0.5 text-[11px] border font-bold flex items-center gap-1 ${
-            statusFilter === 'in_spec'
-              ? 'bg-st-pass text-white border-st-pass'
-              : 'bg-surface-2 border-border-str text-st-pass hover:bg-st-pass/10'
-          }`}
-        >
-          <span>IN SPEC: {statusCounts.inSpec}</span>
-        </button>
+            <button
+              onClick={onFitSheet}
+              className="ribbon-btn h-12 min-w-[50px]"
+              title="Fit Artboard to Viewport [F]"
+            >
+              <Maximize2 className="w-4 h-4 mb-0.5" />
+              <span className="text-[11px] font-medium">Fit [F]</span>
+            </button>
 
-        <button
-          onClick={() => onFilterChange('out_of_spec')}
-          className={`machined-btn px-2 py-0.5 text-[11px] border font-bold flex items-center gap-1 ${
-            statusFilter === 'out_of_spec'
-              ? 'bg-st-fail text-white border-st-fail'
-              : 'bg-surface-2 border-border-str text-st-fail hover:bg-st-fail/10'
-          }`}
-        >
-          <span>OUT SPEC: {statusCounts.outOfSpec}</span>
-        </button>
-      </div>
+            <button
+              onClick={onToggleInvert}
+              className={`ribbon-btn h-12 min-w-[50px] ${inverted ? 'active' : ''}`}
+              title="Toggle Paper / Carbon Invert [K]"
+            >
+              <MoonStar className="w-4 h-4 mb-0.5" />
+              <span className="text-[11px] font-medium">{inverted ? 'Carbon' : 'Paper'}</span>
+            </button>
+          </div>
+          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Canvas Tools</span>
+        </div>
 
-      {/* Right: Workspace Controls + Exports */}
-      <div className="flex items-center gap-2">
-        {/* View Mode Toggle */}
-        <button
-          onClick={onToggleViewMode}
-          className="machined-btn border border-border-str px-2 py-1 bg-surface-2 hover:bg-surface-3 text-text-pri flex items-center gap-1.5 text-[11px]"
-          title="Toggle Split View / 14-Col AS9102 Sheet (Cmd + \)"
-        >
-          <Columns className="w-3.5 h-3.5 text-acc-orange" />
-          <span className="hidden xl:inline">{viewMode === 'split' ? 'FULL AS9102 SHEET' : '65/35 CROP-TAPE'}</span>
-        </button>
+        {/* Ribbon Group 3: AI Auto-Balloon */}
+        <div className="flex flex-col justify-between px-3 border-r border-border-hairline">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onAutoBalloonDetect}
+              className="ribbon-btn h-12 min-w-[58px] text-accent-primary hover:bg-accent-primary/10"
+              title="Run AI CAD Detection & Auto-Ballooning"
+            >
+              <Sparkles className="w-4 h-4 mb-0.5 text-accent-primary" />
+              <span className="text-[11px] font-semibold text-accent-primary">Detect</span>
+            </button>
 
-        {/* Live Caliper Mode Toggle */}
-        <button
-          onClick={onToggleCaliperMode}
-          className={`machined-btn border px-2 py-1 flex items-center gap-1.5 font-bold text-[11px] ${
-            caliperMode
-              ? 'bg-acc-orange text-white border-acc-orange animate-pulse'
-              : 'bg-surface-2 text-text-sec border-border-str hover:text-text-pri'
-          }`}
-          title="Toggle Shop Floor USB-HID Digital Caliper DRO"
-        >
-          <Cpu className="w-3.5 h-3.5" />
-          <span className="hidden xl:inline">{caliperMode ? 'CALIPER DRO: ON' : 'CALIPER DRO'}</span>
-        </button>
+            <button
+              onClick={onReSortClockwise}
+              className="ribbon-btn h-12 min-w-[58px]"
+              title="Re-number Balloons Clockwise [R]"
+            >
+              <RotateCw className="w-4 h-4 mb-0.5" />
+              <span className="text-[11px] font-medium">Clockwise [R]</span>
+            </button>
 
-        {/* Theme Toggle */}
-        <button
-          onClick={onToggleTheme}
-          className="machined-btn border border-border-str p-1 bg-surface-2 hover:bg-surface-3 text-text-pri"
-          title="Toggle Theme"
-        >
-          {darkMode ? <Moon className="w-3.5 h-3.5 text-acc-orange" /> : <Sun className="w-3.5 h-3.5 text-acc-orange" />}
-        </button>
+            <button
+              onClick={onResetBalloons}
+              className="ribbon-btn h-12 min-w-[52px]"
+              title="Reset Balloon Positions to Factory Physics Defaults"
+            >
+              <RefreshCw className="w-4 h-4 mb-0.5" />
+              <span className="text-[11px] font-medium">Reset</span>
+            </button>
+          </div>
+          <span className="text-[10px] text-text-mut text-center font-medium mt-1">AI Auto-Balloon</span>
+        </div>
 
-        {/* Primary Export Actions */}
-        <div className="flex items-center gap-1 border-l border-border-str pl-2 ml-1">
-          <button
-            onClick={onExportCSV}
-            className="machined-btn bg-surface-2 border border-border-str hover:bg-surface-3 text-text-pri px-2 py-1 flex items-center gap-1 text-[11px]"
-            title="Download AS9102 Rev C Form 3 CSV"
-          >
-            <Download className="w-3 h-3 text-acc-orange" />
-            <span className="hidden sm:inline">CSV</span>
-          </button>
+        {/* Ribbon Group 4: Tolerance Math */}
+        <div className="flex flex-col justify-between px-3 border-r border-border-hairline">
+          <div className="flex items-center gap-2">
+            <div className="flex flex-col">
+              <label className="text-[11px] font-medium text-text-mut mb-0.5">Tolerance Standard</label>
+              <select
+                value={selectedStandard}
+                onChange={(e) => onChangeStandard(e.target.value as GeneralToleranceStandard)}
+                className="h-8 px-2 rounded-md border border-border-strong bg-surface text-text-pri font-mono text-xs focus:outline-none focus:ring-1 focus:ring-accent-primary cursor-pointer"
+              >
+                <option value="ISO 2768-m">ISO 2768-m (Medium)</option>
+                <option value="ISO 2768-f">ISO 2768-f (Fine)</option>
+                <option value="ISO 2768-c">ISO 2768-c (Coarse)</option>
+                <option value="ASME Y14.5">ASME Y14.5-2018</option>
+              </select>
+            </div>
 
-          <button
-            onClick={onExportExcel}
-            className="machined-btn bg-surface-2 border border-border-str hover:bg-surface-3 text-text-pri px-2 py-1 flex items-center gap-1 text-[11px]"
-            title="Download Formatted Binary Excel .XLSX Sheet"
-          >
-            <FileSpreadsheet className="w-3 h-3 text-st-pass" />
-            <span className="hidden sm:inline">EXCEL</span>
-          </button>
+            <button
+              onClick={onAutoCalcFits}
+              className="mt-4 ribbon-btn h-8 px-2.5 flex-row gap-1.5 border border-border-hairline"
+              title="Auto-calculate ISO 286 shaft/hole limits"
+            >
+              <Calculator className="w-3.5 h-3.5 text-accent-primary" />
+              <span className="text-[11px] font-medium">Calc Fits</span>
+            </button>
+          </div>
+          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Tolerance Math</span>
+        </div>
 
-          <button
-            onClick={onExportPNG}
-            className="machined-btn bg-acc-orange hover:bg-orange-600 text-white font-bold px-2.5 py-1 flex items-center gap-1.5 text-[11px]"
-            title="Export Ballooned CAD Drawing PNG"
-          >
-            <ImageIcon className="w-3 h-3" />
-            <span className="hidden md:inline">EXPORT DRAWING</span>
-          </button>
+        {/* Ribbon Group 5: Caliper DRO & Bluetooth */}
+        <div className="flex flex-col justify-between px-3 border-r border-border-hairline">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onToggleCaliperMode}
+              className={`ribbon-btn h-12 min-w-[64px] ${caliperMode ? 'active' : ''}`}
+              title="Toggle Live USB / Bluetooth Digital Caliper DRO Strip"
+            >
+              <Radio className={`w-4 h-4 mb-0.5 ${caliperMode ? 'text-accent-primary animate-pulse' : ''}`} />
+              <span className="text-[11px] font-semibold">{caliperMode ? 'DRO ON' : 'DRO OFF'}</span>
+            </button>
+
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={onPulseConforming}
+                className="h-5 px-2 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-status-pass/40 text-status-pass hover:bg-emerald-100 flex items-center gap-1 text-[11px] font-medium transition-all"
+                title="Simulate Passing In-Spec Caliper Reading"
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Pulse Pass</span>
+              </button>
+              <button
+                onClick={onPulseScrap}
+                className="h-5 px-2 rounded bg-red-50 dark:bg-red-950/40 border border-status-fail/40 text-status-fail hover:bg-red-100 flex items-center gap-1 text-[11px] font-medium transition-all"
+                title="Simulate Out-of-Spec Scrap Caliper Reading"
+              >
+                <AlertTriangle className="w-3 h-3" />
+                <span>Pulse Scrap</span>
+              </button>
+            </div>
+          </div>
+          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Caliper DRO</span>
+        </div>
+
+        {/* Ribbon Group 6: Export */}
+        <div className="flex flex-col justify-between pl-1">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onExportExcel}
+              className="ribbon-btn h-12 min-w-[56px] text-status-pass hover:bg-status-pass/10"
+              title="Export Native Binary AS9102 Form 3 Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-4 h-4 mb-0.5 text-status-pass" />
+              <span className="text-[11px] font-semibold text-status-pass">Excel</span>
+            </button>
+
+            <button
+              onClick={onExportCSV}
+              className="ribbon-btn h-12 min-w-[50px]"
+              title="Export AS9102 CSV (.csv)"
+            >
+              <Download className="w-4 h-4 mb-0.5" />
+              <span className="text-[11px] font-medium">CSV</span>
+            </button>
+
+            <button
+              onClick={onExportPNG}
+              className="ribbon-btn h-12 min-w-[52px]"
+              title="Export Ballooned CAD Drawing (.png)"
+            >
+              <ImageIcon className="w-4 h-4 mb-0.5" />
+              <span className="text-[11px] font-medium">Image</span>
+            </button>
+          </div>
+          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Export</span>
         </div>
       </div>
     </header>

@@ -11,8 +11,7 @@ import { soundEngine } from '../../utils/audioSynthesizer';
 import {
   Move,
   Crop,
-  RotateCw,
-  Maximize,
+  Maximize2,
   ZoomIn,
   ZoomOut,
   Crosshair,
@@ -34,6 +33,11 @@ interface CadCanvasViewportProps {
   onToggleInvert: () => void;
   customImage: HTMLImageElement | null;
   onDropImageFile?: (file: File) => void;
+  toolMode?: 'pan' | 'box_balloon';
+  onSetToolMode?: (mode: 'pan' | 'box_balloon') => void;
+  zoom?: number;
+  onZoomChange?: (z: number) => void;
+  onCursorMove?: (pos: Point, zone: string) => void;
 }
 
 export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
@@ -49,16 +53,30 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   onToggleInvert,
   customImage,
   onDropImageFile,
+  toolMode = 'pan',
+  onSetToolMode,
+  zoom: externalZoom,
+  onZoomChange: externalOnZoomChange,
+  onCursorMove,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
+  const topRulerRef = useRef<HTMLCanvasElement>(null);
+  const leftRulerRef = useRef<HTMLCanvasElement>(null);
 
   // Pan & Zoom state
-  const [zoom, setZoom] = useState(1.0);
-  const [pan, setPan] = useState<Point>({ x: 20, y: 20 });
-  const [toolMode, setToolMode] = useState<'pan' | 'box_balloon'>('pan');
-  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [internalZoom, setInternalZoom] = useState(1.0);
+  const zoom = externalZoom !== undefined ? externalZoom : internalZoom;
+  const setZoom = (z: number) => {
+    if (externalOnZoomChange) {
+      externalOnZoomChange(z);
+    } else {
+      setInternalZoom(z);
+    }
+  };
+
+  const [pan, setPan] = useState<Point>({ x: 60, y: 50 });
   const [isDragOver, setIsDragOver] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
 
@@ -69,7 +87,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     const canvas = canvasRef.current;
     if (!canvas || !onBulkUpdateCharacteristics) return;
 
-    // Check if any characteristics lack cropDataUrl
     const needsCrops = characteristics.some((c) => !c.cropDataUrl);
     if (needsCrops) {
       const enriched = generateAllCrops(canvas, characteristics);
@@ -119,32 +136,135 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   // Compute sheet grid zone (e.g., B4) based on sheet coordinates
   const computeZone = (x: number, y: number): string => {
     const margin = 24;
-    const w = currentDrawing.drawingWidth - margin * 2;
-    const h = currentDrawing.drawingHeight - margin * 2;
+    const w = (currentDrawing.drawingWidth || 1200) - margin * 2;
+    const h = (currentDrawing.drawingHeight || 800) - margin * 2;
     const colIdx = Math.max(0, Math.min(7, Math.floor(((x - margin) / w) * 8)));
     const rowIdx = Math.max(0, Math.min(3, Math.floor(((y - margin) / h) * 4)));
     const rows = ['A', 'B', 'C', 'D'];
     return `${rows[rowIdx]}${colIdx + 1}`;
   };
 
-  // Smooth camera centering on active balloon
-  useEffect(() => {
-    if (!activeBalloonId || !containerRef.current) return;
-    const targetChar = characteristics.find((c) => c.id === activeBalloonId);
-    if (!targetChar) return;
-
+  // Center artboard on mount or blueprint change
+  const handleFitSheet = useCallback(() => {
+    if (!containerRef.current) return;
     const container = containerRef.current;
-    const containerW = container.clientWidth;
-    const containerH = container.clientHeight;
+    const cw = container.clientWidth - 48; // padding
+    const ch = container.clientHeight - 48;
+    const dw = currentDrawing.drawingWidth || 1200;
+    const dh = currentDrawing.drawingHeight || 800;
 
-    const targetX = targetChar.balloonPosition.x * zoom;
-    const targetY = targetChar.balloonPosition.y * zoom;
+    const fitScale = Math.min(cw / dw, ch / dh, 1.25);
+    const newZoom = Math.max(0.35, Math.round(fitScale * 100) / 100);
+    setZoom(newZoom);
 
-    setPan({
-      x: containerW / 2 - targetX,
-      y: containerH / 2 - targetY,
-    });
-  }, [activeBalloonId, zoom]);
+    const targetX = Math.round((container.clientWidth - dw * newZoom) / 2);
+    const targetY = Math.round((container.clientHeight - dh * newZoom) / 2);
+    setPan({ x: Math.max(24, targetX), y: Math.max(24, targetY) });
+  }, [currentDrawing.drawingWidth, currentDrawing.drawingHeight]);
+
+  useEffect(() => {
+    handleFitSheet();
+  }, [currentDrawing.id, handleFitSheet]);
+
+  // Render Top & Left Rulers
+  useEffect(() => {
+    const topCanvas = topRulerRef.current;
+    const leftCanvas = leftRulerRef.current;
+    if (!topCanvas || !leftCanvas) return;
+
+    const topCtx = topCanvas.getContext('2d');
+    const leftCtx = leftRulerRef.current?.getContext('2d');
+    if (!topCtx || !leftCtx) return;
+
+    const rulerBg = inverted ? '#1C1C1E' : '#F0F2F5';
+    const tickColor = inverted ? '#48484A' : '#C7C7CC';
+    const textColor = inverted ? '#8E8E93' : '#6E6E73';
+    const cursorColor = '#0066CC';
+
+    // 1. Top Ruler
+    topCtx.fillStyle = rulerBg;
+    topCtx.fillRect(0, 0, topCanvas.width, topCanvas.height);
+
+    topCtx.strokeStyle = tickColor;
+    topCtx.fillStyle = textColor;
+    topCtx.font = '9px "JetBrains Mono", monospace';
+    topCtx.textBaseline = 'bottom';
+    topCtx.textAlign = 'center';
+
+    const dw = currentDrawing.drawingWidth || 1200;
+    const step = 50; // mm step
+
+    for (let dX = 0; dX <= dw; dX += step) {
+      const screenX = pan.x + dX * zoom;
+      if (screenX >= 0 && screenX <= topCanvas.width) {
+        const isMajor = dX % 100 === 0;
+        const tickH = isMajor ? 12 : 6;
+        topCtx.beginPath();
+        topCtx.moveTo(screenX, topCanvas.height);
+        topCtx.lineTo(screenX, topCanvas.height - tickH);
+        topCtx.stroke();
+
+        if (isMajor && screenX > 20 && screenX < topCanvas.width - 20) {
+          topCtx.fillText(`${dX}`, screenX, topCanvas.height - 13);
+        }
+      }
+    }
+
+    // Top Ruler Cursor Indicator
+    const cursorScreenX = pan.x + cursorPos.x * zoom;
+    if (cursorScreenX >= 0 && cursorScreenX <= topCanvas.width) {
+      topCtx.strokeStyle = cursorColor;
+      topCtx.lineWidth = 1.5;
+      topCtx.beginPath();
+      topCtx.moveTo(cursorScreenX, 0);
+      topCtx.lineTo(cursorScreenX, topCanvas.height);
+      topCtx.stroke();
+    }
+
+    // 2. Left Ruler
+    leftCtx.fillStyle = rulerBg;
+    leftCtx.fillRect(0, 0, leftCanvas.width, leftCanvas.height);
+
+    leftCtx.strokeStyle = tickColor;
+    leftCtx.fillStyle = textColor;
+    leftCtx.font = '9px "JetBrains Mono", monospace';
+    leftCtx.textBaseline = 'middle';
+    leftCtx.textAlign = 'right';
+
+    const dh = currentDrawing.drawingHeight || 800;
+
+    for (let dY = 0; dY <= dh; dY += step) {
+      const screenY = pan.y + dY * zoom;
+      if (screenY >= 0 && screenY <= leftCanvas.height) {
+        const isMajor = dY % 100 === 0;
+        const tickW = isMajor ? 12 : 6;
+        leftCtx.beginPath();
+        leftCtx.moveTo(leftCanvas.width, screenY);
+        leftCtx.lineTo(leftCanvas.width - tickW, screenY);
+        leftCtx.stroke();
+
+        if (isMajor && screenY > 15 && screenY < leftCanvas.height - 15) {
+          leftCtx.save();
+          leftCtx.translate(leftCanvas.width - 14, screenY);
+          leftCtx.rotate(-Math.PI / 2);
+          leftCtx.textAlign = 'center';
+          leftCtx.fillText(`${dY}`, 0, 0);
+          leftCtx.restore();
+        }
+      }
+    }
+
+    // Left Ruler Cursor Indicator
+    const cursorScreenY = pan.y + cursorPos.y * zoom;
+    if (cursorScreenY >= 0 && cursorScreenY <= leftCanvas.height) {
+      leftCtx.strokeStyle = cursorColor;
+      leftCtx.lineWidth = 1.5;
+      leftCtx.beginPath();
+      leftCtx.moveTo(0, cursorScreenY);
+      leftCtx.lineTo(leftCanvas.width, cursorScreenY);
+      leftCtx.stroke();
+    }
+  }, [pan, zoom, cursorPos, currentDrawing.drawingWidth, currentDrawing.drawingHeight, inverted]);
 
   // Main Canvas Render Loop
   useEffect(() => {
@@ -153,7 +273,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Render underlying CAD vector sheet
+    // Render underlying CAD blueprint
     renderCADBlueprint(canvas, currentDrawing, {
       inverted,
       showGrid: true,
@@ -173,15 +293,18 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       const anchorX = char.bbox.x + char.bbox.width / 2;
       const anchorY = char.bbox.y + char.bbox.height / 2;
 
+      // Color coding: Selected (Fluent Blue #0066CC), Pass (#107C41), Fail (#DC2626), Warn (#D97706), Default QA Crimson (#E11D48)
+      const balloonColor = isSelected
+        ? '#0066CC'
+        : char.status === 'in_spec'
+        ? '#107C41'
+        : char.status === 'out_of_spec'
+        ? '#DC2626'
+        : '#D97706';
+
       // Leader line
       ctx.save();
-      ctx.strokeStyle = isSelected
-        ? '#FF5500'
-        : char.status === 'in_spec'
-        ? '#22C55E'
-        : char.status === 'out_of_spec'
-        ? '#EF4444'
-        : '#F59E0B';
+      ctx.strokeStyle = balloonColor;
       ctx.lineWidth = isSelected ? 2 : 1.25;
 
       ctx.beginPath();
@@ -191,7 +314,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
 
       // Arrowhead at anchor
       const angle = Math.atan2(anchorY - bY, anchorX - bX);
-      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fillStyle = balloonColor;
       ctx.beginPath();
       ctx.moveTo(anchorX, anchorY);
       ctx.lineTo(anchorX - 7 * Math.cos(angle - Math.PI / 6), anchorY - 7 * Math.sin(angle - Math.PI / 6));
@@ -199,34 +322,27 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       ctx.closePath();
       ctx.fill();
 
-      // Concentric Radar Ring on selected balloon
+      // Concentric Radar Halo on selected balloon
       if (isSelected) {
-        ctx.strokeStyle = 'rgba(255, 85, 0, 0.4)';
+        ctx.strokeStyle = 'rgba(0, 102, 204, 0.4)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(bX, bY, 22, 0, Math.PI * 2);
+        ctx.arc(bX, bY, 20, 0, Math.PI * 2);
         ctx.stroke();
 
-        ctx.strokeStyle = 'rgba(255, 85, 0, 0.2)';
+        ctx.strokeStyle = 'rgba(0, 102, 204, 0.2)';
         ctx.beginPath();
-        ctx.arc(bX, bY, 30, 0, Math.PI * 2);
+        ctx.arc(bX, bY, 28, 0, Math.PI * 2);
         ctx.stroke();
       }
 
       // Balloon Circle
-      ctx.fillStyle = isSelected
-        ? '#FF5500'
-        : char.status === 'in_spec'
-        ? '#22C55E'
-        : char.status === 'out_of_spec'
-        ? '#EF4444'
-        : '#F59E0B';
-
+      ctx.fillStyle = balloonColor;
       ctx.beginPath();
       ctx.arc(bX, bY, 12, 0, Math.PI * 2);
       ctx.fill();
 
-      // Thin border
+      // Thin crisp white border
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 1.25;
       ctx.stroke();
@@ -252,357 +368,347 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     customImage,
   ]);
 
-  // Minimap rendering
+  // Minimap Renderer
   const renderMinimap = () => {
-    const mini = minimapCanvasRef.current;
-    const mainCanvas = canvasRef.current;
-    if (!mini || !mainCanvas) return;
-    const miniCtx = mini.getContext('2d');
-    if (!miniCtx) return;
+    const minimap = minimapCanvasRef.current;
+    if (!minimap) return;
+    const mCtx = minimap.getContext('2d');
+    if (!mCtx) return;
 
-    miniCtx.fillStyle = inverted ? '#141413' : '#EAE8E1';
-    miniCtx.fillRect(0, 0, mini.width, mini.height);
+    mCtx.fillStyle = inverted ? '#141413' : '#EAE8E1';
+    mCtx.fillRect(0, 0, minimap.width, minimap.height);
 
-    // Draw scale thumbnail of main drawing
-    miniCtx.drawImage(mainCanvas, 0, 0, mini.width, mini.height);
+    const scaleX = minimap.width / (currentDrawing.drawingWidth || 1200);
+    const scaleY = minimap.height / (currentDrawing.drawingHeight || 800);
 
-    // Viewport rectangle
+    // Draw balloon dots on minimap
+    characteristics.forEach((char) => {
+      const isSel = char.id === activeBalloonId;
+      mCtx.fillStyle = isSel
+        ? '#0066CC'
+        : char.status === 'in_spec'
+        ? '#107C41'
+        : char.status === 'out_of_spec'
+        ? '#DC2626'
+        : '#D97706';
+      mCtx.beginPath();
+      mCtx.arc(char.balloonPosition.x * scaleX, char.balloonPosition.y * scaleY, isSel ? 3.5 : 2, 0, Math.PI * 2);
+      mCtx.fill();
+    });
+
+    // Draw Viewport Frustum Box
     if (containerRef.current) {
-      const cw = containerRef.current.clientWidth;
-      const ch = containerRef.current.clientHeight;
-      const scaleX = mini.width / (mainCanvas.width * zoom);
-      const scaleY = mini.height / (mainCanvas.height * zoom);
+      const cW = containerRef.current.clientWidth;
+      const cH = containerRef.current.clientHeight;
 
-      const vx = -pan.x * scaleX;
-      const vy = -pan.y * scaleY;
-      const vw = cw * scaleX;
-      const vh = ch * scaleY;
+      const vx = (-pan.x / zoom) * scaleX;
+      const vy = (-pan.y / zoom) * scaleY;
+      const vw = (cW / zoom) * scaleX;
+      const vh = (cH / zoom) * scaleY;
 
-      miniCtx.strokeStyle = '#FF5500';
-      miniCtx.lineWidth = 1.5;
-      miniCtx.strokeRect(vx, vy, vw, vh);
+      mCtx.strokeStyle = '#0066CC';
+      mCtx.lineWidth = 1.25;
+      mCtx.strokeRect(vx, vy, vw, vh);
+      mCtx.fillStyle = 'rgba(0, 102, 204, 0.08)';
+      mCtx.fillRect(vx, vy, vw, vh);
     }
   };
 
-  // Convert client cursor coords to drawing canvas coords
-  const screenToCanvasCoords = (clientX: number, clientY: number): Point => {
+  // Handle Wheel Zoom (centered on cursor)
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+    const newZoom = Math.min(3.0, Math.max(0.25, zoom * zoomFactor));
+
+    const drawingX = (mouseX - pan.x) / zoom;
+    const drawingY = (mouseY - pan.y) / zoom;
+
+    const newPanX = mouseX - drawingX * newZoom;
+    const newPanY = mouseY - drawingY * newZoom;
+
+    setZoom(newZoom);
+    setPan({ x: newPanX, y: newPanY });
+  };
+
+  // Convert mouse event to canvas coordinate
+  const getCanvasCoords = (e: React.MouseEvent | React.PointerEvent): Point => {
     if (!containerRef.current) return { x: 0, y: 0 };
     const rect = containerRef.current.getBoundingClientRect();
-    const screenX = clientX - rect.x;
-    const screenY = clientY - rect.y;
-
+    const clientX = e.clientX - rect.left;
+    const clientY = e.clientY - rect.top;
     return {
-      x: (screenX - pan.x) / zoom,
-      y: (screenY - pan.y) / zoom,
+      x: (clientX - pan.x) / zoom,
+      y: (clientY - pan.y) / zoom
     };
   };
 
-  // Pointer Down (Handles Pan, Balloon Dragging, and Shift-Drag Box Ballooning)
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    const pt = screenToCanvasCoords(e.clientX, e.clientY);
+  // Pointer Down
+  const handlePointerDown = (e: React.PointerEvent) => {
+    const coords = getCanvasCoords(e);
 
-    // Shift key or Box Balloon tool mode triggers marquee box selection
-    if (e.shiftKey || toolMode === 'box_balloon') {
-      isBoxSelecting.current = true;
-      boxStart.current = pt;
-      setBoxSelection({ x: pt.x, y: pt.y, width: 0, height: 0 });
+    // 1. Check if clicked on a balloon circle (within 16px radius)
+    const clickedBalloon = characteristics.find((c) => {
+      const dx = c.balloonPosition.x - coords.x;
+      const dy = c.balloonPosition.y - coords.y;
+      return Math.sqrt(dx * dx + dy * dy) <= 16;
+    });
+
+    if (clickedBalloon) {
+      onSelectCharacteristic(clickedBalloon.id);
+      setDraggedBalloonId(clickedBalloon.id);
+      soundEngine.playKeyClick();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
       return;
     }
 
-    // Check if clicked on a balloon circle
-    for (const char of characteristics) {
-      const dx = char.balloonPosition.x - pt.x;
-      const dy = char.balloonPosition.y - pt.y;
-      if (Math.sqrt(dx * dx + dy * dy) <= 16) {
-        onSelectCharacteristic(char.id);
-        setDraggedBalloonId(char.id);
-        return;
-      }
+    // 2. Box-ballooning mode
+    if (toolMode === 'box_balloon' || e.shiftKey) {
+      isBoxSelecting.current = true;
+      boxStart.current = coords;
+      setBoxSelection({ x: coords.x, y: coords.y, width: 0, height: 0 });
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      return;
     }
 
-    // Otherwise initiate pan
+    // 3. Pan canvas mode
     isPanning.current = true;
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const pt = screenToCanvasCoords(e.clientX, e.clientY);
-    setCursorPos({ x: Math.round(pt.x), y: Math.round(pt.y) });
-    setSheetZone(computeZone(pt.x, pt.y));
+  // Pointer Move
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const coords = getCanvasCoords(e);
+    const currentZone = computeZone(coords.x, coords.y);
+    setCursorPos(coords);
+    setSheetZone(currentZone);
 
-    // Handle Shift-Drag box marquee
+    if (onCursorMove) {
+      onCursorMove(coords, currentZone);
+    }
+
+    // Dragging individual balloon
+    if (draggedBalloonId !== null) {
+      onUpdateCharacteristicPosition(draggedBalloonId, coords);
+      return;
+    }
+
+    // Dragging box selection marquee
     if (isBoxSelecting.current) {
-      const x = Math.min(boxStart.current.x, pt.x);
-      const y = Math.min(boxStart.current.y, pt.y);
-      const width = Math.abs(pt.x - boxStart.current.x);
-      const height = Math.abs(pt.y - boxStart.current.y);
+      const startX = boxStart.current.x;
+      const startY = boxStart.current.y;
+      const x = Math.min(startX, coords.x);
+      const y = Math.min(startY, coords.y);
+      const width = Math.abs(coords.x - startX);
+      const height = Math.abs(coords.y - startY);
       setBoxSelection({ x, y, width, height });
       return;
     }
 
-    // Handle Dragging an individual balloon
-    if (draggedBalloonId !== null) {
-      onUpdateCharacteristicPosition(draggedBalloonId, pt);
-      return;
-    }
-
-    // Handle Pan
+    // Panning canvas
     if (isPanning.current) {
       setPan({
         x: e.clientX - panStart.current.x,
-        y: e.clientY - panStart.current.y,
+        y: e.clientY - panStart.current.y
       });
     }
   };
 
-  const handlePointerUp = () => {
-    // Finish Shift-Drag Box Ballooning: Crop canvas snippet and add characteristic!
-    if (isBoxSelecting.current && boxSelection && boxSelection.width > 15 && boxSelection.height > 10) {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const cropUrl = cropCanvasSnippet(canvas, boxSelection, 140, 48);
-        const nextId = Math.max(0, ...characteristics.map((c) => c.id)) + 1;
-        const nextNum = Math.max(0, ...characteristics.map((c) => c.balloonNumber)) + 1;
-        const zone = computeZone(boxSelection.x, boxSelection.y);
-
-        // Heuristic nominal dimension estimate from coordinates
-        const estNominal = Number((10 + Math.random() * 40).toFixed(2));
-
-        const newChar: Characteristic = {
-          id: nextId,
-          balloonNumber: nextNum,
-          zone,
-          designator: 'Major',
-          rawCallout: `${estNominal.toFixed(2)} ±0.10`,
-          featureDescription: `Auto-Extracted Feature (Zone ${zone})`,
-          nominal: estNominal,
-          toleranceType: 'Bilateral',
-          plusTolerance: 0.1,
-          minusTolerance: 0.1,
-          lsl: Number((estNominal - 0.1).toFixed(3)),
-          usl: Number((estNominal + 0.1).toFixed(3)),
-          units: 'mm',
-          instrument: 'Mitutoyo Digital Caliper',
-          measuredValue: Number((estNominal + (Math.random() * 0.08 - 0.04)).toFixed(3)),
-          lotMeasurements: [estNominal, estNominal + 0.02, estNominal - 0.01],
-          status: 'needs_review',
-          confidence: 96.4,
-          bbox: boxSelection,
-          balloonPosition: {
-            x: boxSelection.x - 30,
-            y: boxSelection.y - 20,
-          },
-          cropDataUrl: cropUrl,
-        };
-
-        onAddCharacteristic(newChar);
-        onSelectCharacteristic(newChar.id);
-      }
+  // Pointer Up
+  const handlePointerUp = (e: React.PointerEvent) => {
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
     }
 
-    isBoxSelecting.current = false;
-    setBoxSelection(null);
+    if (draggedBalloonId !== null) {
+      setDraggedBalloonId(null);
+    }
+
+    if (isBoxSelecting.current && boxSelection) {
+      isBoxSelecting.current = false;
+      if (boxSelection.width > 20 && boxSelection.height > 12) {
+        handleCreateBoxBalloon(boxSelection);
+      }
+      setBoxSelection(null);
+    }
+
     isPanning.current = false;
-    setDraggedBalloonId(null);
   };
 
-  // Zoom via wheel
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-    const newZoom = Math.max(0.5, Math.min(3.0, zoom * zoomFactor));
-    setZoom(Number(newZoom.toFixed(2)));
+  // Create new Characteristic from Shift-Drag box
+  const handleCreateBoxBalloon = (bbox: BoundingBox) => {
+    const canvas = canvasRef.current;
+    const cropDataUrl = canvas ? cropCanvasSnippet(canvas, bbox, 140, 48) : '';
+    const newId = Date.now();
+    const nextBalloonNum = characteristics.length + 1;
+    const zone = computeZone(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+
+    const newChar: Characteristic = {
+      id: newId,
+      balloonNumber: nextBalloonNum,
+      zone,
+      designator: 'Minor',
+      rawCallout: 'NEW DIM ±0.10',
+      featureDescription: 'User-Selected Dimension Callout',
+      nominal: 25.000,
+      toleranceType: 'Bilateral',
+      plusTolerance: 0.100,
+      minusTolerance: 0.100,
+      lsl: 24.900,
+      usl: 25.100,
+      units: 'mm',
+      instrument: 'Mitutoyo Digital Caliper',
+      measuredValue: 25.000,
+      lotMeasurements: [25.000, 25.000, 25.000],
+      status: 'in_spec',
+      confidence: 96.5,
+      bbox,
+      balloonPosition: {
+        x: Math.round(bbox.x + bbox.width + 30),
+        y: Math.round(bbox.y - 15)
+      },
+      cropDataUrl
+    };
+
+    onAddCharacteristic(newChar);
+    onSelectCharacteristic(newId);
+    soundEngine.playInSpecPass();
   };
 
-  const handleFitSheet = () => {
-    setZoom(1.0);
-    setPan({ x: 20, y: 20 });
-  };
-
+  // Drag and Drop File Handlers
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragOver(true);
   };
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDragLeave = () => {
     setIsDragOver(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && onDropImageFile) {
-      onDropImageFile(file);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (onDropImageFile) {
+        onDropImageFile(file);
+      }
     }
   };
 
   return (
-    <div
-      ref={containerRef}
-      onWheel={handleWheel}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className="relative flex-1 min-w-0 h-full bg-canvas overflow-hidden select-none cursor-crosshair"
-    >
-      {/* Drag & Drop Overlay Indicator (Fix 08) */}
-      {isDragOver && (
-        <div className="absolute inset-0 bg-acc-orange/20 border-2 border-dashed border-acc-orange z-50 flex items-center justify-center pointer-events-none">
-          <div className="bg-surface-1 border border-acc-orange p-6 font-mono text-center shadow-xl">
-            <Upload className="w-8 h-8 text-acc-orange mx-auto mb-2 animate-bounce" />
-            <div className="font-bold text-text-pri text-sm">[+ DROP CAD BLUEPRINT OR PDF HERE]</div>
-            <div className="text-[11px] text-text-sec mt-1">Accepts PNG, JPG, WebP, SVG, and PDF drawings</div>
-          </div>
+    <div className="flex-1 w-full h-full relative flex flex-col overflow-hidden bg-page select-none">
+      {/* 1. Top Ruler Bar */}
+      <div className="h-6 w-full flex items-center bg-subtle border-b border-border-hairline z-20">
+        {/* Top-Left Corner Square (Origin Marker) */}
+        <div className="w-6 h-6 border-r border-border-hairline bg-subtle flex items-center justify-center text-[10px] font-mono text-text-mut font-semibold">
+          mm
         </div>
-      )}
-      {/* CAD Canvas Render Node */}
-      <div
-        className="absolute transition-transform duration-75 origin-top-left"
-        style={{
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          width={currentDrawing.drawingWidth}
-          height={currentDrawing.drawingHeight}
-          className="shadow-md"
-        />
-
-        {/* Live Cyan Box-Balloon Marquee Overlay */}
-        {boxSelection && (
-          <div
-            className="absolute border-2 border-acc-cobalt bg-acc-cobalt/20 pointer-events-none"
-            style={{
-              left: `${boxSelection.x}px`,
-              top: `${boxSelection.y}px`,
-              width: `${boxSelection.width}px`,
-              height: `${boxSelection.height}px`,
-            }}
-          >
-            <div className="absolute -top-5 left-0 bg-acc-cobalt text-white font-mono text-[11px] px-1.5 py-0.5 font-bold whitespace-nowrap">
-              + BOX BALLOON CROP
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Top-Right Telemetry HUD */}
-      <div className="absolute top-3 right-3 border border-border-str bg-surface-1/95 px-3 py-1.5 font-mono text-[11px] text-text-sec flex items-center gap-3 shadow-sm z-20">
-        <div>X: <span className="text-text-pri font-bold">{cursorPos.x}mm</span></div>
-        <div>Y: <span className="text-text-pri font-bold">{cursorPos.y}mm</span></div>
-        <div>ZONE: <span className="text-acc-orange font-bold">{sheetZone}</span></div>
-        <div className="text-text-mut">SCALE {Math.round(zoom * 100)}%</div>
-      </div>
-
-      {/* Bottom-Center Tactile Tool Pill */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 border border-border-str bg-surface-1/95 p-1 font-mono text-xs flex items-center gap-1 shadow-lg z-20">
-        <button
-          onClick={() => setToolMode('pan')}
-          className={`machined-btn px-2.5 py-1 flex items-center gap-1.5 ${
-            toolMode === 'pan' ? 'bg-text-pri text-canvas font-bold' : 'hover:bg-surface-2 text-text-sec'
-          }`}
-          title="Pan / Select Tool (V)"
-        >
-          <Move className="w-3.5 h-3.5" />
-          <span>[V] SELECT</span>
-        </button>
-
-        <button
-          onClick={() => setToolMode(toolMode === 'box_balloon' ? 'pan' : 'box_balloon')}
-          className={`machined-btn px-2.5 py-1 flex items-center gap-1.5 ${
-            toolMode === 'box_balloon' ? 'bg-acc-cobalt text-white font-bold' : 'hover:bg-surface-2 text-text-sec'
-          }`}
-          title="Shift-Drag Box Balloon (B)"
-        >
-          <Crop className="w-3.5 h-3.5" />
-          <span>[B] BOX BALLOON</span>
-        </button>
-
-        <button
-          onClick={onReSortClockwise}
-          className="machined-btn px-2.5 py-1 hover:bg-surface-2 text-text-sec flex items-center gap-1.5"
-          title="Re-Sort Balloon Numbers Clockwise around Part Centroid"
-        >
-          <RotateCw className="w-3.5 h-3.5 text-acc-orange" />
-          <span className="hidden sm:inline">SORT CW</span>
-        </button>
-
-        <button
-          onClick={onToggleInvert}
-          className="machined-btn px-2.5 py-1 hover:bg-surface-2 text-text-sec flex items-center gap-1.5"
-          title="Invert Technical Paper / Carbon (Key: K)"
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">[K] INVERT</span>
-        </button>
-
-        <div className="h-4 w-px bg-border-str mx-1"></div>
-
-        <button
-          onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}
-          className="machined-btn p-1 hover:bg-surface-2 text-text-pri"
-          title="Zoom Out"
-        >
-          <ZoomOut className="w-3.5 h-3.5" />
-        </button>
-
-        <span className="px-1 text-[11px] font-bold text-text-pri min-w-[42px] text-center">
-          {Math.round(zoom * 100)}%
-        </span>
-
-        <button
-          onClick={() => setZoom(Math.min(3.0, zoom + 0.1))}
-          className="machined-btn p-1 hover:bg-surface-2 text-text-pri"
-          title="Zoom In"
-        >
-          <ZoomIn className="w-3.5 h-3.5" />
-        </button>
-
-        <button
-          onClick={handleFitSheet}
-          className="machined-btn p-1 hover:bg-surface-2 text-text-pri"
-          title="Fit Blueprint Sheet (F)"
-        >
-          <Maximize className="w-3.5 h-3.5" />
-        </button>
-
-        <div className="h-4 w-px bg-border-str mx-1"></div>
-
-        {/* Collapsible Minimap Toggle (Fix 12) */}
-        <button
-          onClick={() => setShowMinimap(!showMinimap)}
-          className="machined-btn px-2 py-1 text-[11px] hover:bg-surface-2 text-text-sec font-bold"
-          title="Toggle Radar Minimap"
-        >
-          <span>{showMinimap ? '[-] MINIMAP' : '[+] MINIMAP'}</span>
-        </button>
-      </div>
-
-      {/* Bottom-Right Minimap Radar (140x90px) (Fix 12) */}
-      {showMinimap && (
-        <div className="absolute bottom-4 right-4 border border-border-str bg-surface-1 p-1 shadow-md hidden sm:block z-20">
-          <div className="text-[11px] font-mono text-text-mut mb-1 px-1 flex items-center justify-between font-bold">
-            <span>RADAR MINIMAP</span>
-            <span className="text-acc-orange">{characteristics.length} BALLOONS</span>
-          </div>
+        <div className="flex-1 h-6 relative overflow-hidden">
           <canvas
-            ref={minimapCanvasRef}
-            width={140}
-            height={90}
-            className="border border-border-str"
+            ref={topRulerRef}
+            width={1920}
+            height={24}
+            className="w-full h-full block"
           />
         </div>
-      )}
+      </div>
+
+      {/* 2. Main Viewport Area (Left Ruler + Artboard Canvas) */}
+      <div className="flex-1 w-full flex relative overflow-hidden">
+        {/* Left Ruler Bar */}
+        <div className="w-6 h-full bg-subtle border-r border-border-hairline z-20 relative overflow-hidden">
+          <canvas
+            ref={leftRulerRef}
+            width={24}
+            height={1080}
+            className="w-full h-full block"
+          />
+        </div>
+
+        {/* Artboard Container with subtle grid background */}
+        <div
+          ref={containerRef}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`flex-1 h-full relative overflow-hidden bg-page bg-subtle-grid cursor-${
+            toolMode === 'box_balloon' ? 'crosshair' : isPanning.current ? 'grabbing' : 'grab'
+          }`}
+        >
+          {/* Centered Artboard Sheet (elevated white canvas) */}
+          <div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: '0 0',
+              width: currentDrawing.drawingWidth || 1200,
+              height: currentDrawing.drawingHeight || 800,
+            }}
+            className="absolute shadow-artboard rounded-xs bg-surface border border-border-hairline transition-shadow"
+          >
+            <canvas
+              ref={canvasRef}
+              width={currentDrawing.drawingWidth || 1200}
+              height={currentDrawing.drawingHeight || 800}
+              className="block rounded-xs"
+            />
+
+            {/* Marquee Box Selection Overlay */}
+            {boxSelection && (
+              <div
+                style={{
+                  left: boxSelection.x,
+                  top: boxSelection.y,
+                  width: boxSelection.width,
+                  height: boxSelection.height,
+                }}
+                className="absolute border-2 border-dashed border-accent-primary bg-accent-primary/10 pointer-events-none rounded-xs"
+              />
+            )}
+          </div>
+
+          {/* Drag & Drop Overlay */}
+          {isDragOver && (
+            <div className="absolute inset-0 bg-accent-primary/20 backdrop-blur-sm border-2 border-dashed border-accent-primary flex flex-col items-center justify-center z-40">
+              <Upload className="w-12 h-12 text-accent-primary animate-bounce mb-2" />
+              <div className="text-base font-bold text-text-pri">Drop 2D CAD Blueprint or PDF Here</div>
+              <div className="text-xs text-text-sec mt-1">Autonomous OCR and AI Auto-Ballooning will trigger instantly</div>
+            </div>
+          )}
+
+          {/* Floating Minimap Radar (bottom right of viewport) */}
+          {showMinimap && (
+            <div className="absolute bottom-3 right-3 bg-surface/90 backdrop-blur-sm border border-border-hairline rounded-lg shadow-apple-md p-1.5 z-20">
+              <div className="flex items-center justify-between text-[10px] text-text-mut px-1 mb-1 font-mono">
+                <span>RADAR OVERVIEW</span>
+                <button
+                  onClick={() => setShowMinimap(false)}
+                  className="hover:text-text-pri font-bold ml-2"
+                >
+                  ✕
+                </button>
+              </div>
+              <canvas
+                ref={minimapCanvasRef}
+                width={150}
+                height={100}
+                className="rounded border border-border-hairline block"
+              />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
-

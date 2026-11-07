@@ -87,6 +87,18 @@ class AudioSynthesizer {
     }
   }
 
+  public playInSpecPass() {
+    this.playCaliperBeep(true);
+  }
+
+  public playOutOfSpecScrap() {
+    this.playCaliperBeep(false);
+  }
+
+  public playKeyClick() {
+    this.playMechanicalClick();
+  }
+
   /**
    * Force-directed spring snap sound when balloon settles
    */

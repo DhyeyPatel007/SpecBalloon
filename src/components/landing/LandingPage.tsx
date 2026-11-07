@@ -1,11 +1,10 @@
 import React from 'react';
 import { LandingHeader } from './LandingHeader';
-import { HeroScanner } from './HeroScanner';
-import { BottleneckSection } from './BottleneckSection';
-import { ArchitectureSection } from './ArchitectureSection';
-import { FourBaysSection } from './FourBaysSection';
-import { RoiComparisonSection } from './RoiComparisonSection';
-import { LaunchFooter } from './LaunchFooter';
+import { HeroSection } from './HeroSection';
+import { ProblemSection } from './ProblemSection';
+import { BentoGridSection } from './BentoGridSection';
+import { RoiSection } from './RoiSection';
+import { LandingFooter } from './LandingFooter';
 
 interface LandingPageProps {
   darkMode: boolean;
@@ -19,8 +18,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onLaunchWorkspace,
 }) => {
   return (
-    <div className="min-h-screen bg-canvas text-text-pri flex flex-col font-sans selection:bg-acc-orange selection:text-white">
-      {/* 1. Sticky Top Hardware Command Bar */}
+    <div className="min-h-screen bg-page text-text-pri flex flex-col font-sans selection:bg-accent-primary selection:text-white">
+      {/* 1. Sticky Apple Glass Top Navigation */}
       <LandingHeader
         darkMode={darkMode}
         onToggleTheme={onToggleTheme}
@@ -28,25 +27,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       />
 
       <main className="flex-1 w-full flex flex-col">
-        {/* 2. Section 01: Split-Reticle Hero with Draggable Vernier Scanner */}
-        <HeroScanner onLaunchWorkspace={onLaunchWorkspace} />
+        {/* 2. Hero Section with Interactive Blueprint Product Frame */}
+        <HeroSection onLaunchWorkspace={onLaunchWorkspace} />
 
-        {/* 3. Section 02: 3-Column Diagnostic Stress-Test (The Bottleneck) */}
-        <BottleneckSection />
+        {/* 3. Problem Section: The $4.2B Bottleneck (Chaos vs Order) */}
+        <ProblemSection />
 
-        {/* 4. Section 03: 3-Layer Axonometric Exploded Pipeline Explorer */}
-        <ArchitectureSection />
+        {/* 4. Apple 4-Card Bento Grid */}
+        <BentoGridSection />
 
-        {/* 5. Section 04: Four Interactive Machined Structural Bays */}
-        <FourBaysSection />
+        {/* 5. Interactive ROI & Competitor Benchmark */}
+        <RoiSection />
 
-        {/* 6. Section 05: Interactive ROI Calculator & Competitor Matrix */}
-        <RoiComparisonSection />
-
-        {/* 7. Section 06: Full-Width Mechanical Launch Bay */}
-        <LaunchFooter onLaunchWorkspace={onLaunchWorkspace} />
+        {/* 6. Minimalist Compliance Footer & Final Launch CTA */}
+        <LandingFooter onLaunchWorkspace={onLaunchWorkspace} />
       </main>
     </div>
   );
 };
-

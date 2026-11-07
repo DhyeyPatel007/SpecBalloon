@@ -1,4 +1,5 @@
 import { BoundingBox, DrawingSpec, Characteristic } from '../types/metrology';
+import { BLUEPRINT_ASSET_MAP, getCachedImage } from './assetLoader';
 
 export interface RenderOptions {
   inverted: boolean; // Dark carbon vs clean white paper
@@ -173,9 +174,12 @@ export function renderCADBlueprint(
   // Draw Sheet Border & Title Block
   drawSheetBorder(ctx, width, height, spec, options.inverted);
 
-  // Custom Uploaded Image
-  if (options.customImage) {
-    ctx.drawImage(options.customImage, 50, 50, width - 100, height - 100);
+  // Preloaded AI Asset or Custom Uploaded Image
+  const imgToDraw = options.customImage || (spec.id in BLUEPRINT_ASSET_MAP ? getCachedImage(BLUEPRINT_ASSET_MAP[spec.id]) : null);
+  if (imgToDraw) {
+    ctx.drawImage(imgToDraw, 40, 40, width - 80, height - 80);
+    // Render Dimension Callout Texts and Bounding Boxes on Drawing
+    renderCalloutAnnotations(ctx, spec, options);
     return;
   }
 
@@ -631,12 +635,12 @@ export function generateCropsFromSpec(
   options?: { inverted?: boolean; customImage?: HTMLImageElement | null }
 ): Characteristic[] {
   const offscreen = document.createElement('canvas');
-  offscreen.width = spec.drawingWidth || 1200;
-  offscreen.height = spec.drawingHeight || 800;
+  offscreen.width = spec.drawingWidth || 1600;
+  offscreen.height = spec.drawingHeight || 1100;
   renderCADBlueprint(offscreen, spec, {
     inverted: options?.inverted ?? false,
     showGrid: false,
-    customImage: options?.customImage
+    customImage: options?.customImage || (spec.id in BLUEPRINT_ASSET_MAP ? getCachedImage(BLUEPRINT_ASSET_MAP[spec.id]) : null)
   });
   return spec.characteristics.map((char) => {
     const cropUrl = cropCanvasSnippet(offscreen, char.bbox, 140, 48);

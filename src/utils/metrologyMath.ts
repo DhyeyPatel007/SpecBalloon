@@ -2,15 +2,17 @@ import * as XLSX from 'xlsx';
 import { Characteristic, GeneralToleranceStandard } from '../types/metrology';
 
 /**
- * Strict Number Formatting Utilities (Fix 14)
- * - Dimensions / tolerances: 3 decimals (0.000)
+ * Strict Number Formatting Utilities (Apple/Stripe & MS Fluent Metrology Standards)
+ * - Dimensions / tolerances: 3 decimals via fmt3 (0.000) - Strict Float Formatting Law
  * - Percentages: 1 decimal with '%' (52.4%)
  * - SPC indices (Cp, Cpk): 2 decimals (1.33)
  */
-export function fmtDim(val: number | undefined | null): string {
-  if (val === undefined || val === null || isNaN(val)) return '0.000';
-  return Number(val).toFixed(3);
-}
+export const fmt3 = (n: number | undefined | null): string => {
+  if (n === undefined || n === null || isNaN(n)) return '0.000';
+  return Number(Math.round(Number(n + 'e4')) + 'e-4').toFixed(3);
+};
+
+export const fmtDim = fmt3;
 
 export function fmtPct(val: number | undefined | null): string {
   if (val === undefined || val === null || isNaN(val)) return '0.0%';
