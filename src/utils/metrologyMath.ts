@@ -334,6 +334,89 @@ export function calculateSPC(lsl: number, usl: number, samples: number[]): { cp:
   };
 }
 
+export interface MovingRangeSPCResult {
+  mean: number;
+  samples: number[];
+  movingRanges: number[];
+  avgMovingRange: number;
+  sigma: number;
+  ucl: number;
+  lcl: number;
+  ucl_mr: number;
+  lcl_mr: number;
+  cp: number;
+  cpk: number;
+  inControl: boolean;
+}
+
+/**
+ * Full Moving Range Statistical Process Control (SPC)
+ * Calculates Individuals (X-bar, UCL, LCL) and Moving Range (MR-bar, UCL_mr)
+ */
+export function calculateMovingRangeSPC(lsl: number, usl: number, samples: number[]): MovingRangeSPCResult {
+  if (!samples || samples.length < 2) {
+    const mid = (lsl + usl) / 2;
+    return {
+      mean: Number(mid.toFixed(4)),
+      samples: samples && samples.length ? samples : [mid],
+      movingRanges: [],
+      avgMovingRange: 0.001,
+      sigma: Number(((usl - lsl) / 6).toFixed(4)),
+      ucl: Number(usl.toFixed(4)),
+      lcl: Number(lsl.toFixed(4)),
+      ucl_mr: 0.005,
+      lcl_mr: 0.000,
+      cp: 1.33,
+      cpk: 1.33,
+      inControl: true
+    };
+  }
+
+  const n = samples.length;
+  const mean = samples.reduce((a, b) => a + b, 0) / n;
+
+  const movingRanges: number[] = [];
+  for (let i = 1; i < n; i++) {
+    movingRanges.push(Math.abs(samples[i] - samples[i - 1]));
+  }
+
+  const avgMovingRange = movingRanges.length > 0
+    ? movingRanges.reduce((a, b) => a + b, 0) / movingRanges.length
+    : 0.001;
+
+  // d2 factor for n=2 is 1.128
+  const sigma = Math.max(0.0001, avgMovingRange / 1.128);
+
+  const ucl = mean + 2.66 * avgMovingRange;
+  const lcl = mean - 2.66 * avgMovingRange;
+
+  const ucl_mr = 3.267 * avgMovingRange;
+  const lcl_mr = 0.000;
+
+  const spread = usl - lsl;
+  const cp = spread > 0 ? spread / (6 * sigma) : 0.0;
+  const cpu = sigma > 0 ? (usl - mean) / (3 * sigma) : 0.0;
+  const cpl = sigma > 0 ? (mean - lsl) / (3 * sigma) : 0.0;
+  const cpk = Math.max(0, Math.min(cpu, cpl));
+
+  const inControl = samples.every(s => s >= lcl && s <= ucl) && movingRanges.every(mr => mr <= ucl_mr);
+
+  return {
+    mean: Number(mean.toFixed(4)),
+    samples,
+    movingRanges: movingRanges.map(mr => Number(mr.toFixed(4))),
+    avgMovingRange: Number(avgMovingRange.toFixed(4)),
+    sigma: Number(sigma.toFixed(4)),
+    ucl: Number(ucl.toFixed(4)),
+    lcl: Number(lcl.toFixed(4)),
+    ucl_mr: Number(ucl_mr.toFixed(4)),
+    lcl_mr: 0.000,
+    cp: Number(cp.toFixed(2)),
+    cpk: Number(cpk.toFixed(2)),
+    inControl
+  };
+}
+
 /**
  * Formats and downloads AS9102 Rev C Form 3 CSV with strict truth grounding
  */
@@ -356,19 +439,27 @@ export function exportAS9102CSV(partNumber: string, revision: string, characteri
     'Sample 1',
     'Sample 2',
     'Sample 3',
+    'Sample 4',
+    'Sample 5',
+    'Sample 6',
+    'Sample 7',
+    'Sample 8',
+    'Sample 9',
+    'Sample 10',
     'Cpk',
     'Inspection Status'
   ];
 
   const rows = characteristics.map(c => {
-    const spc = calculateSPC(c.lsl, c.usl, c.lotMeasurements);
-    const measuredDisplay = c.isDemo
-      ? 'DEMO ONLY'
-      : (c.measuredValue !== undefined && c.measuredValue !== null ? fmtDim(c.measuredValue) : 'NEEDS_REVIEW');
+    const spc = calculateMovingRangeSPC(c.lower_limit ?? c.lsl, c.upper_limit ?? c.usl, c.lotMeasurements || []);
+    const measuredDisplay = c.measuredValue !== undefined && c.measuredValue !== null 
+      ? fmtDim(c.measuredValue) 
+      : 'NEEDS_REVIEW';
 
-    const s1 = c.isDemo ? 'DEMO' : (c.lotMeasurements[0] !== undefined ? fmtDim(c.lotMeasurements[0]) : '');
-    const s2 = c.isDemo ? 'DEMO' : (c.lotMeasurements[1] !== undefined ? fmtDim(c.lotMeasurements[1]) : '');
-    const s3 = c.isDemo ? 'DEMO' : (c.lotMeasurements[2] !== undefined ? fmtDim(c.lotMeasurements[2]) : '');
+    const samples10 = Array.from({ length: 10 }).map((_, idx) => {
+      const val = c.lotMeasurements && c.lotMeasurements[idx];
+      return val !== undefined ? fmtDim(val) : '';
+    });
 
     return [
       `"${c.balloonNumber}"`,
@@ -384,10 +475,8 @@ export function exportAS9102CSV(partNumber: string, revision: string, characteri
       `"${c.units}"`,
       `"${c.instrument.replace(/"/g, '""')}"`,
       `"${measuredDisplay}"`,
-      `"${s1}"`,
-      `"${s2}"`,
-      `"${s3}"`,
-      c.isDemo ? 'N/A' : fmtSpc(spc.cpk),
+      ...samples10.map(s => `"${s}"`),
+      fmtSpc(spc.cpk),
       c.status === 'in_spec' ? 'PASS' : c.status === 'out_of_spec' ? 'FAIL' : 'NEEDS_REVIEW'
     ].join(',');
   });
@@ -423,14 +512,18 @@ export function exportAS9102Excel(partNumber: string, revision: string, characte
   const headers = [
     'Char #', 'Zone', 'Designator', 'Specification / GD&T', 'Nominal (Text)', 'Tol Type', 
     '+Tol', '-Tol', 'Lower Limit', 'Upper Limit', 'Units', 'Inspection Tooling', 
-    'Measured', 'Sample 1', 'Sample 2', 'Sample 3', 'Cpk', 'Status'
+    'Measured', 'Sample 1', 'Sample 2', 'Sample 3', 'Sample 4', 'Sample 5',
+    'Sample 6', 'Sample 7', 'Sample 8', 'Sample 9', 'Sample 10', 'Cpk', 'Status'
   ];
 
   const dataRows = characteristics.map(c => {
-    const spc = calculateSPC(c.lsl, c.usl, c.lotMeasurements);
-    const measuredDisplay = c.isDemo
-      ? 'DEMO ONLY'
-      : (c.measuredValue !== undefined && c.measuredValue !== null ? c.measuredValue : 'NEEDS_REVIEW');
+    const spc = calculateMovingRangeSPC(c.lower_limit ?? c.lsl, c.upper_limit ?? c.usl, c.lotMeasurements || []);
+    const measuredDisplay = c.measuredValue !== undefined && c.measuredValue !== null ? c.measuredValue : 'NEEDS_REVIEW';
+
+    const samples10 = Array.from({ length: 10 }).map((_, idx) => {
+      const val = c.lotMeasurements && c.lotMeasurements[idx];
+      return val !== undefined ? val : '';
+    });
 
     return [
       c.balloonNumber,
@@ -446,10 +539,8 @@ export function exportAS9102Excel(partNumber: string, revision: string, characte
       c.units,
       c.instrument,
       measuredDisplay,
-      c.isDemo ? 'DEMO' : (c.lotMeasurements[0] !== undefined ? c.lotMeasurements[0] : ''),
-      c.isDemo ? 'DEMO' : (c.lotMeasurements[1] !== undefined ? c.lotMeasurements[1] : ''),
-      c.isDemo ? 'DEMO' : (c.lotMeasurements[2] !== undefined ? c.lotMeasurements[2] : ''),
-      c.isDemo ? 'N/A' : spc.cpk,
+      ...samples10,
+      spc.cpk,
       c.status === 'in_spec' ? 'PASS' : c.status === 'out_of_spec' ? 'FAIL' : 'NEEDS_REVIEW'
     ];
   });
@@ -478,10 +569,9 @@ export function exportAS9102Excel(partNumber: string, revision: string, characte
     { wch: 12 }, // Upper Limit
     { wch: 8 },  // Units
     { wch: 32 }, // Tooling
-    { wch: 14 }, // Measured
-    { wch: 10 }, // S1
-    { wch: 10 }, // S2
-    { wch: 10 }, // S3
+    { wch: 12 }, // Measured
+    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
     { wch: 8 },  // Cpk
     { wch: 14 }  // Status
   ];

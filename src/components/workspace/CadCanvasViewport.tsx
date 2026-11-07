@@ -10,7 +10,6 @@ import { renderCADBlueprint, cropCanvasSnippet, generateAllCrops } from '../../u
 import { ForceDirectedSimulator, PhysicsBalloon } from '../../utils/balloonPhysics';
 import { soundEngine } from '../../utils/audioSynthesizer';
 import { parseCalloutAndCalculateLimits } from '../../utils/metrologyMath';
-import { MsPaintToolbar, CanvasTool } from './MsPaintToolbar';
 import {
   Upload
 } from 'lucide-react';
@@ -363,13 +362,71 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       const anchorY = char.bbox.y + char.bbox.height / 2;
 
       const balloonColor = isSelected
-        ? '#0066CC'
+        ? '#0284C7'
         : char.status === 'in_spec'
         ? '#107C41'
         : char.status === 'out_of_spec'
         ? '#DC2626'
         : '#D97706';
 
+      // 1. Translucent Callout Highlight Pill over char.bbox
+      const { x: boxX, y: boxY, width: boxW, height: boxH } = char.bbox;
+      const cornerRadius = 4;
+
+      const fillStyle = isSelected
+        ? 'rgba(2, 132, 199, 0.22)'
+        : char.status === 'in_spec'
+        ? 'rgba(16, 185, 129, 0.16)'
+        : char.status === 'out_of_spec'
+        ? 'rgba(239, 68, 68, 0.18)'
+        : 'rgba(245, 158, 11, 0.18)';
+
+      const strokeStyle = isSelected
+        ? '#0284C7'
+        : char.status === 'in_spec'
+        ? '#10B981'
+        : char.status === 'out_of_spec'
+        ? '#EF4444'
+        : '#F59E0B';
+
+      ctx.save();
+      // Draw rounded rectangle for bbox highlight
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(boxX, boxY, boxW, boxH, cornerRadius);
+      } else {
+        ctx.rect(boxX, boxY, boxW, boxH);
+      }
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.stroke();
+
+      // Corner Tag Badge (#01) in top-left
+      const tagLabel = `#${char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber}`;
+      const tagW = 26;
+      const tagH = 13;
+      const tagX = boxX;
+      const tagY = Math.max(2, boxY - tagH);
+
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(tagX, tagY, tagW, tagH, 3);
+      } else {
+        ctx.rect(tagX, tagY, tagW, tagH);
+      }
+      ctx.fillStyle = isSelected ? '#0284C7' : balloonColor;
+      ctx.fill();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(tagLabel, tagX + tagW / 2, tagY + tagH / 2);
+      ctx.restore();
+
+      // 2. Leader line and circular balloon
       ctx.save();
       ctx.strokeStyle = balloonColor;
       ctx.lineWidth = isSelected ? 2 : 1.25;
@@ -389,13 +446,13 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       ctx.fill();
 
       if (isSelected) {
-        ctx.strokeStyle = 'rgba(0, 102, 204, 0.4)';
+        ctx.strokeStyle = 'rgba(2, 132, 199, 0.4)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(bX, bY, 20, 0, Math.PI * 2);
         ctx.stroke();
 
-        ctx.strokeStyle = 'rgba(0, 102, 204, 0.2)';
+        ctx.strokeStyle = 'rgba(2, 132, 199, 0.2)';
         ctx.beginPath();
         ctx.arc(bX, bY, 28, 0, Math.PI * 2);
         ctx.stroke();
@@ -512,16 +569,30 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   const handlePointerDown = (e: React.PointerEvent) => {
     const coords = getCanvasCoords(e);
 
-    // 1. Balloon hit test (16px radius)
-    const clickedBalloon = characteristics.find((c) => {
+    // 1. Balloon or Translucent Highlight Pill Hit Test
+    const clickedChar = characteristics.find((c) => {
+      // Check circular balloon (16px radius)
       const dx = c.balloonPosition.x - coords.x;
       const dy = c.balloonPosition.y - coords.y;
-      return Math.sqrt(dx * dx + dy * dy) <= 16;
+      if (Math.sqrt(dx * dx + dy * dy) <= 16) return true;
+
+      // Check translucent highlight pill / corner tag bounding box
+      const inBbox =
+        coords.x >= c.bbox.x - 4 &&
+        coords.x <= c.bbox.x + c.bbox.width + 4 &&
+        coords.y >= c.bbox.y - 16 &&
+        coords.y <= c.bbox.y + c.bbox.height + 4;
+      return inBbox;
     });
 
-    if (clickedBalloon) {
-      onSelectCharacteristic(clickedBalloon.id);
-      setDraggedBalloonId(clickedBalloon.id);
+    if (clickedChar) {
+      onSelectCharacteristic(clickedChar.id);
+      // If clicked near balloon circle, allow dragging balloon position
+      const dx = clickedChar.balloonPosition.x - coords.x;
+      const dy = clickedChar.balloonPosition.y - coords.y;
+      if (Math.sqrt(dx * dx + dy * dy) <= 20) {
+        setDraggedBalloonId(clickedChar.id);
+      }
       soundEngine.playKeyClick();
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       return;
@@ -707,34 +778,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
             toolMode === 'box_balloon' ? 'crosshair' : isPanning.current ? 'grabbing' : 'grab'
           }`}
         >
-          {/* MS Paint Style Tool Palette (Docked on Left of Canvas Viewport) */}
-          <div
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MsPaintToolbar
-              currentTool={toolMode === 'box_balloon' ? 'box_balloon' : 'pan'}
-              onSelectTool={(t) => {
-                if (onSetToolMode) {
-                  onSetToolMode(t === 'box_balloon' ? 'box_balloon' : 'pan');
-                }
-              }}
-              onUndo={onUndo || (() => {})}
-              onRedo={onRedo || (() => {})}
-              canUndo={Boolean(canUndo)}
-              canRedo={Boolean(canRedo)}
-              onZoomIn={() => setZoom(Math.min(3.0, Math.round((zoom + 0.1) * 10) / 10))}
-              onZoomOut={() => setZoom(Math.max(0.35, Math.round((zoom - 0.1) * 10) / 10))}
-              onFitScreen={handleFitSheet}
-              activeBalloonId={activeBalloonId}
-              onDeleteActiveBalloon={() => {
-                if (activeBalloonId && onDeleteCharacteristic) {
-                  onDeleteCharacteristic(activeBalloonId);
-                }
-              }}
-            />
-          </div>
-
           {/* Centered Artboard Sheet */}
           <div
             style={{

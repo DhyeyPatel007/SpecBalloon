@@ -3,26 +3,40 @@
 @tailwind utilities;
 
 :root {
-  /* Light Mode (Default — Apple Silver & Windows 11 Mica White) */
-  --bg-page: #F5F5F7;
+  /* Light Theme (Default — Clean Studio White & Fluent Silver) */
+  --bg-app: #F3F4F6;
   --bg-surface: #FFFFFF;
-  --bg-subtle: #F0F2F5;
-  --border-hairline: #E5E5EA;
-  --border-strong: #D1D1D6;
-  --text-primary: #1D1D1F;
-  --text-secondary: #515154;
-  --text-muted: #6E6E73;
-  --accent-primary: #0066CC;
-  --accent-balloon: #E11D48;
-  --status-pass: #107C41;
-  --status-warn: #D97706;
-  --status-fail: #DC2626;
+  --bg-subtle: #F8FAFC;
+  --bg-selected: #EFF6FF;
+  --border-hairline: #E2E8F0;
+  --border-strong: #CBD5E1;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --accent-primary: #0284C7;
+  --accent-balloon: #EA580C;
+
+  --status-pass-bg: rgba(16, 185, 129, 0.16);
+  --status-pass-text: #059669;
+  --status-pass-border: #10B981;
+
+  --status-warn-bg: rgba(245, 158, 11, 0.18);
+  --status-warn-text: #D97706;
+  --status-warn-border: #F59E0B;
+
+  --status-fail-bg: rgba(239, 68, 68, 0.18);
+  --status-fail-text: #DC2626;
+  --status-fail-border: #EF4444;
 
   /* Aliases */
-  --bg-canvas: var(--bg-page);
+  --bg-page: var(--bg-app);
+  --status-pass: var(--status-pass-text);
+  --status-warn: var(--status-warn-text);
+  --status-fail: var(--status-fail-text);
+  --bg-canvas: var(--bg-app);
   --bg-surface-1: var(--bg-surface);
   --bg-surface-2: var(--bg-subtle);
-  --bg-surface-3: #E8EBF0;
+  --bg-surface-3: #E2E8F0;
   --border-structural: var(--border-hairline);
   --border-focus: var(--accent-primary);
   --accent-orange: var(--accent-balloon);
@@ -30,26 +44,40 @@
 }
 
 .dark {
-  /* Dark Mode (Apple Pro Midnight) */
-  --bg-page: #000000;
-  --bg-surface: #1C1C1E;
-  --bg-subtle: #2C2C2E;
-  --border-hairline: #38383A;
-  --border-strong: #48484A;
-  --text-primary: #F5F5F7;
-  --text-secondary: #A1A1A6;
-  --text-muted: #8E8E93;
-  --accent-primary: #0A84FF;
-  --accent-balloon: #FF375F;
-  --status-pass: #30D158;
-  --status-warn: #FF9F0A;
-  --status-fail: #FF453A;
+  /* Dark Theme (Pro Midnight IDE) */
+  --bg-app: #090D16;
+  --bg-surface: #111827;
+  --bg-subtle: #1E293B;
+  --bg-selected: #1E3A8A;
+  --border-hairline: #1F2937;
+  --border-strong: #374151;
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  --accent-primary: #38BDF8;
+  --accent-balloon: #FB923C;
+
+  --status-pass-bg: rgba(16, 185, 129, 0.22);
+  --status-pass-text: #34D399;
+  --status-pass-border: #059669;
+
+  --status-warn-bg: rgba(245, 158, 11, 0.24);
+  --status-warn-text: #FBBF24;
+  --status-warn-border: #D97706;
+
+  --status-fail-bg: rgba(239, 68, 68, 0.24);
+  --status-fail-text: #F87171;
+  --status-fail-border: #DC2626;
 
   /* Aliases */
-  --bg-canvas: var(--bg-page);
+  --bg-page: var(--bg-app);
+  --status-pass: var(--status-pass-text);
+  --status-warn: var(--status-warn-text);
+  --status-fail: var(--status-fail-text);
+  --bg-canvas: var(--bg-app);
   --bg-surface-1: var(--bg-surface);
   --bg-surface-2: var(--bg-subtle);
-  --bg-surface-3: #3A3A3C;
+  --bg-surface-3: #1F2937;
   --border-structural: var(--border-hairline);
   --border-focus: var(--accent-primary);
   --accent-orange: var(--accent-balloon);
@@ -66,16 +94,16 @@ html, body {
 }
 
 body {
-  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   margin: 0;
   padding: 0;
-  background-color: var(--bg-page);
+  background-color: var(--bg-app);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Enforce Minimum font size rule: never render 8px-10px micro-text */
+/* Strict Precision Rule: Minimum 12px font size globally */
 .text-xs {
   font-size: 0.75rem !important; /* 12px */
   line-height: 1rem !important;
@@ -86,7 +114,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Office Ribbon Button Styles */
+/* Ribbon Button Styles */
 .ribbon-btn {
   display: flex;
   flex-direction: column;
@@ -99,6 +127,7 @@ body {
   font-size: 12px;
   transition: all 0.15s ease;
   user-select: none;
+  white-space: nowrap;
 }
 .ribbon-btn:hover {
   background-color: var(--bg-subtle);
@@ -108,17 +137,17 @@ body {
   background-color: var(--border-hairline);
 }
 .ribbon-btn.active {
-  background-color: rgba(0, 102, 204, 0.1);
-  border-color: rgba(0, 102, 204, 0.3);
+  background-color: rgba(2, 132, 199, 0.12);
+  border-color: rgba(2, 132, 199, 0.35);
   color: var(--accent-primary);
 }
 .dark .ribbon-btn.active {
-  background-color: rgba(10, 132, 255, 0.15);
-  border-color: rgba(10, 132, 255, 0.35);
+  background-color: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.35);
   color: var(--accent-primary);
 }
 
-/* Apple Pill Button */
+/* Apple/Stripe Pill Button */
 .apple-btn-primary {
   background-color: var(--accent-primary);
   color: #FFFFFF;
@@ -129,7 +158,7 @@ body {
 }
 .apple-btn-primary:hover {
   filter: brightness(1.08);
-  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.25);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.28);
   transform: translateY(-0.5px);
 }
 .apple-btn-primary:active {
@@ -163,7 +192,7 @@ body {
   border-color: var(--border-strong);
 }
 
-/* Apple Grid Background for Hero & Showcase */
+/* Sub-grid pattern */
 .bg-subtle-grid {
   background-size: 32px 32px;
   background-image: 
@@ -176,10 +205,10 @@ body {
     linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
 }
 
-/* Smooth macOS / Windows 11 Scrollbars */
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 ::-webkit-scrollbar-track {
   background: var(--bg-subtle);

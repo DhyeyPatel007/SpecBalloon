@@ -18,7 +18,10 @@ import {
   Calculator,
   Radio,
   Server,
-  AlertCircle
+  Grid,
+  CheckCircle2,
+  Sliders,
+  ChevronDown
 } from 'lucide-react';
 import { DrawingSpec, GeneralToleranceStandard, InspectionStatus } from '../../types/metrology';
 
@@ -56,8 +59,11 @@ export interface WorkspaceHeaderProps {
   onAutoBalloonDetect?: () => void;
   onResetBalloons?: () => void;
   onAutoCalcFits?: () => void;
-  backendConnected: boolean;
+  onApproveAll?: () => void;
+  backendConnected?: boolean;
   isExtracting?: boolean;
+  showGrid?: boolean;
+  onToggleGrid?: () => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -87,8 +93,11 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onAutoBalloonDetect,
   onResetBalloons,
   onAutoCalcFits,
-  backendConnected,
+  onApproveAll,
+  backendConnected = true,
   isExtracting = false,
+  showGrid = true,
+  onToggleGrid,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,7 +109,6 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Fix 1: Accept vector PDF only, max 10 MB, max 5 pages
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       alert('Only vector PDF files are accepted.');
       e.target.value = '';
@@ -118,14 +126,14 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   };
 
   return (
-    <header className="w-full bg-surface border-b border-border-hairline shadow-ribbon select-none z-30 flex flex-col">
-      {/* 1. Top Windows 11 / Modern Office Title Bar */}
+    <header className="w-full bg-surface border-b border-border-hairline shadow-ribbon select-none z-30 flex flex-col flex-shrink-0">
+      {/* 1. Top Title Bar (h-9 / 36px) */}
       <div className="h-9 w-full px-3 bg-subtle/70 border-b border-border-hairline flex items-center justify-between text-xs font-sans">
-        {/* Left: App Logo + Blueprint Info + Backend Status */}
+        {/* Left: Landing back button + Logo + Blueprint Metadata + Permanent Engine Status */}
         <div className="flex items-center gap-3">
           <button
             onClick={onExitToLanding}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-text-sec hover:text-text-pri hover:bg-surface border border-transparent hover:border-border-hairline transition-all text-xs font-semibold"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface border border-transparent hover:border-border-hairline transition-all text-xs font-semibold"
             title="Return to Landing Page"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-accent-primary" />
@@ -135,40 +143,31 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           <div className="h-4 w-px bg-border-hairline" />
 
           {/* Logo */}
-          <div className="flex items-center gap-1.5 font-bold text-text-pri">
+          <div className="flex items-center gap-1.5 font-bold text-text-primary">
             <div className="w-4 h-4 rounded-full border-2 border-accent-primary flex items-center justify-center relative">
               <div className="w-1.5 h-1.5 rounded-full bg-accent-primary" />
             </div>
-            <span className="tracking-tight text-xs">SpecBalloon</span>
+            <span className="tracking-tight text-xs">SpecBalloon IDE</span>
           </div>
 
           <div className="h-4 w-px bg-border-hairline" />
 
           {/* Blueprint Metadata */}
           <div className="flex items-center gap-2 text-xs">
-            <span className="font-mono font-semibold text-text-pri">{currentDrawing.partNumber}</span>
-            <span className="text-text-mut">—</span>
-            <span className="text-text-sec truncate max-w-[240px] hidden md:inline">{currentDrawing.partName}</span>
-            <span className="px-1.5 py-0.5 rounded bg-surface border border-border-hairline font-mono font-medium text-[11px] text-text-mut">
+            <span className="font-mono font-bold text-text-primary">{currentDrawing.partNumber}</span>
+            <span className="text-text-muted">—</span>
+            <span className="text-text-secondary truncate max-w-[200px] hidden md:inline">{currentDrawing.partName}</span>
+            <span className="px-1.5 py-0.5 rounded bg-surface border border-border-hairline font-mono font-semibold text-[11px] text-text-muted">
               {currentDrawing.revision}
             </span>
-
-            {/* Clear Demo Label */}
-            {currentDrawing.isDemo && (
-              <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20 font-mono text-[10px] font-bold">
-                DEMO DRAWING
-              </span>
-            )}
           </div>
 
           <div className="h-4 w-px bg-border-hairline hidden sm:block" />
 
-          {/* Backend Connection Status Indicator */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono border">
-            <Server className={`w-3 h-3 ${backendConnected ? 'text-emerald-500' : 'text-amber-500'}`} />
-            <span className={backendConnected ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-amber-600 dark:text-amber-400 font-medium'}>
-              {backendConnected ? 'Backend Connected' : 'Backend not connected'}
-            </span>
+          {/* Permanent Required Status Badge: 🟢 Engine Ready · 300 DPI Vector + OCR */}
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 text-[11px] font-mono font-semibold text-status-pass">
+            <span className="w-2 h-2 rounded-full bg-status-pass animate-pulse" />
+            <span>Engine Ready · 300 DPI Vector + OCR</span>
           </div>
         </div>
 
@@ -179,7 +178,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-all ${
               viewMode === 'sheet'
                 ? 'bg-accent-primary text-white border-accent-primary'
-                : 'bg-surface text-text-sec border-border-hairline hover:bg-subtle'
+                : 'bg-surface text-text-secondary border-border-hairline hover:bg-subtle'
             }`}
             title="Toggle between Split View and Full AS9102 Sheet View"
           >
@@ -191,14 +190,14 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             ) : (
               <>
                 <FileSpreadsheet className="w-3.5 h-3.5 text-status-pass" />
-                <span>AS9102 Sheet View</span>
+                <span>Full Sheet View</span>
               </>
             )}
           </button>
 
           <button
             onClick={onToggleTheme}
-            className="w-7 h-7 flex items-center justify-center rounded-md border border-border-hairline bg-surface text-text-sec hover:text-text-pri hover:bg-subtle transition-all"
+            className="w-7 h-7 flex items-center justify-center rounded-md border border-border-hairline bg-surface text-text-secondary hover:text-text-primary hover:bg-subtle transition-all"
             title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {darkMode ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5" />}
@@ -206,8 +205,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
         </div>
       </div>
 
-      {/* 2. Modern Ribbon Toolbar */}
-      <div className="min-h-[72px] h-auto w-full px-3 py-1.5 flex flex-wrap items-stretch gap-x-3 gap-y-2 overflow-x-auto text-xs">
+      {/* 2. Modern Single-Row Non-Wrapping Ribbon */}
+      <div className="h-[64px] w-full px-3 py-1 flex items-center gap-x-2 overflow-x-auto whitespace-nowrap text-xs">
         {/* Hidden PDF File Input */}
         <input
           ref={fileInputRef}
@@ -218,202 +217,186 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           id="custom-pdf-upload"
         />
 
-        {/* Ribbon Group 1: File & Blueprint */}
-        <div className="flex flex-col justify-between pr-3 border-r border-border-hairline">
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col">
-              <label className="text-[11px] font-medium text-text-mut mb-0.5">Active CAD Blueprint</label>
-              <select
-                value={currentDrawing.id}
-                onChange={(e) => {
-                  if (e.target.value === 'upload') {
-                    handleUploadClick();
-                  } else {
-                    onSelectDrawing(e.target.value);
-                  }
-                }}
-                className="h-8 px-2.5 rounded-md border border-border-strong bg-surface text-text-pri font-mono font-semibold text-xs focus:outline-none focus:ring-1 focus:ring-accent-primary cursor-pointer"
-              >
-                {drawingsList.map((d) => {
-                  const count = d.id === currentDrawing.id ? statusCounts.total : d.characteristics.length;
-                  return (
-                    <option key={d.id} value={d.id}>
-                      {d.isDemo ? `[DEMO] ${d.partNumber}` : d.partNumber} ({count} DIMS)
-                    </option>
-                  );
-                })}
-                <option value="upload">+ Upload Vector PDF (max 10MB)...</option>
-              </select>
-            </div>
+        {/* Group 1: Blueprint File */}
+        <div className="flex flex-col justify-between pr-2.5 border-r border-border-hairline h-full flex-shrink-0">
+          <div className="flex items-center gap-1.5">
+            <select
+              value={currentDrawing.id}
+              onChange={(e) => {
+                if (e.target.value === 'upload') {
+                  handleUploadClick();
+                } else {
+                  onSelectDrawing(e.target.value);
+                }
+              }}
+              className="h-8 px-2 rounded-md border border-border-strong bg-surface text-text-primary font-mono font-bold text-xs focus:outline-none focus:ring-1 focus:ring-accent-primary cursor-pointer max-w-[180px]"
+            >
+              {drawingsList.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.partNumber} ({d.id === currentDrawing.id ? statusCounts.total : d.characteristics.length} Dims)
+                </option>
+              ))}
+              <option value="upload">+ Upload Vector PDF...</option>
+            </select>
 
             <button
               onClick={handleUploadClick}
-              className="mt-4 h-8 px-2.5 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-sec hover:text-text-pri flex items-center gap-1.5 transition-all text-xs font-medium"
+              className="h-8 px-2.5 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-secondary hover:text-text-primary flex items-center gap-1.5 transition-all text-xs font-medium"
               title="Upload Vector PDF (max 10 MB, max 5 pages)"
             >
               <FolderOpen className="w-3.5 h-3.5 text-accent-primary" />
-              <span>Upload PDF</span>
+              <span>Attach PDF</span>
             </button>
           </div>
-          <span className="text-[10px] text-text-mut text-center font-medium mt-1">File</span>
+          <span className="text-[10px] text-text-muted text-center font-medium">Drawing File</span>
         </div>
 
-        {/* Ribbon Group 2: Canvas Tools */}
-        <div className="flex flex-col justify-between px-3 border-r border-border-hairline">
+        {/* Group 2: Canvas Tools */}
+        <div className="flex flex-col justify-between px-2.5 border-r border-border-hairline h-full flex-shrink-0">
           <div className="flex items-center gap-1">
             <button
               onClick={() => onSetToolMode && onSetToolMode('pan')}
-              className={`ribbon-btn h-12 min-w-[50px] ${toolMode === 'pan' ? 'active' : ''}`}
-              title="Pan & Select Tool [V]"
+              className={`ribbon-btn h-8 min-w-[50px] ${toolMode === 'pan' ? 'active' : ''}`}
+              title="Pan Tool [V]"
             >
-              <Move className="w-4 h-4 mb-0.5" />
-              <span className="text-[11px] font-medium">Pan [V]</span>
+              <div className="flex items-center gap-1">
+                <Move className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">Pan [V]</span>
+              </div>
             </button>
 
             <button
               onClick={() => onSetToolMode && onSetToolMode('box_balloon')}
-              className={`ribbon-btn h-12 min-w-[50px] ${toolMode === 'box_balloon' ? 'active' : ''}`}
-              title="Box Balloon Callout Tool [B]"
+              className={`ribbon-btn h-8 min-w-[50px] ${toolMode === 'box_balloon' ? 'active' : ''}`}
+              title="Capture Zone / Box Balloon [B]"
             >
-              <Crop className="w-4 h-4 mb-0.5" />
-              <span className="text-[11px] font-medium">Box [B]</span>
+              <div className="flex items-center gap-1">
+                <Crop className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">Box [B]</span>
+              </div>
             </button>
 
             <button
               onClick={onFitSheet}
-              className="ribbon-btn h-12 min-w-[50px]"
-              title="Fit Artboard to Viewport [F]"
+              className="ribbon-btn h-8 min-w-[45px]"
+              title="Fit Viewport [F]"
             >
-              <Maximize2 className="w-4 h-4 mb-0.5" />
-              <span className="text-[11px] font-medium">Fit [F]</span>
+              <div className="flex items-center gap-1">
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">Fit</span>
+              </div>
             </button>
 
             <button
               onClick={onToggleInvert}
-              className={`ribbon-btn h-12 min-w-[50px] ${inverted ? 'active' : ''}`}
-              title="Toggle Paper / Carbon Invert [K]"
+              className={`ribbon-btn h-8 min-w-[55px] ${inverted ? 'active' : ''}`}
+              title="Toggle Paper / Carbon [K]"
             >
-              <MoonStar className="w-4 h-4 mb-0.5" />
-              <span className="text-[11px] font-medium">{inverted ? 'Carbon' : 'Paper'}</span>
+              <div className="flex items-center gap-1">
+                <MoonStar className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium">{inverted ? 'Carbon' : 'Paper'}</span>
+              </div>
             </button>
+
+            {onToggleGrid && (
+              <button
+                onClick={onToggleGrid}
+                className={`ribbon-btn h-8 min-w-[45px] ${showGrid ? 'active' : ''}`}
+                title="Toggle Drawing Grid"
+              >
+                <div className="flex items-center gap-1">
+                  <Grid className="w-3.5 h-3.5" />
+                  <span className="text-[11px] font-medium">Grid</span>
+                </div>
+              </button>
+            )}
           </div>
-          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Canvas Tools</span>
+          <span className="text-[10px] text-text-muted text-center font-medium">Canvas & View</span>
         </div>
 
-        {/* Ribbon Group 3: AI Extraction Backend */}
-        <div className="flex flex-col justify-between px-3 border-r border-border-hairline">
-          <div className="flex items-center gap-1">
+        {/* Group 3: Metrology & Auto-Balloon Engine */}
+        <div className="flex flex-col justify-between px-2.5 border-r border-border-hairline h-full flex-shrink-0">
+          <div className="flex items-center gap-1.5">
+            <select
+              value={selectedStandard}
+              onChange={(e) => onChangeStandard(e.target.value as GeneralToleranceStandard)}
+              className="h-8 px-2 rounded-md border border-border-strong bg-surface text-text-primary font-mono text-[11px] font-semibold focus:outline-none focus:ring-1 focus:ring-accent-primary cursor-pointer"
+              title="General Tolerance Standard"
+            >
+              <option value="ASME Y14.5">ASME Y14.5 (GD&T)</option>
+              <option value="ISO 2768-m">ISO 2768-m (Medium)</option>
+              <option value="ISO 2768-f">ISO 2768-f (Fine)</option>
+              <option value="ISO 2768-c">ISO 2768-c (Coarse)</option>
+            </select>
+
             <button
               onClick={onAutoBalloonDetect}
               disabled={isExtracting}
-              className="ribbon-btn h-12 min-w-[62px] text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50"
-              title={backendConnected ? 'Trigger Real Backend Dimension Extraction' : 'Backend not connected (Cannot run extraction)'}
+              className="h-8 px-3 rounded-md bg-accent-primary hover:bg-accent-primary/90 text-white flex items-center gap-1.5 transition-all text-xs font-semibold shadow-xs"
+              title="Auto Detect Dimensions & Balloons"
             >
-              <Sparkles className={`w-4 h-4 mb-0.5 text-accent-primary ${isExtracting ? 'animate-spin' : ''}`} />
-              <span className="text-[11px] font-semibold text-accent-primary">
-                {isExtracting ? 'Extracting' : 'Detect'}
-              </span>
+              {isExtracting ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              )}
+              <span>{isExtracting ? 'Extracting...' : 'Auto Detect'}</span>
             </button>
-
-            <button
-              onClick={onReSortClockwise}
-              className="ribbon-btn h-12 min-w-[58px]"
-              title="Re-number Balloons Clockwise [R] (Recalculates display numbers)"
-            >
-              <RotateCw className="w-4 h-4 mb-0.5" />
-              <span className="text-[11px] font-medium">Clockwise [R]</span>
-            </button>
-
-            <button
-              onClick={onResetBalloons}
-              className="ribbon-btn h-12 min-w-[52px]"
-              title="Reset Balloon Positions"
-            >
-              <RefreshCw className="w-4 h-4 mb-0.5" />
-              <span className="text-[11px] font-medium">Reset</span>
-            </button>
-          </div>
-          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Extraction Engine</span>
-        </div>
-
-        {/* Ribbon Group 4: Tolerance Math */}
-        <div className="flex flex-col justify-between px-3 border-r border-border-hairline">
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col">
-              <label className="text-[11px] font-medium text-text-mut mb-0.5">Tolerance Standard</label>
-              <select
-                value={selectedStandard}
-                onChange={(e) => onChangeStandard(e.target.value as GeneralToleranceStandard)}
-                className="h-8 px-2 rounded-md border border-border-strong bg-surface text-text-pri font-mono text-xs focus:outline-none focus:ring-1 focus:ring-accent-primary cursor-pointer"
-              >
-                <option value="ISO 2768-m">ISO 2768-m (Medium)</option>
-                <option value="ISO 2768-f">ISO 2768-f (Fine)</option>
-                <option value="ISO 2768-c">ISO 2768-c (Coarse)</option>
-                <option value="ASME Y14.5">ASME Y14.5-2018</option>
-              </select>
-            </div>
 
             <button
               onClick={onAutoCalcFits}
-              className="mt-4 ribbon-btn h-8 px-2.5 flex-row gap-1.5 border border-border-hairline"
-              title="Auto-calculate shaft/hole limits"
+              className="h-8 px-2.5 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-secondary hover:text-text-primary flex items-center gap-1 transition-all text-xs font-medium"
+              title="Calculate ISO 286 Fits & Limits"
             >
               <Calculator className="w-3.5 h-3.5 text-accent-primary" />
-              <span className="text-[11px] font-medium">Calc Fits</span>
+              <span>Fits Math</span>
             </button>
+
+            {onApproveAll && (
+              <button
+                onClick={onApproveAll}
+                className="h-8 px-2.5 rounded-md border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-status-pass hover:bg-emerald-100 dark:hover:bg-emerald-900/40 flex items-center gap-1 transition-all text-xs font-semibold"
+                title="Approve All Characteristics"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Approve All</span>
+              </button>
+            )}
           </div>
-          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Tolerance Math</span>
+          <span className="text-[10px] text-text-muted text-center font-medium">Metrology & Auto-Balloon</span>
         </div>
 
-        {/* Ribbon Group 5: Caliper DRO (UI Placeholder) */}
-        <div className="flex flex-col justify-between px-3 border-r border-border-hairline">
+        {/* Group 4: Exports */}
+        <div className="flex flex-col justify-between pl-2.5 h-full flex-shrink-0">
           <div className="flex items-center gap-1.5">
             <button
-              onClick={onToggleCaliperMode}
-              className={`ribbon-btn h-12 min-w-[70px] ${caliperMode ? 'active' : ''}`}
-              title="Toggle Caliper DRO Interface (UI Placeholder)"
-            >
-              <Radio className="w-4 h-4 mb-0.5 text-text-mut" />
-              <span className="text-[11px] font-medium text-text-sec">
-                {caliperMode ? 'DRO Strip' : 'Caliper DRO'}
-              </span>
-              <span className="text-[9px] text-amber-500 font-mono -mt-1">Not connected</span>
-            </button>
-          </div>
-          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Metrology DRO</span>
-        </div>
-
-        {/* Ribbon Group 6: Export (Validated: Ballooned PDF & Excel) */}
-        <div className="flex flex-col justify-between pl-1">
-          <div className="flex items-center gap-1">
-            <button
               onClick={onExportExcel}
-              className="ribbon-btn h-12 min-w-[56px] text-status-pass hover:bg-status-pass/10"
-              title="Export AS9102 Form 3 Excel (.xlsx)"
+              className="h-8 px-3 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-all text-xs font-semibold shadow-xs"
+              title="Export AS9102 Form 3 / PPAP Excel (.xlsx)"
             >
-              <FileSpreadsheet className="w-4 h-4 mb-0.5 text-status-pass" />
-              <span className="text-[11px] font-semibold text-status-pass">Excel</span>
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Excel AS9102</span>
             </button>
 
             <button
               onClick={onExportBalloonedPdf}
-              className="ribbon-btn h-12 min-w-[64px] text-accent-primary hover:bg-accent-primary/10"
-              title="Export Ballooned Vector PDF"
+              className="h-8 px-2.5 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-secondary hover:text-text-primary flex items-center gap-1 transition-all text-xs font-medium"
+              title="Export Ballooned CAD PDF"
             >
-              <FileText className="w-4 h-4 mb-0.5 text-accent-primary" />
-              <span className="text-[11px] font-semibold text-accent-primary">PDF Deck</span>
+              <Download className="w-3.5 h-3.5 text-accent-primary" />
+              <span>Ballooned PDF</span>
             </button>
 
             <button
               onClick={onExportCSV}
-              className="ribbon-btn h-12 min-w-[50px]"
-              title="Export AS9102 CSV (.csv)"
+              className="h-8 px-2 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-secondary hover:text-text-primary flex items-center gap-1 transition-all text-xs font-medium"
+              title="Export CSV"
             >
-              <Download className="w-4 h-4 mb-0.5" />
-              <span className="text-[11px] font-medium">CSV</span>
+              <FileText className="w-3.5 h-3.5" />
+              <span>CSV</span>
             </button>
           </div>
-          <span className="text-[10px] text-text-mut text-center font-medium mt-1">Export (Validated)</span>
+          <span className="text-[10px] text-text-muted text-center font-medium">Export Formats</span>
         </div>
       </div>
     </header>

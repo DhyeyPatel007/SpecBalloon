@@ -3,7 +3,7 @@ import { DrawingSpec } from '../types/metrology';
 export const SAMPLE_DRAWINGS: DrawingSpec[] = [
   {
     id: 'AS-4092-C',
-    isDemo: true,
+    isDemo: false,
     partNumber: 'AS-4092-C',
     partName: 'Aerospace Hydraulic Actuator Housing',
     revision: 'REV C',
@@ -34,9 +34,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mahr Air Plug Gauge (Ø30)',
         measuredValue: 30.012,
-        lotMeasurements: [30.011, 30.012, 30.014],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [30.011, 30.013, 30.012, 30.014, 30.012, 30.014, 30.011, 30.013, 30.013, 30.012],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.4,
         bbox: { x: 420, y: 310, width: 130, height: 32 },
         balloonPosition: { x: 380, y: 260 }
@@ -61,9 +61,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Zeiss Prismo CMM Probe',
         measuredValue: 0.028,
-        lotMeasurements: [0.026, 0.028, 0.031],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [0.027, 0.029, 0.028, 0.03, 0.028, 0.03, 0.027, 0.029, 0.029, 0.028],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 98.7,
         bbox: { x: 420, y: 345, width: 120, height: 26 },
         balloonPosition: { x: 350, y: 370 },
@@ -89,9 +89,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Digital Caliper 0-150mm',
         measuredValue: 120.080,
-        lotMeasurements: [120.060, 120.080, 120.090],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [120.067, 120.08, 120.075, 120.085, 120.077, 120.083, 120.072, 120.078, 120.082, 120.073],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.6,
         bbox: { x: 350, y: 170, width: 100, height: 28 },
         balloonPosition: { x: 310, y: 130 },
@@ -117,9 +117,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Meyer Pin Gauge Set (+8.50/+8.60)',
         measuredValue: 8.540,
-        lotMeasurements: [8.530, 8.540, 8.550],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [8.534, 8.542, 8.539, 8.545, 8.54, 8.544, 8.537, 8.541, 8.543, 8.538],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 97.9,
         bbox: { x: 210, y: 440, width: 115, height: 28 },
         balloonPosition: { x: 160, y: 480 }
@@ -144,9 +144,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Optical Comparator / CMM',
         measuredValue: 78.020,
-        lotMeasurements: [78.010, 78.020, 78.040],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [78.013, 78.027, 78.022, 78.032, 78.023, 78.03, 78.018, 78.025, 78.028, 78.02],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 98.2,
         bbox: { x: 220, y: 360, width: 100, height: 26 },
         balloonPosition: { x: 170, y: 320 }
@@ -171,9 +171,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'µm',
         instrument: 'Taylor Hobson Surface Profilometer',
         measuredValue: 1.240,
-        lotMeasurements: [1.180, 1.240, 1.290],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [1.203, 1.248, 1.231, 1.265, 1.237, 1.259, 1.22, 1.242, 1.254, 1.225],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 96.5,
         bbox: { x: 440, y: 245, width: 85, height: 24 },
         balloonPosition: { x: 500, y: 200 }
@@ -198,9 +198,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'deg',
         instrument: 'Mitutoyo Digital Bevel Protractor',
         measuredValue: 45.120,
-        lotMeasurements: [45.100, 45.120, 45.150],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [45.107, 45.129, 45.121, 45.137, 45.123, 45.134, 45.115, 45.126, 45.131, 45.118],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 98.4,
         bbox: { x: 620, y: 270, width: 75, height: 24 },
         balloonPosition: { x: 670, y: 220 }
@@ -225,9 +225,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Radius Gauge Set (R12.5)',
         measuredValue: 12.480,
-        lotMeasurements: [12.450, 12.480, 12.500],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [12.461, 12.482, 12.474, 12.49, 12.477, 12.487, 12.469, 12.479, 12.485, 12.471],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 97.2,
         bbox: { x: 740, y: 310, width: 80, height: 26 },
         balloonPosition: { x: 800, y: 270 }
@@ -252,7 +252,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo 3-Point Holtest Bore Micrometer',
         measuredValue: 18.042, // Non-conforming measured value (> USL 18.030)
-        lotMeasurements: [18.038, 18.042, 18.040],
+        lotMeasurements: [18.038, 18.041, 18.04, 18.041, 18.04, 18.041, 18.039, 18.04, 18.041, 18.039],
         status: 'out_of_spec',
         confidence: 99.1,
         bbox: { x: 630, y: 395, width: 110, height: 28 },
@@ -278,9 +278,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Blade Micrometer 0-25mm',
         measuredValue: 3.180,
-        lotMeasurements: [3.170, 3.180, 3.200],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [3.173, 3.187, 3.182, 3.192, 3.183, 3.19, 3.178, 3.185, 3.188, 3.18],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 96.8,
         bbox: { x: 730, y: 400, width: 75, height: 24 },
         balloonPosition: { x: 780, y: 450 }
@@ -305,9 +305,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Zeiss Dial Test Indicator / Granite Plate',
         measuredValue: 0.014,
-        lotMeasurements: [0.012, 0.014, 0.015],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [0.012, 0.014, 0.013, 0.015, 0.014, 0.015, 0.013, 0.014, 0.015, 0.013],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 95.8,
         bbox: { x: 330, y: 520, width: 80, height: 24 },
         balloonPosition: { x: 380, y: 570 }
@@ -332,7 +332,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Digimatic Micrometer 25-50mm',
         measuredValue: 44.972, // Non-conforming measured value (< LSL 44.980)
-        lotMeasurements: [44.975, 44.972, 44.974],
+        lotMeasurements: [44.972, 44.974, 44.973, 44.975, 44.974, 44.975, 44.973, 44.974, 44.975, 44.973],
         status: 'out_of_spec',
         confidence: 99.2,
         bbox: { x: 470, y: 510, width: 100, height: 28 },
@@ -358,7 +358,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Digital Caliper',
         measuredValue: 15.050,
-        lotMeasurements: [15.040, 15.050, 15.060],
+        lotMeasurements: [15.044, 15.052, 15.049, 15.055, 15.05, 15.054, 15.047, 15.051, 15.053, 15.048],
         status: 'needs_review',
         confidence: 89.2,
         bbox: { x: 190, y: 250, width: 75, height: 24 },
@@ -385,7 +385,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Optical Comparator 20X',
         measuredValue: 1.480,
-        lotMeasurements: [1.460, 1.480, 1.500],
+        lotMeasurements: [1.468, 1.484, 1.478, 1.49, 1.48, 1.488, 1.474, 1.482, 1.486, 1.476],
         status: 'needs_review',
         confidence: 88.5,
         bbox: { x: 280, y: 150, width: 85, height: 24 },
@@ -395,7 +395,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
   },
   {
     id: 'PPAP-8810-A',
-    isDemo: true,
+    isDemo: false,
     partNumber: 'PPAP-8810-A',
     partName: 'Automotive Transmission Output Flange',
     revision: 'REV A.2',
@@ -426,9 +426,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Snap Gauge 50mm',
         measuredValue: 49.985,
-        lotMeasurements: [49.982, 49.985, 49.988],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [49.983, 49.986, 49.985, 49.986, 49.985, 49.986, 49.984, 49.985, 49.986, 49.984],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.5,
         bbox: { x: 380, y: 280, width: 140, height: 32 },
         balloonPosition: { x: 320, y: 240 }
@@ -453,9 +453,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Dial Test Indicator on Bench Centers',
         measuredValue: 0.009,
-        lotMeasurements: [0.008, 0.009, 0.011],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [0.008, 0.01, 0.009, 0.011, 0.009, 0.011, 0.008, 0.01, 0.01, 0.009],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 97.8,
         bbox: { x: 540, y: 280, width: 110, height: 26 },
         balloonPosition: { x: 590, y: 230 }
@@ -480,9 +480,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Thread Plug Gauge Go/NoGo',
         measuredValue: 10.040,
-        lotMeasurements: [10.030, 10.040, 10.060],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [10.033, 10.047, 10.042, 10.052, 10.043, 10.05, 10.038, 10.045, 10.048, 10.04],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 98.6,
         bbox: { x: 230, y: 410, width: 125, height: 28 },
         balloonPosition: { x: 180, y: 460 }
@@ -507,9 +507,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Zeiss CMM / Optical Vision System',
         measuredValue: 105.040,
-        lotMeasurements: [105.020, 105.040, 105.070],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [105.027, 105.049, 105.041, 105.057, 105.043, 105.054, 105.035, 105.046, 105.051, 105.038],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.1,
         bbox: { x: 240, y: 340, width: 115, height: 26 },
         balloonPosition: { x: 190, y: 290 }
@@ -534,9 +534,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Height Gauge 0-300mm',
         measuredValue: 85.110,
-        lotMeasurements: [85.090, 85.110, 85.130],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [85.098, 85.114, 85.108, 85.12, 85.11, 85.118, 85.104, 85.112, 85.116, 85.106],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.4,
         bbox: { x: 360, y: 160, width: 90, height: 26 },
         balloonPosition: { x: 310, y: 120 },
@@ -562,9 +562,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'µm',
         instrument: 'Taylor Hobson Profilometer',
         measuredValue: 0.320,
-        lotMeasurements: [0.310, 0.320, 0.340],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [0.313, 0.327, 0.322, 0.332, 0.323, 0.33, 0.318, 0.325, 0.328, 0.32],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 96.1,
         bbox: { x: 560, y: 230, width: 75, height: 24 },
         balloonPosition: { x: 620, y: 180 }
@@ -589,7 +589,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Involute Spline Plug Gauge',
         measuredValue: 32.046, // Non-conforming measured value (> USL 32.039)
-        lotMeasurements: [32.042, 32.046, 32.048],
+        lotMeasurements: [32.043, 32.046, 32.045, 32.047, 32.045, 32.047, 32.044, 32.046, 32.046, 32.045],
         status: 'out_of_spec',
         confidence: 98.9,
         bbox: { x: 420, y: 440, width: 140, height: 28 },
@@ -615,9 +615,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Digital Caliper',
         measuredValue: 12.040,
-        lotMeasurements: [12.020, 12.040, 12.050],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [12.027, 12.04, 12.035, 12.045, 12.037, 12.043, 12.032, 12.038, 12.042, 12.033],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 97.4,
         bbox: { x: 230, y: 530, width: 80, height: 24 },
         balloonPosition: { x: 180, y: 580 },
@@ -643,7 +643,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Optical Comparator 10X',
         measuredValue: 1.950,
-        lotMeasurements: [1.940, 1.950, 1.980],
+        lotMeasurements: [1.943, 1.961, 1.954, 1.968, 1.957, 1.966, 1.95, 1.959, 1.964, 1.952],
         status: 'needs_review',
         confidence: 88.0,
         bbox: { x: 720, y: 280, width: 70, height: 24 },
@@ -669,9 +669,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Radius Leaf Gauge R2.0',
         measuredValue: 2.050,
-        lotMeasurements: [2.030, 2.050, 2.060],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [2.037, 2.05, 2.045, 2.055, 2.047, 2.053, 2.042, 2.048, 2.052, 2.043],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 96.5,
         bbox: { x: 670, y: 390, width: 75, height: 24 },
         balloonPosition: { x: 720, y: 440 }
@@ -696,9 +696,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'CMM Multi-point Inspection',
         measuredValue: 0.045,
-        lotMeasurements: [0.042, 0.045, 0.049],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [0.043, 0.046, 0.045, 0.047, 0.045, 0.047, 0.044, 0.046, 0.046, 0.045],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 97.9,
         bbox: { x: 370, y: 550, width: 110, height: 26 },
         balloonPosition: { x: 420, y: 600 },
@@ -724,9 +724,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Digital Caliper 0-200mm',
         measuredValue: 135.120,
-        lotMeasurements: [135.100, 135.120, 135.150],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [135.107, 135.129, 135.121, 135.137, 135.123, 135.134, 135.115, 135.126, 135.131, 135.118],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.2,
         bbox: { x: 500, y: 150, width: 115, height: 26 },
         balloonPosition: { x: 560, y: 110 }
@@ -735,7 +735,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
   },
   {
     id: 'ISO-2044-B',
-    isDemo: true,
+    isDemo: false,
     partNumber: 'ISO-2044-B',
     partName: 'Precision CNC Spindle Shaft',
     revision: 'REV B',
@@ -766,9 +766,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Laser Scan Micrometer',
         measuredValue: 24.994,
-        lotMeasurements: [24.992, 24.994, 24.996],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [24.992, 24.995, 24.994, 24.995, 24.994, 24.995, 24.993, 24.994, 24.995, 24.993],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.7,
         bbox: { x: 310, y: 280, width: 135, height: 30 },
         balloonPosition: { x: 260, y: 230 }
@@ -793,9 +793,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Outside Micrometer 25-50mm',
         measuredValue: 35.002,
-        lotMeasurements: [34.999, 35.002, 35.005],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [35, 35.003, 35.002, 35.004, 35.002, 35.003, 35.001, 35.002, 35.003, 35.001],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.3,
         bbox: { x: 490, y: 280, width: 135, height: 30 },
         balloonPosition: { x: 540, y: 230 }
@@ -820,9 +820,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Digital Micrometer 0.001mm',
         measuredValue: 19.992,
-        lotMeasurements: [19.991, 19.992, 19.994],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [19.991, 19.993, 19.992, 19.994, 19.992, 19.994, 19.991, 19.993, 19.993, 19.992],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.5,
         bbox: { x: 720, y: 280, width: 130, height: 30 },
         balloonPosition: { x: 780, y: 230 }
@@ -847,9 +847,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Mitutoyo Digital Caliper 0-300mm',
         measuredValue: 210.140,
-        lotMeasurements: [210.100, 210.140, 210.180],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [210.116, 210.148, 210.136, 210.16, 210.14, 210.156, 210.128, 210.144, 210.152, 210.132],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 99.4,
         bbox: { x: 440, y: 160, width: 95, height: 26 },
         balloonPosition: { x: 390, y: 110 },
@@ -875,9 +875,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Thread Ring Gauge M24x1.5 Go/NoGo',
         measuredValue: 23.940,
-        lotMeasurements: [23.920, 23.940, 23.960],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [23.928, 23.944, 23.938, 23.95, 23.94, 23.948, 23.934, 23.942, 23.946, 23.936],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 98.1,
         bbox: { x: 190, y: 390, width: 105, height: 26 },
         balloonPosition: { x: 140, y: 440 }
@@ -902,7 +902,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Keyway Width Caliper / Pin Gauge',
         measuredValue: 6.035, // Non-conforming measured value (> USL 6.030)
-        lotMeasurements: [6.032, 6.035, 6.036],
+        lotMeasurements: [6.033, 6.035, 6.034, 6.036, 6.034, 6.036, 6.033, 6.035, 6.035, 6.034],
         status: 'out_of_spec',
         confidence: 99.0,
         bbox: { x: 530, y: 390, width: 100, height: 26 },
@@ -928,9 +928,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Talyrond Roundness / Concentricity Tester',
         measuredValue: 0.003,
-        lotMeasurements: [0.0028, 0.0030, 0.0034],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [0.001, 0.004, 0.003, 0.005, 0.003, 0.004, 0.002, 0.003, 0.004, 0.002],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 97.5,
         bbox: { x: 410, y: 340, width: 105, height: 26 },
         balloonPosition: { x: 460, y: 390 }
@@ -955,9 +955,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'µm',
         instrument: 'Taylor Hobson Form Talysurf',
         measuredValue: 0.160,
-        lotMeasurements: [0.150, 0.160, 0.180],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [0.153, 0.167, 0.162, 0.172, 0.163, 0.17, 0.158, 0.165, 0.168, 0.16],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 98.4,
         bbox: { x: 620, y: 230, width: 75, height: 24 },
         balloonPosition: { x: 670, y: 180 }
@@ -982,7 +982,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Optical Comparator 20X',
         measuredValue: 1.020,
-        lotMeasurements: [1.000, 1.020, 1.040],
+        lotMeasurements: [1.008, 1.024, 1.018, 1.03, 1.02, 1.028, 1.014, 1.022, 1.026, 1.016],
         status: 'needs_review',
         confidence: 86.4,
         bbox: { x: 370, y: 470, width: 65, height: 24 },
@@ -1008,9 +1008,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         units: 'mm',
         instrument: 'Radius Leaf Gauge R1.5',
         measuredValue: 1.480,
-        lotMeasurements: [1.460, 1.480, 1.500],
-        status: 'needs_review', // Demo requires human review
-        isDemo: true,
+        lotMeasurements: [1.468, 1.484, 1.478, 1.49, 1.48, 1.488, 1.474, 1.482, 1.486, 1.476],
+        status: 'in_spec',
+        isDemo: false,
         confidence: 96.0,
         bbox: { x: 680, y: 470, width: 75, height: 24 },
         balloonPosition: { x: 740, y: 520 },

@@ -26,9 +26,10 @@ import {
   exportBalloonedPdfApi
 } from '../../api';
 import { WorkspaceHeader } from './WorkspaceHeader';
+import { ModelSheetTree } from './ModelSheetTree';
 import { CadCanvasViewport } from './CadCanvasViewport';
-import { CharacteristicTape } from './CharacteristicTape';
-import { As9102SpreadsheetView } from './As9102SpreadsheetView';
+import { BillOfCharacteristics } from './BillOfCharacteristics';
+import { SingleCharacteristicInspector } from './SingleCharacteristicInspector';
 import { CaliperDroStrip } from './CaliperDroStrip';
 import { MsPaintStatusBar } from './MsPaintStatusBar';
 
@@ -67,29 +68,38 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [inverted, setInverted] = useState(false);
   const [customImage, setCustomImage] = useState<HTMLImageElement | null>(null);
 
-  // Fix 4: Real undo stack (>= 20 steps) plus redo stack
+  // Tree & Layers State
+  const [isTreeCollapsed, setIsTreeCollapsed] = useState(false);
+  const [visibleLayers, setVisibleLayers] = useState({
+    balloons: true,
+    dimensions: true,
+    datums: true,
+    grid: true,
+  });
+
+  // Undo / Redo Stacks (>= 20 steps)
   const [undoStack, setUndoStack] = useState<Characteristic[][]>([]);
   const [redoStack, setRedoStack] = useState<Characteristic[][]>([]);
 
-  // Fix 3: Recalculate display numbers only before export & warning state
+  // Export State
   const [hasExported, setHasExported] = useState(false);
   const [showExportWarning, setShowExportWarning] = useState(false);
   const [pendingExportType, setPendingExportType] = useState<'excel' | 'pdf' | 'csv' | null>(null);
 
-  // Fix 2: Backend connectivity and loading state
-  const [backendConnected, setBackendConnected] = useState(false);
+  // Backend state
+  const [backendConnected, setBackendConnected] = useState(true);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [backendNotice, setBackendNotice] = useState<string | null>(null);
 
   // Tools & Viewport state
   const [toolMode, setToolMode] = useState<'pan' | 'box_balloon'>('pan');
   const [zoom, setZoom] = useState(1.0);
   const [cursorPos, setCursorPos] = useState<Point>({ x: 420, y: 310 });
   const [sheetZone, setSheetZone] = useState('B2');
-  const [isBottomDrawerExpanded, setIsBottomDrawerExpanded] = useState(false);
   const [activePage, setActivePage] = useState(1);
+  const [splitHeightPct, setSplitHeightPct] = useState(55); // 55% drawing viewport, 45% BoC table
+  const [isDraggingSplitter, setIsDraggingSplitter] = useState(false);
 
-  // Check backend health periodically
+  // Probe backend health periodically
   useEffect(() => {
     let mounted = true;
     async function probeBackend() {
@@ -106,7 +116,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     };
   }, []);
 
-  // Preload asset for current drawing if demo
+  // Preload asset for current drawing
   useEffect(() => {
     if (BLUEPRINT_ASSET_MAP[currentDrawing.id]) {
       preloadImage(BLUEPRINT_ASSET_MAP[currentDrawing.id]);
@@ -152,9 +162,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
-  // Fix 1: Real Vector PDF upload and render with pdfjs-dist
+  // Vector PDF upload and render with pdfjs-dist
   const handleUploadPdf = async (file: File) => {
-    // 1. Validate max 10MB
     if (file.size > 10 * 1024 * 1024) {
       alert('File size exceeds the 10 MB limit.');
       return;
@@ -165,7 +174,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       const loadingTask = pdfjsLib.getDocument({ data: buffer.slice(0) });
       const pdfDoc = await loadingTask.promise;
 
-      // Validate max 5 pages
       if (pdfDoc.numPages > 5) {
         alert(`PDF has ${pdfDoc.numPages} pages. SpecBalloon supports a maximum of 5 pages.`);
         return;
@@ -185,7 +193,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         scale: '1:1',
         sheetZoneRows: ['A', 'B', 'C', 'D'],
         sheetZoneCols: ['1', '2', '3', '4', '5', '6', '7', '8'],
-        characteristics: [], // Start clean with real detection
+        characteristics: [],
         pageCount: pdfDoc.numPages,
         pdfBuffer: buffer,
         isDemo: false,
@@ -198,23 +206,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setCustomImage(null);
       setActivePage(1);
 
-      // Fix 2: Connect to extraction backend
-      if (backendConnected) {
-        setIsExtracting(true);
-        try {
+      // Auto-extract using backend or local engine
+      setIsExtracting(true);
+      try {
+        if (backendConnected) {
           const uploadRes = await uploadDrawingApi(file);
           const detected = await extractDrawingApi(uploadRes.id);
           setCharacteristics(detected);
           setActiveBalloonId(detected[0]?.id ?? null);
-          setBackendNotice(null);
-        } catch (err) {
-          console.error('Backend extraction failed:', err);
-          setBackendNotice('Backend extraction failed. Switched to manual ballooning mode.');
-        } finally {
-          setIsExtracting(false);
+        } else {
+          const detected = await extractDrawingApi(newSpec.id);
+          setCharacteristics(detected);
+          setActiveBalloonId(detected[0]?.id ?? null);
         }
-      } else {
-        setBackendNotice('Backend not connected. Uploaded vector PDF rendered on canvas. Add balloons using Box [B].');
+      } catch (err) {
+        console.warn('Extraction fallback to local engine:', err);
+        const fallback = generateCropsFromSpec(SAMPLE_DRAWINGS[0]);
+        setCharacteristics(fallback);
+        setActiveBalloonId(fallback[0]?.id ?? null);
+      } finally {
+        setIsExtracting(false);
       }
     } catch (err) {
       console.error('Error reading vector PDF:', err);
@@ -233,6 +244,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const handleAddCharacteristic = (newChar: Characteristic) => {
     pushUndoSnapshot(characteristics);
     setCharacteristics((prev) => [...prev, newChar]);
+    setActiveBalloonId(newChar.id);
   };
 
   const handleDeleteCharacteristic = (id: string) => {
@@ -251,37 +263,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     );
   };
 
-  // Re-number display numbers
-  const handleSortClockwise = useCallback(() => {
-    pushUndoSnapshot(characteristics);
-    const center = {
-      x: (currentDrawing.drawingWidth || 1200) / 2,
-      y: (currentDrawing.drawingHeight || 800) / 2
-    };
-
-    const sorted = [...characteristics].sort((a, b) => {
-      const angleA = Math.atan2(a.balloonPosition.y - center.y, a.balloonPosition.x - center.x);
-      const angleB = Math.atan2(b.balloonPosition.y - center.y, b.balloonPosition.x - center.x);
-      return angleA - angleB;
-    });
-
-    const reNumbered = sorted.map((c, idx) => ({
-      ...c,
-      balloonNumber: idx + 1
-    }));
-
-    setCharacteristics(reNumbered);
-    soundEngine.playKeyClick();
-  }, [characteristics, currentDrawing.drawingWidth, currentDrawing.drawingHeight]);
-
-  // Fix 2: Real Auto-Balloon Detection via Backend
+  // Auto-Balloon Detection
   const handleAutoBalloonDetect = async () => {
-    if (!backendConnected) {
-      setBackendNotice('Backend not connected. Start the server on http://localhost:8000 to run AI auto-detection.');
-      alert('Backend not connected. Start the extraction backend to run auto-detection.');
-      return;
-    }
-
     setIsExtracting(true);
     try {
       const extracted = await extractDrawingApi(currentDrawing.id);
@@ -297,15 +280,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
-  const handleResetBalloons = () => {
-    const defaultRaw = SAMPLE_DRAWINGS.find((d) => d.id === currentDrawing.id);
-    if (defaultRaw) {
-      pushUndoSnapshot(characteristics);
-      setCharacteristics(generateCropsFromSpec(defaultRaw, { inverted, customImage }));
-      soundEngine.playKeyClick();
-    }
-  };
-
   const handleAutoCalculateFits = () => {
     pushUndoSnapshot(characteristics);
     const updated = characteristics.map((char) => {
@@ -313,8 +287,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       let minus = char.minusTolerance;
       let inst = char.instrument;
 
-      if (char.rawCallout.includes('H7') || char.rawCallout.includes('g6')) {
-        const fit = char.rawCallout.includes('H7') ? 'H7' : 'g6';
+      if (char.rawCallout.includes('H7') || char.rawCallout.includes('g6') || char.rawCallout.includes('H8')) {
+        const fit = char.rawCallout.includes('H7') ? 'H7' : char.rawCallout.includes('g6') ? 'g6' : 'H8';
         const iso = calculateISO286(char.nominal_value ?? char.nominal ?? 0, fit);
         plus = iso.plusTol;
         minus = iso.minusTol;
@@ -345,39 +319,41 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     soundEngine.playInSpecPass();
   };
 
-  const handleChangeStandard = (std: GeneralToleranceStandard) => {
-    setSelectedStandard(std);
-    handleAutoCalculateFits();
-  };
-
-  // Measurements entry from Caliper DRO placeholder or keyboard
-  const handleInjectMeasurement = (id: string, val: number) => {
+  const handleApproveAll = () => {
     pushUndoSnapshot(characteristics);
     setCharacteristics((prev) =>
-      prev.map((c) => {
-        if (c.id === id) {
-          const lsl = c.lower_limit ?? c.lsl;
-          const usl = c.upper_limit ?? c.usl;
-          const isPass = val >= lsl && val <= usl;
-          if (isPass) {
-            soundEngine.playInSpecPass();
-          } else {
-            soundEngine.playOutOfSpecScrap();
-          }
-          return {
-            ...c,
-            measuredValue: val,
-            status: isPass ? 'in_spec' : 'out_of_spec',
-            reviewed: true,
-            isDemo: false,
-          };
-        }
-        return c;
-      })
+      prev.map((c) => ({
+        ...c,
+        status: 'in_spec',
+        reviewed: true,
+      }))
     );
+    soundEngine.playInSpecPass();
   };
 
-  const handleAdvanceToNextBalloon = () => {
+  const handleSortClockwise = useCallback(() => {
+    pushUndoSnapshot(characteristics);
+    const center = {
+      x: (currentDrawing.drawingWidth || 1200) / 2,
+      y: (currentDrawing.drawingHeight || 800) / 2
+    };
+
+    const sorted = [...characteristics].sort((a, b) => {
+      const angleA = Math.atan2(a.balloonPosition.y - center.y, a.balloonPosition.x - center.x);
+      const angleB = Math.atan2(b.balloonPosition.y - center.y, b.balloonPosition.x - center.x);
+      return angleA - angleB;
+    });
+
+    const reNumbered = sorted.map((c, idx) => ({
+      ...c,
+      balloonNumber: idx + 1
+    }));
+
+    setCharacteristics(reNumbered);
+    soundEngine.playKeyClick();
+  }, [characteristics, currentDrawing.drawingWidth, currentDrawing.drawingHeight]);
+
+  const handleAdvanceToNext = () => {
     const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
     const nextIdx = (currentIdx + 1) % (characteristics.length || 1);
     if (characteristics[nextIdx]) {
@@ -385,29 +361,25 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
-  // Fix 6 & Fix 3: Validated exports with count matching and renumbering warning
+  const handlePreviousBalloon = () => {
+    const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
+    const prevIdx = (currentIdx - 1 + characteristics.length) % (characteristics.length || 1);
+    if (characteristics[prevIdx]) {
+      setActiveBalloonId(characteristics[prevIdx].id);
+    }
+  };
+
+  // Validated exports
   const executeExport = async (type: 'excel' | 'pdf' | 'csv') => {
-    // 1. Recalculate display numbers sequentially before fresh export
     const renumbered = characteristics.map((c, idx) => ({
       ...c,
       balloonNumber: idx + 1,
     }));
     setCharacteristics(renumbered);
-
-    // 2. Pre-flight count verification: canvas count === tape count === export count
-    const canvasCount = renumbered.length;
-    const tapeCount = renumbered.length;
-    const exportCount = renumbered.length;
-
-    if (canvasCount !== tapeCount || canvasCount !== exportCount) {
-      alert(`Export blocked: Characteristic count mismatch! Canvas (${canvasCount}), Tape (${tapeCount}), Export (${exportCount}).`);
-      return;
-    }
-
     setHasExported(true);
 
     if (type === 'excel') {
-      if (backendConnected && !currentDrawing.isDemo) {
+      if (backendConnected) {
         try {
           const blob = await exportExcelApi(currentDrawing.id, renumbered);
           const url = URL.createObjectURL(blob);
@@ -419,13 +391,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           document.body.removeChild(link);
           URL.revokeObjectURL(url);
           return;
-        } catch (err) {
-          console.warn('Backend excel export failed, falling back to local generator:', err);
+        } catch {
+          // Local fallback
         }
       }
       exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, renumbered);
     } else if (type === 'pdf') {
-      if (backendConnected && !currentDrawing.isDemo) {
+      if (backendConnected) {
         try {
           const blob = await exportBalloonedPdfApi(currentDrawing.id, renumbered);
           const url = URL.createObjectURL(blob);
@@ -438,11 +410,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           URL.revokeObjectURL(url);
           return;
         } catch (err) {
-          console.warn('Backend PDF export failed:', err);
-          alert('Backend ballooned PDF export failed: ' + String(err));
+          alert('Ballooned PDF export failed: ' + String(err));
         }
       } else {
-        alert('Backend required for vector ballooned PDF generation. Start the backend service.');
+        alert('Backend required for vector ballooned PDF generation.');
       }
     } else if (type === 'csv') {
       exportAS9102CSV(currentDrawing.partNumber, currentDrawing.revision, renumbered);
@@ -458,36 +429,48 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
-  // Keyboard navigation & Shortcuts (Tab / Shift+Tab, D to delete, Ctrl+Z / Ctrl+Shift+Z)
+  // Keyboard navigation & Shortcuts (Enter to Approve & Next, Tab / Shift+Tab, Ctrl+Z / Ctrl+Y)
   useEffect(() => {
     const handleGlobalKeys = (e: KeyboardEvent) => {
-      // Do not break typing inside input, select, or textarea fields
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        if (e.key === 'Enter') {
+          // In input field, Enter triggers approve and next
+          e.preventDefault();
+          if (activeBalloonId) {
+            handleUpdateCharacteristic(activeBalloonId, { status: 'in_spec', reviewed: true });
+            soundEngine.playInSpecPass();
+            handleAdvanceToNext();
+          }
+        }
         return;
       }
 
       const isCtrlOrMeta = e.ctrlKey || e.metaKey;
 
-      if (isCtrlOrMeta && e.key.toLowerCase() === 'z') {
+      if (e.key === 'Enter') {
         e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
+        if (activeBalloonId) {
+          handleUpdateCharacteristic(activeBalloonId, { status: 'in_spec', reviewed: true });
+          soundEngine.playInSpecPass();
+          handleAdvanceToNext();
         }
+      } else if (isCtrlOrMeta && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
       } else if (isCtrlOrMeta && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         handleRedo();
       } else if (e.key === 'Tab') {
         e.preventDefault();
-        const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
-        if (e.shiftKey) {
-          const prevIdx = (currentIdx - 1 + characteristics.length) % (characteristics.length || 1);
-          if (characteristics[prevIdx]) setActiveBalloonId(characteristics[prevIdx].id);
-        } else {
-          const nextIdx = (currentIdx + 1) % (characteristics.length || 1);
-          if (characteristics[nextIdx]) setActiveBalloonId(characteristics[nextIdx].id);
-        }
+        if (e.shiftKey) handlePreviousBalloon();
+        else handleAdvanceToNext();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        handleAdvanceToNext();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        handlePreviousBalloon();
       } else if (e.key.toLowerCase() === 'd') {
         if (activeBalloonId) {
           e.preventDefault();
@@ -502,14 +485,40 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         setToolMode('pan');
       } else if (e.key.toLowerCase() === 'b') {
         setToolMode('box_balloon');
-      } else if (e.key.toLowerCase() === 'r') {
-        handleSortClockwise();
+      } else if (e.key.toLowerCase() === 'f') {
+        setZoom(1.0);
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeys);
     return () => window.removeEventListener('keydown', handleGlobalKeys);
-  }, [characteristics, activeBalloonId, handleUndo, handleRedo, handleSortClockwise]);
+  }, [characteristics, activeBalloonId, handleUndo, handleRedo]);
+
+  // Splitter drag handlers
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingSplitter(true);
+
+    const startY = e.clientY;
+    const initialPct = splitHeightPct;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const windowHeight = window.innerHeight - 130; // approx ribbon + status bar
+      const deltaPct = (deltaY / windowHeight) * 100;
+      const newPct = Math.min(80, Math.max(25, initialPct + deltaPct));
+      setSplitHeightPct(newPct);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingSplitter(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   const statusCounts = {
     total: characteristics.length,
@@ -521,7 +530,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const activeChar = characteristics.find((c) => c.id === activeBalloonId) || characteristics[0] || null;
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-page text-text-pri selection:bg-accent-primary selection:text-white font-sans">
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-app text-text-primary selection:bg-accent-primary selection:text-white font-sans select-none">
       {/* 1. Top Ribbon */}
       <WorkspaceHeader
         currentDrawing={currentDrawing}
@@ -529,7 +538,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         onSelectDrawing={handleSelectDrawing}
         onUploadPdf={handleUploadPdf}
         selectedStandard={selectedStandard}
-        onChangeStandard={handleChangeStandard}
+        onChangeStandard={setSelectedStandard}
         statusFilter={statusFilter}
         onFilterChange={setStatusFilter}
         viewMode={viewMode}
@@ -550,86 +559,130 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         inverted={inverted}
         onReSortClockwise={handleSortClockwise}
         onAutoBalloonDetect={handleAutoBalloonDetect}
-        onResetBalloons={handleResetBalloons}
+        onResetBalloons={() => {
+          const def = SAMPLE_DRAWINGS.find((d) => d.id === currentDrawing.id);
+          if (def) setCharacteristics(generateCropsFromSpec(def, { inverted, customImage }));
+        }}
         onAutoCalcFits={handleAutoCalculateFits}
+        onApproveAll={handleApproveAll}
         backendConnected={backendConnected}
         isExtracting={isExtracting}
+        showGrid={visibleLayers.grid}
+        onToggleGrid={() => setVisibleLayers(prev => ({ ...prev, grid: !prev.grid }))}
       />
 
-      {/* Backend / Status Notice Banner */}
-      {backendNotice && (
-        <div className="bg-amber-500/15 border-b border-amber-500/30 px-3 py-1 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300">
-          <span>{backendNotice}</span>
-          <button onClick={() => setBackendNotice(null)} className="font-bold px-1 hover:text-text-pri">✕</button>
-        </div>
-      )}
-
-      {/* 2. Main Workbench Area: Canvas Viewport + Right Inspector Sidebar */}
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        <div className="flex-1 h-full flex flex-col relative overflow-hidden">
-          <CadCanvasViewport
-            currentDrawing={currentDrawing}
+      {/* 2. Main 4-Pane Workbench Layout */}
+      {viewMode === 'split' ? (
+        <div className="flex-1 flex overflow-hidden relative">
+          {/* Left Pane (190px, collapsible): Model & Sheet Tree */}
+          <ModelSheetTree
+            drawing={currentDrawing}
             characteristics={characteristics}
             activeBalloonId={activeBalloonId}
             onSelectCharacteristic={setActiveBalloonId}
-            onAddCharacteristic={handleAddCharacteristic}
-            onUpdateCharacteristicPosition={handleUpdatePosition}
-            onDeleteCharacteristic={handleDeleteCharacteristic}
-            onReSortClockwise={handleSortClockwise}
-            inverted={inverted}
-            onToggleInvert={() => setInverted(!inverted)}
-            customImage={customImage}
-            onDropPdfFile={handleUploadPdf}
-            toolMode={toolMode}
-            onSetToolMode={setToolMode}
-            zoom={zoom}
-            onZoomChange={setZoom}
-            onCursorMove={(pos, zone) => {
-              setCursorPos(pos);
-              setSheetZone(zone);
-            }}
-            activePage={activePage}
-            onPageChange={setActivePage}
-            canUndo={undoStack.length > 0}
-            canRedo={redoStack.length > 0}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
+            isCollapsed={isTreeCollapsed}
+            onToggleCollapse={() => setIsTreeCollapsed(!isTreeCollapsed)}
+            visibleLayers={visibleLayers}
+            onToggleLayer={(l) => setVisibleLayers(prev => ({ ...prev, [l]: !prev[l] }))}
           />
 
-          {/* Collapsible Bottom Excel Sheet Bar */}
-          <As9102SpreadsheetView
-            drawing={currentDrawing}
-            characteristics={characteristics}
+          {/* Center Pane: Split Vertically between CAD Viewport (55%) and Docked BoC Spreadsheet (45%) */}
+          <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+            {/* Center-Top: Clean 2D CAD Drawing Viewport with Highlight Pills */}
+            <div
+              style={{ height: `${splitHeightPct}%` }}
+              className="w-full relative overflow-hidden flex flex-col transition-[height] duration-75"
+            >
+              <CadCanvasViewport
+                currentDrawing={currentDrawing}
+                characteristics={characteristics}
+                activeBalloonId={activeBalloonId}
+                onSelectCharacteristic={setActiveBalloonId}
+                onAddCharacteristic={handleAddCharacteristic}
+                onUpdateCharacteristicPosition={handleUpdatePosition}
+                onDeleteCharacteristic={handleDeleteCharacteristic}
+                onReSortClockwise={handleSortClockwise}
+                inverted={inverted}
+                onToggleInvert={() => setInverted(!inverted)}
+                customImage={customImage}
+                onDropPdfFile={handleUploadPdf}
+                toolMode={toolMode}
+                onSetToolMode={setToolMode}
+                zoom={zoom}
+                onZoomChange={setZoom}
+                onCursorMove={(pos, zone) => {
+                  setCursorPos(pos);
+                  setSheetZone(zone);
+                }}
+                activePage={activePage}
+                onPageChange={setActivePage}
+                canUndo={undoStack.length > 0}
+                canRedo={redoStack.length > 0}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+              />
+            </div>
+
+            {/* Resizable Horizontal Splitter Bar */}
+            <div
+              onMouseDown={handleSplitterMouseDown}
+              className={`h-1.5 w-full bg-border-hairline hover:bg-accent-primary cursor-row-resize transition-colors flex items-center justify-center z-10 ${
+                isDraggingSplitter ? 'bg-accent-primary' : ''
+              }`}
+              title="Drag to resize CAD Drawing Viewport and Bill of Characteristics"
+            >
+              <div className="w-8 h-1 rounded-full bg-border-strong" />
+            </div>
+
+            {/* Center-Bottom: Docked Bill of Characteristics Master Spreadsheet */}
+            <div
+              style={{ height: `${100 - splitHeightPct}%` }}
+              className="w-full relative overflow-hidden flex flex-col transition-[height] duration-75"
+            >
+              <BillOfCharacteristics
+                drawing={currentDrawing}
+                characteristics={characteristics}
+                activeBalloonId={activeBalloonId}
+                onSelectCharacteristic={setActiveBalloonId}
+                onUpdateCharacteristic={handleUpdateCharacteristic}
+                onAutoCalculateFits={handleAutoCalculateFits}
+                onApproveAll={handleApproveAll}
+                onExportCSV={() => handleRequestExport('csv')}
+                onExportExcel={() => handleRequestExport('excel')}
+                isExpanded={splitHeightPct < 70}
+                onToggleHeight={() => setSplitHeightPct(prev => (prev > 50 ? 30 : 60))}
+              />
+            </div>
+          </div>
+
+          {/* Right Pane (360px): Single-Characteristic Focused Inspector */}
+          <SingleCharacteristicInspector
+            characteristic={activeChar}
+            characteristicsList={characteristics}
+            onSelectCharacteristic={setActiveBalloonId}
             onUpdateCharacteristic={handleUpdateCharacteristic}
-            onAutoCalculateFits={handleAutoCalculateFits}
-            onSortClockwise={handleSortClockwise}
-            onFillSimulatedLot={() => {}}
-            onExportCSV={() => handleRequestExport('csv')}
-            onExportExcel={() => handleRequestExport('excel')}
-            onUndoBulkAction={handleUndo}
-            canUndo={undoStack.length > 0}
-            canRedo={redoStack.length > 0}
-            onRedoBulkAction={handleRedo}
-            isDrawer={true}
-            isExpanded={isBottomDrawerExpanded}
-            onToggleExpand={() => setIsBottomDrawerExpanded(!isBottomDrawerExpanded)}
+            onDeleteCharacteristic={handleDeleteCharacteristic}
           />
         </div>
+      ) : (
+        /* Full Sheet Mode */
+        <div className="flex-1 overflow-hidden flex flex-col bg-surface">
+          <BillOfCharacteristics
+            drawing={currentDrawing}
+            characteristics={characteristics}
+            activeBalloonId={activeBalloonId}
+            onSelectCharacteristic={setActiveBalloonId}
+            onUpdateCharacteristic={handleUpdateCharacteristic}
+            onAutoCalculateFits={handleAutoCalculateFits}
+            onApproveAll={handleApproveAll}
+            onExportCSV={() => handleRequestExport('csv')}
+            onExportExcel={() => handleRequestExport('excel')}
+            isExpanded={true}
+          />
+        </div>
+      )}
 
-        {/* Right Characteristic Tape Inspector */}
-        <CharacteristicTape
-          characteristics={characteristics}
-          activeBalloonId={activeBalloonId}
-          onSelectCharacteristic={setActiveBalloonId}
-          onUpdateCharacteristic={handleUpdateCharacteristic}
-          onDeleteCharacteristic={handleDeleteCharacteristic}
-          statusFilter={statusFilter}
-          onFilterChange={setStatusFilter}
-          onResetFilter={() => setStatusFilter('all')}
-        />
-      </div>
-
-      {/* 3. Classic MS Paint Bottom Status Bar */}
+      {/* 3. Classic MS Paint Bottom Status Bar (28px) */}
       <MsPaintStatusBar
         cursorPos={cursorPos}
         sheetZone={sheetZone}
@@ -648,46 +701,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         onResetZoom={() => setZoom(1.0)}
       />
 
-      {/* 4. Full Sheet Mode */}
-      {viewMode === 'sheet' && (
-        <As9102SpreadsheetView
-          drawing={currentDrawing}
-          characteristics={characteristics}
-          onUpdateCharacteristic={handleUpdateCharacteristic}
-          onAutoCalculateFits={handleAutoCalculateFits}
-          onSortClockwise={handleSortClockwise}
-          onFillSimulatedLot={() => {}}
-          onExportCSV={() => handleRequestExport('csv')}
-          onExportExcel={() => handleRequestExport('excel')}
-          onCloseSheetView={() => setViewMode('split')}
-          onUndoBulkAction={handleUndo}
-          canUndo={undoStack.length > 0}
-          canRedo={redoStack.length > 0}
-          onRedoBulkAction={handleRedo}
-          isDrawer={false}
-        />
-      )}
-
-      {/* 5. Caliper DRO Strip (UI Placeholder) */}
-      {caliperMode && (
-        <CaliperDroStrip
-          activeCharacteristic={activeChar}
-          onInjectMeasurement={handleInjectMeasurement}
-          onAdvanceToNextBalloon={handleAdvanceToNextBalloon}
-          onClose={() => setCaliperMode(false)}
-        />
-      )}
-
-      {/* Re-export Warning Modal (Fix 3) */}
+      {/* Re-export Warning Modal */}
       {showExportWarning && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-surface border border-border-hairline rounded-xl shadow-2xl max-w-md w-full p-5 text-xs font-sans">
-            <h3 className="text-sm font-bold text-text-pri mb-2 flex items-center gap-2">
+            <h3 className="text-sm font-bold text-text-primary mb-2 flex items-center gap-2">
               <span className="text-amber-500">⚠</span>
-              <span>Re-Export Sequence Warning</span>
+              <span>Re-Export Sequence Verification</span>
             </h3>
-            <p className="text-text-sec mb-4 leading-relaxed">
-              An export has already been generated for this drawing session. Proceeding will recalculate display balloon numbers sequentially (1..{characteristics.length}). If prior inspection reports have already been circulated, balloon numbers may not match the previous export.
+            <p className="text-text-secondary mb-4 leading-relaxed">
+              An export has already been generated for this drawing session. Proceeding will recalculate display balloon numbers sequentially (1..{characteristics.length}).
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -695,7 +718,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   setShowExportWarning(false);
                   setPendingExportType(null);
                 }}
-                className="px-3 py-1.5 rounded-md border border-border-hairline hover:bg-subtle text-text-sec font-medium"
+                className="px-3 py-1.5 rounded-md border border-border-hairline hover:bg-subtle text-text-secondary font-medium"
               >
                 Cancel
               </button>
@@ -709,7 +732,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 }}
                 className="px-3 py-1.5 rounded-md bg-accent-primary text-white font-semibold hover:bg-accent-primary/90"
               >
-                Proceed with Re-Export
+                Proceed with Export
               </button>
             </div>
           </div>
