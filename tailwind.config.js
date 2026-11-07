@@ -50,7 +50,7 @@ export default {
         'st-fail': 'var(--status-fail-text)',
       },
       fontFamily: {
-        display: ['Inter', '-apple-system', 'sans-serif'],
+        display: ['"Space Grotesk"', '"Plus Jakarta Sans"', 'Inter', '-apple-system', 'sans-serif'],
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },

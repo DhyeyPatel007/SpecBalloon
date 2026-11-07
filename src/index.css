@@ -3,84 +3,86 @@
 @tailwind utilities;
 
 :root {
-  /* Light Theme (Default — Clean Studio White & Fluent Silver) */
-  --bg-app: #F3F4F6;
+  /* Light Theme (Studio Paper — Museum-Grade Swiss Minimalism) */
+  --bg-app: #FAFAFA;
+  --bg-page: #FAFAFA;
   --bg-surface: #FFFFFF;
-  --bg-subtle: #F8FAFC;
-  --bg-selected: #EFF6FF;
-  --border-hairline: #E2E8F0;
-  --border-strong: #CBD5E1;
-  --text-primary: #0F172A;
-  --text-secondary: #475569;
-  --text-muted: #64748B;
+  --bg-subtle: #F4F4F5;
+  --bg-selected: #F0F9FF;
+  --border-hairline: #E4E4E7;
+  --border-strong: #D4D4D8;
+  --text-primary: #09090B;
+  --text-secondary: #52525B;
+  --text-muted: #71717A;
   --accent-primary: #0284C7;
-  --accent-balloon: #EA580C;
+  --accent-balloon: #09090B;
 
-  --status-pass-bg: rgba(16, 185, 129, 0.16);
+  /* Strict 10% Metrology Truth Signals */
+  --status-pass-bg: rgba(5, 150, 105, 0.12);
   --status-pass-text: #059669;
-  --status-pass-border: #10B981;
+  --status-pass-border: #059669;
 
-  --status-warn-bg: rgba(245, 158, 11, 0.18);
+  --status-warn-bg: rgba(217, 119, 6, 0.12);
   --status-warn-text: #D97706;
-  --status-warn-border: #F59E0B;
+  --status-warn-border: #D97706;
 
-  --status-fail-bg: rgba(239, 68, 68, 0.18);
+  --status-fail-bg: rgba(220, 38, 38, 0.12);
   --status-fail-text: #DC2626;
-  --status-fail-border: #EF4444;
+  --status-fail-border: #DC2626;
 
   /* Aliases */
-  --bg-page: var(--bg-app);
   --status-pass: var(--status-pass-text);
   --status-warn: var(--status-warn-text);
   --status-fail: var(--status-fail-text);
   --bg-canvas: var(--bg-app);
   --bg-surface-1: var(--bg-surface);
   --bg-surface-2: var(--bg-subtle);
-  --bg-surface-3: #E2E8F0;
+  --bg-surface-3: #E4E4E7;
   --border-structural: var(--border-hairline);
   --border-focus: var(--accent-primary);
-  --accent-orange: var(--accent-balloon);
+  --accent-orange: #EA580C;
   --accent-cobalt: var(--accent-primary);
 }
 
 .dark {
-  /* Dark Theme (Pro Midnight IDE) */
-  --bg-app: #090D16;
-  --bg-surface: #111827;
-  --bg-subtle: #1E293B;
-  --bg-selected: #1E3A8A;
-  --border-hairline: #1F2937;
-  --border-strong: #374151;
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
+  /* Dark Theme (Carbon Studio — Minimalist Aerospace Dark Mode) */
+  --bg-app: #09090B;
+  --bg-page: #09090B;
+  --bg-surface: #121215;
+  --bg-subtle: #18181C;
+  --bg-selected: #0C2138;
+  --border-hairline: #27272A;
+  --border-strong: #3F3F46;
+  --text-primary: #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
   --accent-primary: #38BDF8;
-  --accent-balloon: #FB923C;
+  --accent-balloon: #FAFAFA;
 
-  --status-pass-bg: rgba(16, 185, 129, 0.22);
-  --status-pass-text: #34D399;
-  --status-pass-border: #059669;
+  /* Strict 10% Metrology Truth Signals */
+  --status-pass-bg: rgba(16, 185, 129, 0.18);
+  --status-pass-text: #10B981;
+  --status-pass-border: #10B981;
 
-  --status-warn-bg: rgba(245, 158, 11, 0.24);
-  --status-warn-text: #FBBF24;
-  --status-warn-border: #D97706;
+  --status-warn-bg: rgba(245, 158, 11, 0.18);
+  --status-warn-text: #F59E0B;
+  --status-warn-border: #F59E0B;
 
-  --status-fail-bg: rgba(239, 68, 68, 0.24);
-  --status-fail-text: #F87171;
-  --status-fail-border: #DC2626;
+  --status-fail-bg: rgba(239, 68, 68, 0.18);
+  --status-fail-text: #EF4444;
+  --status-fail-border: #EF4444;
 
   /* Aliases */
-  --bg-page: var(--bg-app);
   --status-pass: var(--status-pass-text);
   --status-warn: var(--status-warn-text);
   --status-fail: var(--status-fail-text);
   --bg-canvas: var(--bg-app);
   --bg-surface-1: var(--bg-surface);
   --bg-surface-2: var(--bg-subtle);
-  --bg-surface-3: #1F2937;
+  --bg-surface-3: #27272A;
   --border-structural: var(--border-hairline);
   --border-focus: var(--accent-primary);
-  --accent-orange: var(--accent-balloon);
+  --accent-orange: #FB923C;
   --accent-cobalt: var(--accent-primary);
 }
 

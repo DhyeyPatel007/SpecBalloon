@@ -761,6 +761,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         onStartTour={() => setIsTourOpen(true)}
         onExportPdfDeck={handleExportPdfDeck}
         onSimulateCaliperBurst={() => simulateCaliperBurst(30.012)}
+        onOpenAuditLog={() => setIsAuditLogOpen(true)}
       />
 
       {/* Floating USB Caliper Burst Toast */}
