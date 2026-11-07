@@ -54,6 +54,9 @@ interface CadCanvasViewportProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  isRevisionDiffMode?: boolean;
+  onAcceptRevisionDeltas?: () => void;
+  selectedDatumHighlight?: 'A' | 'B' | 'C' | null;
 }
 
 export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
@@ -79,6 +82,9 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   canRedo = false,
   onUndo,
   onRedo,
+  isRevisionDiffMode = false,
+  onAcceptRevisionDeltas,
+  selectedDatumHighlight = null,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -367,7 +373,9 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       const anchorX = char.bbox.x + char.bbox.width / 2;
       const anchorY = char.bbox.y + char.bbox.height / 2;
 
-      const balloonColor = isSelected
+      const isDatumMatch = selectedDatumHighlight && char.datumFeature === selectedDatumHighlight;
+
+      let balloonColor = isSelected
         ? '#0284C7'
         : char.status === 'in_spec'
         ? '#107C41'
@@ -375,11 +383,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         ? '#DC2626'
         : '#D97706';
 
-      // 1. Translucent Callout Highlight Pill over char.bbox
-      const { x: boxX, y: boxY, width: boxW, height: boxH } = char.bbox;
-      const cornerRadius = 4;
-
-      const fillStyle = isSelected
+      let fillStyle = isSelected
         ? 'rgba(2, 132, 199, 0.22)'
         : char.status === 'in_spec'
         ? 'rgba(16, 185, 129, 0.16)'
@@ -387,7 +391,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         ? 'rgba(239, 68, 68, 0.18)'
         : 'rgba(245, 158, 11, 0.18)';
 
-      const strokeStyle = isSelected
+      let strokeStyle = isSelected
         ? '#0284C7'
         : char.status === 'in_spec'
         ? '#10B981'
@@ -395,7 +399,48 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         ? '#EF4444'
         : '#F59E0B';
 
+      let tagLabel = `#${char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber}`;
+      let tagW = 26;
+
       ctx.save();
+
+      // Revision Diff Mode styling
+      if (isRevisionDiffMode) {
+        if (char.deltaState === 'MODIFIED') {
+          balloonColor = '#6366F1';
+          fillStyle = 'rgba(99, 102, 241, 0.28)';
+          strokeStyle = '#6366F1';
+          tagLabel = `#${char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber} Δ REV C`;
+          tagW = 56;
+        } else if (char.deltaState === 'ADDED') {
+          balloonColor = '#10B981';
+          fillStyle = 'rgba(16, 185, 129, 0.28)';
+          strokeStyle = '#10B981';
+          tagLabel = `#${char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber} + NEW`;
+          tagW = 48;
+        } else if (char.deltaState === 'SUPERSEDED') {
+          balloonColor = '#9CA3AF';
+          fillStyle = 'rgba(239, 68, 68, 0.18)';
+          strokeStyle = '#EF4444';
+          tagLabel = `#${char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber} ✕ DEL`;
+          tagW = 46;
+        } else {
+          // Unchanged dims are dimmed so user focuses on diffs
+          ctx.globalAlpha = 0.40;
+        }
+      }
+
+      if (isDatumMatch) {
+        ctx.globalAlpha = 1.0;
+        strokeStyle = '#06B6D4';
+        fillStyle = 'rgba(6, 182, 212, 0.3)';
+        balloonColor = '#0891B2';
+      }
+
+      // 1. Translucent Callout Highlight Pill over char.bbox
+      const { x: boxX, y: boxY, width: boxW, height: boxH } = char.bbox;
+      const cornerRadius = 4;
+
       // Draw rounded rectangle for bbox highlight
       ctx.beginPath();
       if (typeof ctx.roundRect === 'function') {
@@ -406,13 +451,11 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       ctx.fillStyle = fillStyle;
       ctx.fill();
       ctx.strokeStyle = strokeStyle;
-      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.lineWidth = isSelected || isDatumMatch ? 2.5 : 1;
       ctx.stroke();
 
       // Corner Tag Badge (#01) in top-left
-      const tagLabel = `#${char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber}`;
-      const tagW = 26;
-      const tagH = 13;
+      const tagH = 14;
       const tagX = boxX;
       const tagY = Math.max(2, boxY - tagH);
 
@@ -430,12 +473,24 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(tagLabel, tagX + tagW / 2, tagY + tagH / 2);
+
+      // Datum badge if controlling datum
+      if (char.datumFeature) {
+        ctx.fillStyle = '#0891B2';
+        ctx.fillRect(tagX + tagW + 2, tagY, 18, tagH);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(`[${char.datumFeature}]`, tagX + tagW + 11, tagY + tagH / 2);
+      }
+
       ctx.restore();
 
       // 2. Leader line and circular balloon
       ctx.save();
+      if (isRevisionDiffMode && (!char.deltaState || char.deltaState === 'UNCHANGED')) {
+        ctx.globalAlpha = 0.40;
+      }
       ctx.strokeStyle = balloonColor;
-      ctx.lineWidth = isSelected ? 2 : 1.25;
+      ctx.lineWidth = isSelected || isDatumMatch ? 2 : 1.25;
 
       ctx.beginPath();
       ctx.moveTo(anchorX, anchorY);
@@ -451,14 +506,14 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       ctx.closePath();
       ctx.fill();
 
-      if (isSelected) {
-        ctx.strokeStyle = 'rgba(2, 132, 199, 0.4)';
+      if (isSelected || isDatumMatch) {
+        ctx.strokeStyle = isDatumMatch ? 'rgba(6, 182, 212, 0.5)' : 'rgba(2, 132, 199, 0.4)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(bX, bY, 20, 0, Math.PI * 2);
         ctx.stroke();
 
-        ctx.strokeStyle = 'rgba(2, 132, 199, 0.2)';
+        ctx.strokeStyle = isDatumMatch ? 'rgba(6, 182, 212, 0.25)' : 'rgba(2, 132, 199, 0.2)';
         ctx.beginPath();
         ctx.arc(bX, bY, 28, 0, Math.PI * 2);
         ctx.stroke();
@@ -812,6 +867,41 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
             toolMode === 'box_balloon' ? 'crosshair' : isPanning.current ? 'grabbing' : 'grab'
           }`}
         >
+          {/* Floating Revision Diff Mode Banner */}
+          {isRevisionDiffMode && (
+            <div className="absolute top-3 left-4 right-4 z-30 bg-surface/95 backdrop-blur-md border border-indigo-500/40 rounded-lg shadow-xl px-4 py-2 flex flex-wrap items-center justify-between text-xs gap-2">
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-700 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                  🔀 REVISION DIFF MODE
+                </span>
+                <span className="font-semibold text-text-primary hidden sm:inline">
+                  Comparing Baseline (Rev B) → Released (Rev C)
+                </span>
+                <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                  <span className="px-1.5 py-0.5 rounded bg-subtle text-text-muted">10 Unchanged</span>
+                  <span className="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-semibold">
+                    2 Modified (Δ)
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 font-semibold">
+                    +1 Added
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 line-through">
+                    1 Superseded
+                  </span>
+                </div>
+              </div>
+              {onAcceptRevisionDeltas && (
+                <button
+                  type="button"
+                  onClick={onAcceptRevisionDeltas}
+                  className="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                >
+                  <span>✓ Accept All Rev C Deltas & Lock Tag IDs</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Centered Artboard Sheet */}
           <div
             style={{

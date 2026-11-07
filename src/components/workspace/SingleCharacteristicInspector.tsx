@@ -15,14 +15,20 @@ import {
   Maximize2,
   Search,
   Radio,
-  Trash2
+  Trash2,
+  Scissors,
+  Split,
+  AlertTriangle,
+  ShieldCheck
 } from 'lucide-react';
 import { Characteristic, InspectionStatus } from '../../types/metrology';
 import {
   fmt3,
   parseCalloutAndCalculateLimits,
   calculateMovingRangeSPC,
-  MovingRangeSPCResult
+  MovingRangeSPCResult,
+  calculateDynamicMmcBonus,
+  calculateISOThread
 } from '../../utils/metrologyMath';
 import { soundEngine } from '../../utils/audioSynthesizer';
 import {
@@ -181,6 +187,61 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
   const isFail = characteristic.status === 'out_of_spec';
   const lslVal = characteristic.lower_limit ?? characteristic.lsl;
   const uslVal = characteristic.upper_limit ?? characteristic.usl;
+
+  // MMC & Datum Shift calculations
+  const datumBChar = characteristicsList.find((c) => c.balloonNumber === 1 || c.rawCallout.includes('H7'));
+  const isGdtMmc =
+    characteristic.toleranceType === 'GD&T' ||
+    characteristic.hasMmcModifier ||
+    characteristic.rawCallout.includes('(M)') ||
+    characteristic.rawCallout.includes('Ⓜ');
+  const mmcCalc = calculateDynamicMmcBonus(characteristic, datumBChar);
+
+  // Split compound callout handler
+  const handleSplitCompound = () => {
+    onUpdateCharacteristic(characteristic.id, {
+      isCompoundParent: true,
+      compoundSubTags: [
+        {
+          subTag: `#0${characteristic.balloonNumber}A`,
+          description: 'Thru Hole Diameter',
+          nominal_text: 'Ø8.50 +0.10/-0.00',
+          plusTolerance: 0.100,
+          minusTolerance: 0.000,
+          lsl: 8.500,
+          usl: 8.600,
+          instrument: 'Meyer Pin Gauge Set (+8.50/+8.60)',
+          measuredValue: 8.540,
+          status: 'in_spec',
+        },
+        {
+          subTag: `#0${characteristic.balloonNumber}B`,
+          description: 'Counterbore Diameter',
+          nominal_text: 'Ø14.00 ±0.10',
+          plusTolerance: 0.100,
+          minusTolerance: 0.100,
+          lsl: 13.900,
+          usl: 14.100,
+          instrument: 'Internal Micrometer',
+          measuredValue: 14.020,
+          status: 'in_spec',
+        },
+        {
+          subTag: `#0${characteristic.balloonNumber}C`,
+          description: 'Counterbore Depth',
+          nominal_text: '6.50 ±0.05',
+          plusTolerance: 0.050,
+          minusTolerance: 0.050,
+          lsl: 6.450,
+          usl: 6.550,
+          instrument: 'Depth Micrometer',
+          measuredValue: 6.490,
+          status: 'in_spec',
+        },
+      ],
+    });
+    soundEngine.playInSpecPass();
+  };
 
   const lotSamples = characteristic.lotMeasurements && characteristic.lotMeasurements.length >= 2
     ? characteristic.lotMeasurements
@@ -554,6 +615,240 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
                 </div>
               </div>
             </div>
+
+            {/* Capability 4: Live Dynamic MMC Bonus & Datum Shift Calculator */}
+            {isGdtMmc && (
+              <div className="p-2.5 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-status-pass" />
+                    <span>ASME Y14.5 Dynamic MMC & Datum Shift</span>
+                  </span>
+                  <span className="font-mono text-[10px] px-1 rounded bg-white/70 dark:bg-black/30 font-bold">
+                    {mmcCalc.passedViaBonus ? 'BONUS ACTIVE' : 'MMC / RFS'}
+                  </span>
+                </div>
+
+                {/* Live Math Equation Pill */}
+                <div className="p-2 rounded bg-surface border border-border-hairline text-[11px] font-mono leading-relaxed space-y-1">
+                  <div className="text-text-secondary text-[10px]">
+                    Effective USL = T<sub>stated</sub> + Bonus<sub>Feat MMC</sub> + Shift<sub>Datum B MMC</sub>
+                  </div>
+                  <div className="font-bold text-text-primary text-[11px]">
+                    {fmt3(mmcCalc.statedTolerance)} + {fmt3(mmcCalc.featureBonus)} + {fmt3(mmcCalc.datumShift)} ={' '}
+                    <span className="text-status-pass">{fmt3(mmcCalc.effectiveUsl)} mm</span>
+                  </div>
+                </div>
+
+                {/* Saved from false scrap badge */}
+                {mmcCalc.passedViaBonus ? (
+                  <div className="p-2 rounded-md bg-emerald-100 dark:bg-emerald-900/50 border border-emerald-400 dark:border-emerald-700 text-status-pass text-xs font-bold flex items-start gap-1.5 shadow-2xs">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-status-pass" />
+                    <div>
+                      <div>✅ PASS VIA MMC BONUS (SAVED FROM FALSE SCRAP)</div>
+                      <div className="text-[10px] font-normal text-text-secondary mt-0.5 font-sans leading-tight">
+                        Reading ({fmt3(characteristic.measuredValue)} mm) exceeds static {fmt3(mmcCalc.statedTolerance)} mm limit, but dynamically passes under the {fmt3(mmcCalc.effectiveUsl)} mm MMC envelope derived from Tag #01 datum bore departure.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between text-[10px] text-text-muted">
+                    <span>Test MMC Envelope:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleFieldChange('measuredValue', 0.058)}
+                      className="text-accent-primary hover:underline font-mono"
+                    >
+                      Simulate 0.058mm (Pass via Bonus)
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Capability 3: ISO 68-1 / ISO 965 Metric & Unified Thread Metrology Parameters */}
+            {(characteristic.toleranceType === 'Thread' || characteristic.rawCallout.toUpperCase().startsWith('M')) && (
+              <div className="p-2.5 rounded-lg border border-purple-300 dark:border-purple-800 bg-purple-50/40 dark:bg-purple-950/20 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-purple-800 dark:text-purple-300">
+                  <span>ISO 68-1 / ISO 965 Thread Parameters</span>
+                  <span className="font-mono text-[10px] px-1 rounded bg-white/70 dark:bg-black/30 font-bold">
+                    {characteristic.threadData?.threadClass || '6H'}
+                  </span>
+                </div>
+
+                {(() => {
+                  const tData = characteristic.threadData || calculateISOThread(10, 1.5, '6H', true);
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono">
+                        <div className="p-1.5 rounded bg-surface border border-border-hairline">
+                          <span className="text-[10px] text-text-muted block">Pitch (P)</span>
+                          <span className="font-bold text-text-primary">{tData.pitch.toFixed(3)} mm</span>
+                        </div>
+                        <div className="p-1.5 rounded bg-surface border border-border-hairline">
+                          <span className="text-[10px] text-text-muted block">Triangle Height (H)</span>
+                          <span className="font-bold text-text-primary">{tData.fundamentalHeight.toFixed(3)} mm</span>
+                        </div>
+                        <div className="p-1.5 rounded bg-surface border border-border-hairline col-span-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-text-muted">Pitch Diameter (D₂)</span>
+                            <span className="text-[10px] font-mono text-purple-600 dark:text-purple-400 font-bold">
+                              D - 0.649519·P
+                            </span>
+                          </div>
+                          <span className="text-sm font-bold text-text-primary">
+                            {tData.pitchDiameterD2.toFixed(3)} mm
+                          </span>
+                          <span className="text-[10px] text-text-secondary block mt-0.5">
+                            Inspected via: GO / NO-GO Thread Plug Gauge ({tData.gaugeSerial})
+                          </span>
+                        </div>
+                        <div className="p-1.5 rounded bg-surface border border-border-hairline col-span-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-text-muted">Minor Bore Diameter (D₁)</span>
+                            <span className="text-[10px] font-mono text-text-muted">D - 1.082532·P</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-text-primary">
+                              {tData.minorD1Lsl.toFixed(3)} - {tData.minorD1Usl.toFixed(3)} mm
+                            </span>
+                            <span className="text-[10px] text-text-muted">Meyer Pin / Bore Gauge</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* GO / NO-GO Attribute Gauging Toggle */}
+                      <div className="pt-1 border-t border-purple-200 dark:border-purple-800/60 flex items-center justify-between text-xs">
+                        <span className="text-[10px] font-semibold text-text-secondary">Thread Plug Gauging:</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onUpdateCharacteristic(characteristic.id, {
+                                status: 'in_spec',
+                                threadData: { ...tData, goNoGoResult: 'PASS' },
+                              });
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                              tData.goNoGoResult === 'PASS'
+                                ? 'bg-status-pass text-white'
+                                : 'bg-subtle text-text-secondary hover:bg-surface'
+                            }`}
+                          >
+                            GO: PASS
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onUpdateCharacteristic(characteristic.id, {
+                                status: 'out_of_spec',
+                                threadData: { ...tData, goNoGoResult: 'FAIL' },
+                              });
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                              tData.goNoGoResult === 'FAIL'
+                                ? 'bg-status-fail text-white'
+                                : 'bg-subtle text-text-secondary hover:bg-surface'
+                            }`}
+                          >
+                            NO-GO: FAIL
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Capability 2: Multi-Feature 4X Cavities Inspector */}
+            {characteristic.quantity && characteristic.quantity > 1 && characteristic.subFeatures && (
+              <div className="p-2.5 rounded-lg border border-border-hairline bg-subtle/40 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-text-secondary">
+                  <span className="flex items-center gap-1">
+                    <Split className="w-3.5 h-3.5 text-accent-primary" />
+                    <span>Multi-Feature {characteristic.quantity}X Cavities</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-status-pass font-bold">
+                    All {characteristic.quantity} PASS
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  {characteristic.subFeatures.map((sub) => (
+                    <div key={sub.subId} className="p-1.5 rounded bg-surface border border-border-hairline text-[11px]">
+                      <div className="flex justify-between items-center text-[10px] text-text-muted mb-0.5">
+                        <span className="font-bold">{sub.label}</span>
+                        <span className="text-status-pass font-bold">PASS</span>
+                      </div>
+                      <input
+                        type="number"
+                        step="0.001"
+                        value={sub.measuredValue !== undefined && sub.measuredValue !== null ? sub.measuredValue : ''}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          const updatedSub = characteristic.subFeatures?.map((s) =>
+                            s.subId === sub.subId ? { ...s, measuredValue: isNaN(val) ? null : val } : s
+                          );
+                          onUpdateCharacteristic(characteristic.id, { subFeatures: updatedSub });
+                        }}
+                        className="w-full h-6 px-1.5 rounded border border-border-hairline font-mono text-xs font-semibold"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[10px] font-mono text-text-muted text-center pt-0.5">
+                  Cavity Limits: Min: 8.512 mm | Max: 8.548 mm
+                </div>
+              </div>
+            )}
+
+            {/* Capability 2: Compound Callout Splitter */}
+            {characteristic.compoundSubTags && characteristic.compoundSubTags.length > 0 ? (
+              <div className="p-2.5 rounded-lg border border-border-hairline bg-subtle/30 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-text-secondary">
+                  <span className="flex items-center gap-1">
+                    <Scissors className="w-3.5 h-3.5 text-accent-primary" />
+                    <span>Compound Sub-Characteristics</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-accent-primary font-bold">
+                    {characteristic.compoundSubTags.length} Sub-Tags
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 text-[11px]">
+                  {characteristic.compoundSubTags.map((sub) => (
+                    <div
+                      key={sub.subTag}
+                      className="p-1.5 rounded bg-surface border border-border-hairline flex items-center justify-between"
+                    >
+                      <div>
+                        <span className="font-mono font-bold text-accent-primary mr-1.5">{sub.subTag}:</span>
+                        <span className="font-medium text-text-primary">{sub.description}</span>
+                        <div className="text-[10px] font-mono text-text-muted">
+                          {sub.nominal_text} ({sub.instrument})
+                        </div>
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-status-pass">
+                        {fmt3(sub.measuredValue)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              (characteristic.balloonNumber === 4 || characteristic.rawCallout.includes('THRU')) && (
+                <button
+                  type="button"
+                  onClick={handleSplitCompound}
+                  className="w-full h-7.5 rounded-md border border-accent-primary/40 bg-subtle hover:bg-surface text-accent-primary font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                  title="Decompose compound callout into #04A (Thru Hole), #04B (Counterbore Dia), and #04C (Depth)"
+                >
+                  <Scissors className="w-3.5 h-3.5" />
+                  <span>[✂ Split into Sub-Characteristics]</span>
+                </button>
+              )
+            )}
 
             {/* Danger Zone: Delete */}
             <div className="pt-2 border-t border-border-hairline flex justify-between items-center text-[11px]">

@@ -22,6 +22,8 @@ interface ModelSheetTreeProps {
   characteristics: Characteristic[];
   activeBalloonId: string | null;
   onSelectCharacteristic: (id: string) => void;
+  onSelectDatum?: (datum: 'A' | 'B' | 'C') => void;
+  selectedDatum?: 'A' | 'B' | 'C' | null;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   visibleLayers: {
@@ -38,6 +40,8 @@ export const ModelSheetTree: React.FC<ModelSheetTreeProps> = ({
   characteristics,
   activeBalloonId,
   onSelectCharacteristic,
+  onSelectDatum,
+  selectedDatum,
   isCollapsed,
   onToggleCollapse,
   visibleLayers,
@@ -153,18 +157,65 @@ export const ModelSheetTree: React.FC<ModelSheetTreeProps> = ({
 
           {expandedSections.datums && (
             <div className="pl-4 pr-1 py-0.5 space-y-0.5 text-[11px]">
-              <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-subtle text-text-secondary">
-                <span className="px-1 py-0.2 rounded bg-subtle border border-border-hairline font-mono font-bold text-[10px] text-accent-primary">[A]</span>
-                <span className="truncate">Primary Plane (Mount)</span>
-              </div>
-              <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-subtle text-text-secondary">
-                <span className="px-1 py-0.2 rounded bg-subtle border border-border-hairline font-mono font-bold text-[10px] text-accent-primary">[B]</span>
-                <span className="truncate">Axis Bore (Cylinder)</span>
-              </div>
-              <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-subtle text-text-secondary">
-                <span className="px-1 py-0.2 rounded bg-subtle border border-border-hairline font-mono font-bold text-[10px] text-accent-primary">[C]</span>
-                <span className="truncate">Keyway Alignment Pin</span>
-              </div>
+              {/* Datum A -> Tag #07 */}
+              <button
+                type="button"
+                onClick={() => {
+                  const tag7 = characteristics.find(c => c.balloonNumber === 7 || c.datumFeature === 'A');
+                  if (tag7) onSelectCharacteristic(tag7.id);
+                  if (onSelectDatum) onSelectDatum('A');
+                }}
+                className={`w-full flex items-center justify-between px-1.5 py-1 rounded text-left transition-colors cursor-pointer ${
+                  selectedDatum === 'A' ? 'bg-selected text-accent-primary font-semibold' : 'hover:bg-subtle text-text-secondary'
+                }`}
+                title="Click to jump to Datum A (Tag #07: Mounting Face Flatness)"
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <span className="px-1 py-0.2 rounded bg-subtle border border-border-hairline font-mono font-bold text-[10px] text-accent-primary">[A]</span>
+                  <span className="truncate">Mounting Face (Tag #07)</span>
+                </span>
+                <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400">#07</span>
+              </button>
+
+              {/* Datum B -> Tag #01 */}
+              <button
+                type="button"
+                onClick={() => {
+                  const tag1 = characteristics.find(c => c.balloonNumber === 1 || c.datumFeature === 'B');
+                  if (tag1) onSelectCharacteristic(tag1.id);
+                  if (onSelectDatum) onSelectDatum('B');
+                }}
+                className={`w-full flex items-center justify-between px-1.5 py-1 rounded text-left transition-colors cursor-pointer ${
+                  selectedDatum === 'B' ? 'bg-selected text-accent-primary font-semibold' : 'hover:bg-subtle text-text-secondary'
+                }`}
+                title="Click to jump to Datum B (Tag #01: Main Bore Ø30.00 H7)"
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <span className="px-1 py-0.2 rounded bg-subtle border border-border-hairline font-mono font-bold text-[10px] text-accent-primary">[B]</span>
+                  <span className="truncate">Center Bore (Tag #01)</span>
+                </span>
+                <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400">#01</span>
+              </button>
+
+              {/* Datum C -> Tag #03 */}
+              <button
+                type="button"
+                onClick={() => {
+                  const tag3 = characteristics.find(c => c.balloonNumber === 3 || c.datumFeature === 'C');
+                  if (tag3) onSelectCharacteristic(tag3.id);
+                  if (onSelectDatum) onSelectDatum('C');
+                }}
+                className={`w-full flex items-center justify-between px-1.5 py-1 rounded text-left transition-colors cursor-pointer ${
+                  selectedDatum === 'C' ? 'bg-selected text-accent-primary font-semibold' : 'hover:bg-subtle text-text-secondary'
+                }`}
+                title="Click to jump to Datum C (Tag #03: Flange Outer Dia Ø120.0)"
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <span className="px-1 py-0.2 rounded bg-subtle border border-border-hairline font-mono font-bold text-[10px] text-accent-primary">[C]</span>
+                  <span className="truncate">Flange OD (Tag #03)</span>
+                </span>
+                <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400">#03</span>
+              </button>
             </div>
           )}
         </div>

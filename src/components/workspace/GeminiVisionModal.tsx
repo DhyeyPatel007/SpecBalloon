@@ -212,3 +212,4 @@ export const GeminiVisionModal: React.FC<GeminiVisionModalProps> = ({ isOpen, on
     </div>
   );
 };
+

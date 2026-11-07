@@ -1,5 +1,5 @@
 import React from 'react';
-import { Crosshair, ZoomIn, ZoomOut } from 'lucide-react';
+import { Crosshair, ZoomIn, ZoomOut, ShieldCheck } from 'lucide-react';
 import { fmt3 } from '../../utils/metrologyMath';
 
 interface MsPaintStatusBarProps {
@@ -16,6 +16,8 @@ interface MsPaintStatusBarProps {
   zoom: number;
   onZoomChange: (newZoom: number) => void;
   onResetZoom: () => void;
+  onOpenAuditLog?: () => void;
+  auditLogCount?: number;
 }
 
 export const MsPaintStatusBar: React.FC<MsPaintStatusBarProps> = ({
@@ -27,6 +29,8 @@ export const MsPaintStatusBar: React.FC<MsPaintStatusBarProps> = ({
   zoom,
   onZoomChange,
   onResetZoom,
+  onOpenAuditLog,
+  auditLogCount = 0,
 }) => {
   const zoomPct = Math.round(zoom * 100);
 
@@ -88,6 +92,20 @@ export const MsPaintStatusBar: React.FC<MsPaintStatusBarProps> = ({
           <span className="text-status-warn font-semibold">{statusCounts.needsReview} Rev</span>
           <span className="text-status-fail font-semibold">{statusCounts.outOfSpec} Fail)</span>
         </div>
+
+        {onOpenAuditLog && (
+          <>
+            <div className="h-3.5 w-px bg-border-hairline" />
+            <button
+              onClick={onOpenAuditLog}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono text-text-sec hover:text-text-pri hover:bg-subtle border border-border-hairline transition-colors cursor-pointer"
+              title="Open 21 CFR Part 11 / AS9100 Tamper-Evident Audit Log"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-status-pass" />
+              <span className="font-semibold">Audit Log ({auditLogCount})</span>
+            </button>
+          </>
+        )}
 
         <div className="h-3.5 w-px bg-border-hairline" />
 

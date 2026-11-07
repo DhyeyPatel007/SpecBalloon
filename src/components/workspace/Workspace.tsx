@@ -5,7 +5,8 @@ import {
   DrawingSpec,
   GeneralToleranceStandard,
   InspectionStatus,
-  Point
+  Point,
+  AuditLogEntry
 } from '../../types/metrology';
 import { SAMPLE_DRAWINGS } from '../../data/sampleDrawings';
 import {
@@ -13,7 +14,9 @@ import {
   exportAS9102Excel,
   getGeneralTolerance,
   calculateISO286,
-  fmt3
+  fmt3,
+  DEFAULT_AUDIT_LOG_ENTRIES,
+  exportAuditLogCSV
 } from '../../utils/metrologyMath';
 import { generateCropsFromSpec } from '../../utils/cadRenderer';
 import { preloadImage, BLUEPRINT_ASSET_MAP } from '../../utils/assetLoader';
@@ -33,6 +36,7 @@ import { SingleCharacteristicInspector } from './SingleCharacteristicInspector';
 import { CaliperDroStrip } from './CaliperDroStrip';
 import { MsPaintStatusBar } from './MsPaintStatusBar';
 import { GeminiVisionModal } from './GeminiVisionModal';
+import { AuditLogDrawer } from './AuditLogDrawer';
 
 interface WorkspaceProps {
   initialDrawingId?: string;
@@ -100,6 +104,47 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [activePage, setActivePage] = useState(1);
   const [splitHeightPct, setSplitHeightPct] = useState(55); // 55% drawing viewport, 45% BoC table
   const [isDraggingSplitter, setIsDraggingSplitter] = useState(false);
+
+  // Advanced Metrology Capabilities State
+  const [isRevisionDiffMode, setIsRevisionDiffMode] = useState(false);
+  const [selectedDatumHighlight, setSelectedDatumHighlight] = useState<'A' | 'B' | 'C' | null>(null);
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
+  const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[]>(DEFAULT_AUDIT_LOG_ENTRIES);
+
+  const handleAcceptRevisionDeltas = () => {
+    pushUndoSnapshot(characteristics);
+    const accepted = characteristics
+      .filter((c) => !c.isDeletedHistorical)
+      .map((c) => ({
+        ...c,
+        deltaState: 'UNCHANGED' as const,
+        diffNote: undefined,
+      }));
+    setCharacteristics(accepted);
+    setIsRevisionDiffMode(false);
+
+    const newAudit: AuditLogEntry = {
+      id: `audit-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
+      user: 'D. Vance (Lead QA)',
+      tagId: 'ALL',
+      action: 'REV_C_DELTAS_ACCEPTED',
+      details: `Accepted all engineering release Rev C deltas for ${currentDrawing.partNumber}. All Tag IDs locked into production CMM plan.`,
+      hash: Array.from(crypto.getRandomValues(new Uint8Array(16)))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join(''),
+    };
+    setAuditLogEntries((prev) => [newAudit, ...prev]);
+    soundEngine.playInSpecPass();
+  };
+
+  const handleSelectDatum = (datum: 'A' | 'B' | 'C') => {
+    setSelectedDatumHighlight((prev) => (prev === datum ? null : datum));
+    const char = characteristics.find((c) => c.datumFeature === datum);
+    if (char) {
+      setActiveBalloonId(char.id);
+    }
+  };
 
   // Probe backend health periodically
   useEffect(() => {
@@ -572,6 +617,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         showGrid={visibleLayers.grid}
         onToggleGrid={() => setVisibleLayers(prev => ({ ...prev, grid: !prev.grid }))}
         onOpenGeminiModal={() => setIsGeminiModalOpen(true)}
+        isRevisionDiffMode={isRevisionDiffMode}
+        onToggleRevisionDiff={() => setIsRevisionDiffMode(prev => !prev)}
       />
 
       {/* 2. Main 4-Pane Workbench Layout */}
@@ -583,6 +630,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             characteristics={characteristics}
             activeBalloonId={activeBalloonId}
             onSelectCharacteristic={setActiveBalloonId}
+            onSelectDatum={handleSelectDatum}
+            selectedDatum={selectedDatumHighlight}
             isCollapsed={isTreeCollapsed}
             onToggleCollapse={() => setIsTreeCollapsed(!isTreeCollapsed)}
             visibleLayers={visibleLayers}
@@ -603,6 +652,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 onSelectCharacteristic={setActiveBalloonId}
                 onAddCharacteristic={handleAddCharacteristic}
                 onUpdateCharacteristic={handleUpdateCharacteristic}
+                onBulkUpdateCharacteristics={(chars) => {
+                  pushUndoSnapshot(characteristics);
+                  setCharacteristics(chars);
+                }}
                 onUpdateCharacteristicPosition={handleUpdatePosition}
                 onDeleteCharacteristic={handleDeleteCharacteristic}
                 onReSortClockwise={handleSortClockwise}
@@ -624,6 +677,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 canRedo={redoStack.length > 0}
                 onUndo={handleUndo}
                 onRedo={handleRedo}
+                isRevisionDiffMode={isRevisionDiffMode}
+                onAcceptRevisionDeltas={handleAcceptRevisionDeltas}
+                selectedDatumHighlight={selectedDatumHighlight}
               />
             </div>
 
@@ -655,6 +711,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 onExportExcel={() => handleRequestExport('excel')}
                 isExpanded={splitHeightPct < 70}
                 onToggleHeight={() => setSplitHeightPct(prev => (prev > 50 ? 30 : 60))}
+                isRevisionDiffMode={isRevisionDiffMode}
               />
             </div>
           </div>
@@ -682,6 +739,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             onExportCSV={() => handleRequestExport('csv')}
             onExportExcel={() => handleRequestExport('excel')}
             isExpanded={true}
+            isRevisionDiffMode={isRevisionDiffMode}
           />
         </div>
       )}
@@ -703,6 +761,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         zoom={zoom}
         onZoomChange={setZoom}
         onResetZoom={() => setZoom(1.0)}
+        onOpenAuditLog={() => setIsAuditLogOpen(true)}
+        auditLogCount={auditLogEntries.length}
       />
 
       {/* Re-export Warning Modal */}
@@ -746,6 +806,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       <GeminiVisionModal
         isOpen={isGeminiModalOpen}
         onClose={() => setIsGeminiModalOpen(false)}
+      />
+
+      {/* 21 CFR Part 11 / AS9100 Audit Log Drawer */}
+      <AuditLogDrawer
+        isOpen={isAuditLogOpen}
+        onClose={() => setIsAuditLogOpen(false)}
+        entries={auditLogEntries}
+        onExportAuditCsv={() =>
+          exportAuditLogCSV(auditLogEntries, currentDrawing.partNumber, currentDrawing.revision)
+        }
       />
     </div>
   );

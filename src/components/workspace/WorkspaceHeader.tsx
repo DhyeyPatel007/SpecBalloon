@@ -21,7 +21,8 @@ import {
   Grid,
   CheckCircle2,
   Sliders,
-  ChevronDown
+  ChevronDown,
+  GitCompare
 } from 'lucide-react';
 import { DrawingSpec, GeneralToleranceStandard, InspectionStatus } from '../../types/metrology';
 
@@ -65,6 +66,8 @@ export interface WorkspaceHeaderProps {
   showGrid?: boolean;
   onToggleGrid?: () => void;
   onOpenGeminiModal?: () => void;
+  isRevisionDiffMode?: boolean;
+  onToggleRevisionDiff?: () => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -100,6 +103,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   showGrid = true,
   onToggleGrid,
   onOpenGeminiModal,
+  isRevisionDiffMode = false,
+  onToggleRevisionDiff,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -365,6 +370,22 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
               <Calculator className="w-3.5 h-3.5 text-accent-primary" />
               <span>Fits Math</span>
             </button>
+
+            {onToggleRevisionDiff && (
+              <button
+                type="button"
+                onClick={onToggleRevisionDiff}
+                className={`h-8 px-2.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                  isRevisionDiffMode
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-subtle hover:bg-surface text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-800'
+                }`}
+                title="Compare Baseline (Rev B) against Rev C without renumbering Tag IDs"
+              >
+                <GitCompare className="w-3.5 h-3.5" />
+                <span>{isRevisionDiffMode ? '🔀 Diff Mode: ON' : '🔀 Update Rev (B→C)'}</span>
+              </button>
+            )}
 
             {onApproveAll && (
               <button

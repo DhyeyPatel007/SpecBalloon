@@ -4,6 +4,8 @@ export type CharacteristicDesignator = 'Critical' | 'Major' | 'Minor';
 
 export type InspectionStatus = 'in_spec' | 'out_of_spec' | 'needs_review';
 
+export type RevisionDeltaState = 'UNCHANGED' | 'MODIFIED' | 'ADDED' | 'SUPERSEDED';
+
 export interface BoundingBox {
   x: number;
   y: number;
@@ -14,6 +16,47 @@ export interface BoundingBox {
 export interface Point {
   x: number;
   y: number;
+}
+
+export interface SubFeatureCavity {
+  subId: string;
+  label: string; // e.g. '#04.1 (Pos 12h)'
+  measuredValue?: number | null;
+  status: InspectionStatus;
+}
+
+export interface CompoundSubTag {
+  subTag: string; // e.g. '#04A'
+  description: string;
+  nominal_text: string;
+  plusTolerance: number;
+  minusTolerance: number;
+  lsl: number;
+  usl: number;
+  instrument: string;
+  measuredValue?: number | null;
+  status: InspectionStatus;
+}
+
+export interface ThreadMetrologyData {
+  pitch: number;
+  nominalDiameter: number;
+  fundamentalHeight: number;
+  pitchDiameterD2: number;
+  minorDiameterD1: number;
+  minorD1Lsl: number;
+  minorD1Usl: number;
+  threadClass: string;
+  goNoGoResult?: 'PASS' | 'FAIL' | 'UNTESTED';
+  gaugeSerial: string;
+}
+
+export interface DynamicMmcCalc {
+  statedTolerance: number;
+  featureBonus: number;
+  datumShift: number;
+  effectiveUsl: number;
+  passedViaBonus: boolean;
 }
 
 export interface Characteristic {
@@ -32,7 +75,7 @@ export interface Characteristic {
   nominal_value: number | null;
   /** Legacy alias for backward compatibility */
   nominal?: number;
-  toleranceType: 'Bilateral' | 'Unilateral' | 'Limit' | 'Basic' | 'GD&T' | 'Surface';
+  toleranceType: 'Bilateral' | 'Unilateral' | 'Limit' | 'Basic' | 'GD&T' | 'Surface' | 'Thread';
   plusTolerance: number;
   minusTolerance: number;
   /** Calculated upper limit in code, nullable */
@@ -60,6 +103,72 @@ export interface Characteristic {
   reviewed?: boolean;
   /** Marker indicating synthetic/demo measurement data */
   isDemo?: boolean;
+
+  // Capability 1: Revision Diff Delta State
+  deltaState?: RevisionDeltaState;
+  previousRawCallout?: string;
+  previousPlusTolerance?: number;
+  previousMinusTolerance?: number;
+  diffNote?: string;
+  isDeletedHistorical?: boolean;
+
+  // Capability 2: Multi-Feature Nx & Compound Callout
+  quantity?: number;
+  isExpandedCavities?: boolean;
+  subFeatures?: SubFeatureCavity[];
+  isCompoundParent?: boolean;
+  compoundSubTags?: CompoundSubTag[];
+
+  // Capability 3: Thread Metrology
+  threadData?: ThreadMetrologyData;
+
+  // Capability 4: Datum Reference & Dynamic MMC Bonus
+  datumFeature?: 'A' | 'B' | 'C';
+  linkedDatumId?: string;
+  hasMmcModifier?: boolean;
+  dynamicMmcCalc?: DynamicMmcCalc;
+}
+
+export interface GageRegistryItem {
+  id: string;
+  name: string;
+  serial: string;
+  certNumber: string;
+  lastCalDate: string;
+  nextDueDate: string;
+  status: 'VALID' | 'EXPIRED';
+  usedInTags: string[];
+}
+
+export interface AS9102Form1Data {
+  partNumber: string;
+  partName: string;
+  serialNumber: string;
+  fairIdentifier: string;
+  drawingRevision: string;
+  baselineRevision: string;
+  organization: string;
+  partType: 'Detail' | 'Assembly';
+  reportStatus: 'Complete' | 'In Progress';
+}
+
+export interface AS9102Form2Item {
+  id: string;
+  category: 'Material' | 'Special Process' | 'Functional Test';
+  specification: string;
+  supplierOrProcessor: string;
+  heatLotNumber: string;
+  cocVerified: boolean;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  user: string;
+  tagId: string;
+  action: string;
+  details: string;
+  hash: string;
 }
 
 export interface DrawingSpec {

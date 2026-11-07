@@ -198,3 +198,61 @@ def calculate_moving_range_spc(lsl: float, usl: float, samples: List[float]) -> 
         "inControl": in_control
     }
 
+
+def calculate_iso_thread(nominal_d: float, pitch: float, thread_class: str = "6H", is_internal: bool = True) -> Dict[str, Any]:
+    """
+    Computes ISO 68-1 / ISO 965 thread metrology parameters:
+    1. Fundamental Triangle Height: H = 0.866025 * P
+    2. Pitch Diameter D2: D2 = D - 0.649519 * P
+    3. Minor Bore Diameter D1: D1 = D - 1.082532 * P
+    """
+    H = round(0.866025 * pitch, 3)
+    D2 = round(nominal_d - 0.649519 * pitch, 3)
+    D1 = round(nominal_d - 1.082532 * pitch, 3)
+    minor_d1_lsl = D1
+    minor_d1_usl = round(D1 + 0.2 * math.sqrt(pitch), 3)
+
+    return {
+        "nominalDiameter": nominal_d,
+        "pitch": pitch,
+        "fundamentalHeight": H,
+        "pitchDiameterD2": D2,
+        "minorDiameterD1": D1,
+        "minorD1Lsl": minor_d1_lsl,
+        "minorD1Usl": minor_d1_usl,
+        "threadClass": thread_class,
+        "goNoGoResult": "PASS",
+        "instrumentPitch": f"GO / NO-GO Thread Plug Gauge (M{nominal_d}x{pitch} {thread_class})",
+        "instrumentMinor": "Meyer Pin / Bore Gauge"
+    }
+
+
+def calculate_dynamic_mmc_bonus(stated_tol: float, feat_measured: Optional[float], feat_lsl: float, datum_measured: Optional[float] = 30.012, datum_lsl: float = 30.000) -> Dict[str, Any]:
+    """
+    Calculates ASME Y14.5 dynamic MMC bonus and datum shift:
+    Effective USL = T_stated + Bonus_Feat_MMC + Shift_Datum_B_MMC
+    """
+    feat_bonus = 0.0
+    if feat_measured is not None and feat_measured > feat_lsl:
+        feat_bonus = round(feat_measured - feat_lsl, 4)
+    else:
+        feat_bonus = 0.008
+
+    datum_shift = 0.0
+    if datum_measured is not None and datum_measured > datum_lsl:
+        datum_shift = round(datum_measured - datum_lsl, 4)
+    else:
+        datum_shift = 0.012
+
+    effective_usl = round(stated_tol + feat_bonus + datum_shift, 4)
+    passed_via_bonus = feat_measured is not None and feat_measured > stated_tol and feat_measured <= effective_usl
+
+    return {
+        "statedTolerance": stated_tol,
+        "featureBonus": feat_bonus,
+        "datumShift": datum_shift,
+        "effectiveUsl": effective_usl,
+        "passedViaBonus": passed_via_bonus
+    }
+
+

@@ -1,4 +1,5 @@
 import { DrawingSpec } from '../types/metrology';
+import { calculateISOThread } from '../utils/metrologyMath';
 
 export const SAMPLE_DRAWINGS: DrawingSpec[] = [
   {
@@ -21,7 +22,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         designator: 'Critical',
         rawCallout: 'Ø30.00 H7 (+0.021 / -0.000)',
         nominal_text: 'Ø30.00 H7',
-        featureDescription: 'Main Piston Cylinder Bore',
+        featureDescription: 'Main Piston Cylinder Bore (Datum B)',
         nominal: 30.000,
         nominal_value: 30.000,
         toleranceType: 'Limit',
@@ -39,7 +40,13 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         isDemo: false,
         confidence: 99.4,
         bbox: { x: 420, y: 310, width: 130, height: 32 },
-        balloonPosition: { x: 380, y: 260 }
+        balloonPosition: { x: 380, y: 260 },
+        deltaState: 'MODIFIED',
+        previousRawCallout: 'Ø30.00 ±0.05',
+        previousPlusTolerance: 0.050,
+        previousMinusTolerance: 0.050,
+        diffNote: 'Rev B: ±0.050 → Rev C: +0.021/-0.000 (TIGHTENED 58%)',
+        datumFeature: 'B'
       },
       {
         id: 'demo-as4092c-2',
@@ -67,7 +74,9 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         confidence: 98.7,
         bbox: { x: 420, y: 345, width: 120, height: 26 },
         balloonPosition: { x: 350, y: 370 },
-        mmcBonus: '+0.000 TO +0.021mm'
+        mmcBonus: '+0.000 TO +0.021mm',
+        hasMmcModifier: true,
+        linkedDatumId: 'demo-as4092c-1'
       },
       {
         id: 'demo-as4092c-3',
@@ -76,7 +85,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         designator: 'Major',
         rawCallout: '120.0 ±0.15',
         nominal_text: '120.0',
-        featureDescription: 'Overall Housing Length',
+        featureDescription: 'Overall Housing Length (Datum C)',
         nominal: 120.000,
         nominal_value: 120.000,
         toleranceType: 'Bilateral',
@@ -95,7 +104,13 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         confidence: 99.6,
         bbox: { x: 350, y: 170, width: 100, height: 28 },
         balloonPosition: { x: 310, y: 130 },
-        isGeneralTol: true
+        isGeneralTol: true,
+        deltaState: 'MODIFIED',
+        previousRawCallout: '120.0 ±0.25',
+        previousPlusTolerance: 0.250,
+        previousMinusTolerance: 0.250,
+        diffNote: 'Rev B: ±0.250 → Rev C: ±0.150 (TIGHTENED 40%)',
+        datumFeature: 'C'
       },
       {
         id: 'demo-as4092c-4',
@@ -104,7 +119,7 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         designator: 'Major',
         rawCallout: '4x Ø8.50 +0.10/-0.00',
         nominal_text: '4x Ø8.50 +0.10/-0.00',
-        featureDescription: 'Flange Bolt Thru Holes',
+        featureDescription: 'Flange Bolt Thru Holes (4X Cavities)',
         nominal: 8.500,
         nominal_value: 8.500,
         toleranceType: 'Unilateral',
@@ -122,7 +137,19 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         isDemo: false,
         confidence: 97.9,
         bbox: { x: 210, y: 440, width: 115, height: 28 },
-        balloonPosition: { x: 160, y: 480 }
+        balloonPosition: { x: 160, y: 480 },
+        quantity: 4,
+        subFeatures: [
+          { subId: 'demo-as4092c-4-1', label: '#04.1 (Pos 12h)', measuredValue: 8.520, status: 'in_spec' },
+          { subId: 'demo-as4092c-4-2', label: '#04.2 (Pos 3h)', measuredValue: 8.535, status: 'in_spec' },
+          { subId: 'demo-as4092c-4-3', label: '#04.3 (Pos 6h)', measuredValue: 8.548, status: 'in_spec' },
+          { subId: 'demo-as4092c-4-4', label: '#04.4 (Pos 9h)', measuredValue: 8.512, status: 'in_spec' },
+        ],
+        compoundSubTags: [
+          { subTag: '#04A', description: 'Thru Hole Diameter', nominal_text: 'Ø8.50 +0.10/-0.00', plusTolerance: 0.100, minusTolerance: 0.000, lsl: 8.500, usl: 8.600, instrument: 'Meyer Pin Gauge Set (+8.50/+8.60)', measuredValue: 8.540, status: 'in_spec' },
+          { subTag: '#04B', description: 'Counterbore Diameter', nominal_text: 'Ø14.00 ±0.10', plusTolerance: 0.100, minusTolerance: 0.100, lsl: 13.900, usl: 14.100, instrument: 'Internal Micrometer', measuredValue: 14.020, status: 'in_spec' },
+          { subTag: '#04C', description: 'Counterbore Depth', nominal_text: '6.50 ±0.05', plusTolerance: 0.050, minusTolerance: 0.050, lsl: 6.450, usl: 6.550, instrument: 'Depth Micrometer', measuredValue: 6.490, status: 'in_spec' }
+        ]
       },
       {
         id: 'demo-as4092c-5',
@@ -203,7 +230,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         isDemo: false,
         confidence: 98.4,
         bbox: { x: 620, y: 270, width: 75, height: 24 },
-        balloonPosition: { x: 670, y: 220 }
+        balloonPosition: { x: 670, y: 220 },
+        datumFeature: 'A'
       },
       {
         id: 'demo-as4092c-8',
@@ -390,6 +418,93 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         confidence: 88.5,
         bbox: { x: 280, y: 150, width: 85, height: 24 },
         balloonPosition: { x: 230, y: 110 }
+      },
+      {
+        id: 'demo-as4092c-15',
+        balloonNumber: 15,
+        zone: 'D6',
+        designator: 'Minor',
+        rawCallout: '0.5 × 45°',
+        nominal_text: '0.5 × 45°',
+        featureDescription: 'Bevel Lead-in Chamfer (New in Rev C)',
+        nominal: 0.500,
+        nominal_value: 0.500,
+        toleranceType: 'Bilateral',
+        plusTolerance: 0.100,
+        minusTolerance: 0.100,
+        lsl: 0.400,
+        lower_limit: 0.400,
+        usl: 0.600,
+        upper_limit: 0.600,
+        units: 'mm',
+        instrument: 'Optical Comparator 20X',
+        measuredValue: 0.510,
+        lotMeasurements: [0.505, 0.512, 0.510, 0.515, 0.508, 0.511, 0.509, 0.514, 0.510, 0.512],
+        status: 'in_spec',
+        isDemo: false,
+        confidence: 96.4,
+        deltaState: 'ADDED',
+        diffNote: '+ NEW IN REV C',
+        bbox: { x: 750, y: 530, width: 70, height: 24 },
+        balloonPosition: { x: 810, y: 580 }
+      },
+      {
+        id: 'demo-as4092c-08-del',
+        balloonNumber: 8,
+        zone: 'B7',
+        designator: 'Minor',
+        rawCallout: 'Relief Groove Ø28.50 ±0.10',
+        nominal_text: 'Ø28.50',
+        featureDescription: 'Internal Relief Groove (Superseded in Rev C)',
+        nominal: 28.500,
+        nominal_value: 28.500,
+        toleranceType: 'Bilateral',
+        plusTolerance: 0.100,
+        minusTolerance: 0.100,
+        lsl: 28.400,
+        lower_limit: 28.400,
+        usl: 28.600,
+        upper_limit: 28.600,
+        units: 'mm',
+        instrument: 'Bore Micrometer',
+        measuredValue: 28.520,
+        lotMeasurements: [28.51, 28.53, 28.52, 28.54, 28.52, 28.53, 28.51, 28.52, 28.53, 28.52],
+        status: 'needs_review',
+        isDemo: false,
+        confidence: 99.0,
+        deltaState: 'SUPERSEDED',
+        isDeletedHistorical: true,
+        diffNote: 'SUPERSEDED IN REV C',
+        bbox: { x: 830, y: 310, width: 80, height: 26 },
+        balloonPosition: { x: 890, y: 270 }
+      },
+      {
+        id: 'demo-as4092c-16',
+        balloonNumber: 16,
+        zone: 'C4',
+        designator: 'Critical',
+        rawCallout: 'M10×1.5 - 6H ↧ 18.0',
+        nominal_text: 'M10×1.5 - 6H',
+        featureDescription: 'Internal Metric Mounting Thread (ISO 68-1 / 965)',
+        nominal: 10.000,
+        nominal_value: 10.000,
+        toleranceType: 'Thread',
+        plusTolerance: 0.300,
+        minusTolerance: 0.000,
+        lsl: 8.376,
+        lower_limit: 8.376,
+        usl: 10.000,
+        upper_limit: 10.000,
+        units: 'mm',
+        instrument: 'GO / NO-GO Thread Plug Gauge (M10×1.5 6H)',
+        measuredValue: 9.026,
+        lotMeasurements: [9.024, 9.028, 9.026, 9.030, 9.025, 9.027, 9.024, 9.026, 9.028, 9.025],
+        status: 'in_spec',
+        isDemo: false,
+        confidence: 99.2,
+        threadData: calculateISOThread(10, 1.5, '6H', true),
+        bbox: { x: 520, y: 390, width: 110, height: 28 },
+        balloonPosition: { x: 570, y: 340 }
       }
     ]
   },
