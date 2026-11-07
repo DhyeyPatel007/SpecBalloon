@@ -197,3 +197,4 @@ def calculate_moving_range_spc(lsl: float, usl: float, samples: List[float]) -> 
         "cpk": round(cpk, 2),
         "inControl": in_control
     }
+

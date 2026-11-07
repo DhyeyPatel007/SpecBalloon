@@ -15,6 +15,7 @@ from metrology import (
     get_iso_2768_tolerance,
     calculate_moving_range_spc
 )
+from ai_vision import analyze_crop_with_gemini
 
 app = FastAPI(
     title="SpecBalloon Metrology Core API",
@@ -108,6 +109,37 @@ def root():
         "docs": "/docs",
         "status": "ready"
     }
+
+
+@app.get("/api/v1/vision/status")
+def get_vision_status():
+    """Returns Gemini 2.5 Flash Vision & Neuro-Symbolic Pipeline status."""
+    has_api_key = bool(os.getenv("GEMINI_API_KEY", "").startswith("AIzaSy"))
+    return {
+        "model": "gemini-2.5-flash",
+        "configured": has_api_key,
+        "temperature": 0.0,
+        "pipeline": {
+            "stage_1": "Gemini 2.5 Flash Vision (Spatial Detection & GD&T OCR)",
+            "stage_2": "Deterministic ISO 286 / ASME Y14.5 Math Solver"
+        },
+        "standards": ["ISO 286-1", "ISO 2768-m", "ASME Y14.5"]
+    }
+
+
+@app.post("/api/v1/vision/analyze-crop")
+def analyze_crop_endpoint(payload: Dict[str, Any] = Body(...)):
+    """
+    Analyzes single base64 cropped callout using Gemini 2.5 Flash Vision.
+    Applies deterministic metrology guardrails immediately.
+    """
+    image_base64 = payload.get("image", "")
+    api_key = payload.get("apiKey")
+    if not image_base64:
+        raise HTTPException(status_code=400, detail="Missing 'image' base64 payload")
+    
+    result = analyze_crop_with_gemini(image_base64, api_key=api_key)
+    return result
 
 
 @app.post("/api/v1/drawings", response_model=DrawingUploadResponse)
@@ -459,3 +491,4 @@ def export_ballooned_pdf(drawing_id: str, payload: Dict[str, Any] = Body(...)):
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=SpecBalloon_{part_num}_Ballooned.pdf"}
     )
+

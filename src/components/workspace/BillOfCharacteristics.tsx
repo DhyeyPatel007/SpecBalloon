@@ -392,3 +392,4 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
     </div>
   );
 };
+

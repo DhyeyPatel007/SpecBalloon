@@ -25,6 +25,11 @@ import {
   MovingRangeSPCResult
 } from '../../utils/metrologyMath';
 import { soundEngine } from '../../utils/audioSynthesizer';
+import {
+  analyzeCalloutCropWithGemini,
+  applyDeterministicMetrologyGuardrails,
+  GeminiCropAnalysis
+} from '../../lib/geminiVision';
 
 interface SingleCharacteristicInspectorProps {
   characteristic: Characteristic | null;
@@ -48,6 +53,11 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
   const [datumA, setDatumA] = useState<string>('A');
   const [datumB, setDatumB] = useState<string>('B');
   const [datumC, setDatumC] = useState<string>('C');
+
+  // Gemini 2.5 Flash Vision state
+  const [isScanning, setIsScanning] = useState(false);
+  const [aiScanResult, setAiScanResult] = useState<GeminiCropAnalysis | null>(null);
+  const [showRawJson, setShowRawJson] = useState(false);
 
   if (!characteristic) {
     return (
@@ -81,6 +91,44 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
     });
     soundEngine.playInSpecPass();
     handleNext();
+  };
+
+  const handleRescanWithGemini = async () => {
+    setIsScanning(true);
+    soundEngine.playKeyClick();
+    try {
+      const cropSrc = characteristic.cropDataUrl || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+      const analysis = await analyzeCalloutCropWithGemini(cropSrc);
+      setAiScanResult(analysis);
+
+      // Apply Stage B Guardrails
+      const guardrails = applyDeterministicMetrologyGuardrails(analysis);
+      onUpdateCharacteristic(characteristic.id, {
+        rawCallout: guardrails.nominal_text,
+        nominal_text: guardrails.nominal_text,
+        nominal_value: guardrails.nominal_value,
+        nominal: guardrails.nominal_value,
+        toleranceType: guardrails.toleranceType,
+        plusTolerance: guardrails.plusTolerance,
+        minusTolerance: guardrails.minusTolerance,
+        upper_limit: guardrails.upper_limit,
+        lower_limit: guardrails.lower_limit,
+        lsl: guardrails.lower_limit,
+        usl: guardrails.upper_limit,
+        instrument: guardrails.instrument,
+        confidence: guardrails.confidence,
+      });
+
+      if (analysis.gdtSymbol) setGdtSymbol(analysis.gdtSymbol);
+      if (analysis.datumPrimary) setDatumA(analysis.datumPrimary);
+      if (analysis.datumSecondary) setDatumB(analysis.datumSecondary);
+
+      soundEngine.playInSpecPass();
+    } catch (err) {
+      console.warn('Re-scan error:', err);
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const handleFieldChange = (
@@ -251,7 +299,48 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
                 <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 text-white font-mono text-[9px] font-bold">
                   {characteristic.zone} · #{characteristic.balloonNumber}
                 </div>
+
+                {/* Real-time laser scanning line sweep */}
+                {isScanning && (
+                  <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_10px_rgba(239,68,68,0.9)] animate-laser pointer-events-none z-30" />
+                )}
               </div>
+
+              {/* Gemini 2.5 Flash Re-scan Action Button */}
+              <button
+                type="button"
+                onClick={handleRescanWithGemini}
+                disabled={isScanning}
+                className="w-full mt-2 h-7.5 rounded-md border border-accent-primary/40 bg-blue-50/70 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-accent-primary font-semibold text-[11px] flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                title="Re-analyze high-res crop with Gemini 2.5 Flash Vision + Deterministic Metrology"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-amber-500' : 'text-accent-primary'}`} />
+                <span>{isScanning ? 'Scanning with Gemini 2.5 Flash...' : '✨ Re-Scan Crop with Gemini Vision'}</span>
+              </button>
+
+              {/* Expandable Raw AI JSON Extraction Preview for Judges */}
+              {aiScanResult && (
+                <div className="mt-2 p-2 rounded-lg border border-border-hairline bg-subtle/50 text-[10px] font-mono space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-sans font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Resolved by {aiScanResult.resolvedBy}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawJson(!showRawJson)}
+                      className="text-accent-primary hover:underline font-sans"
+                    >
+                      {showRawJson ? 'Hide JSON ▲' : 'View AI JSON ▼'}
+                    </button>
+                  </div>
+                  {showRawJson && (
+                    <pre className="p-1.5 rounded bg-surface border border-border-hairline overflow-x-auto text-[9px] text-text-secondary leading-tight max-h-32">
+                      {JSON.stringify(aiScanResult.rawJson || aiScanResult, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Raw Callout Input */}
@@ -655,3 +744,4 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
     </div>
   );
 };
+

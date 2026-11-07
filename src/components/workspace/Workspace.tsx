@@ -32,6 +32,7 @@ import { BillOfCharacteristics } from './BillOfCharacteristics';
 import { SingleCharacteristicInspector } from './SingleCharacteristicInspector';
 import { CaliperDroStrip } from './CaliperDroStrip';
 import { MsPaintStatusBar } from './MsPaintStatusBar';
+import { GeminiVisionModal } from './GeminiVisionModal';
 
 interface WorkspaceProps {
   initialDrawingId?: string;
@@ -89,6 +90,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   // Backend state
   const [backendConnected, setBackendConnected] = useState(true);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isGeminiModalOpen, setIsGeminiModalOpen] = useState(false);
 
   // Tools & Viewport state
   const [toolMode, setToolMode] = useState<'pan' | 'box_balloon'>('pan');
@@ -569,6 +571,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         isExtracting={isExtracting}
         showGrid={visibleLayers.grid}
         onToggleGrid={() => setVisibleLayers(prev => ({ ...prev, grid: !prev.grid }))}
+        onOpenGeminiModal={() => setIsGeminiModalOpen(true)}
       />
 
       {/* 2. Main 4-Pane Workbench Layout */}
@@ -599,6 +602,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 activeBalloonId={activeBalloonId}
                 onSelectCharacteristic={setActiveBalloonId}
                 onAddCharacteristic={handleAddCharacteristic}
+                onUpdateCharacteristic={handleUpdateCharacteristic}
                 onUpdateCharacteristicPosition={handleUpdatePosition}
                 onDeleteCharacteristic={handleDeleteCharacteristic}
                 onReSortClockwise={handleSortClockwise}
@@ -738,6 +742,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           </div>
         </div>
       )}
+      {/* Gemini Vision Controls Modal */}
+      <GeminiVisionModal
+        isOpen={isGeminiModalOpen}
+        onClose={() => setIsGeminiModalOpen(false)}
+      />
     </div>
   );
 };

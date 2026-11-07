@@ -11,6 +11,10 @@ import { ForceDirectedSimulator, PhysicsBalloon } from '../../utils/balloonPhysi
 import { soundEngine } from '../../utils/audioSynthesizer';
 import { parseCalloutAndCalculateLimits } from '../../utils/metrologyMath';
 import {
+  analyzeCalloutCropWithGemini,
+  applyDeterministicMetrologyGuardrails
+} from '../../lib/geminiVision';
+import {
   Upload
 } from 'lucide-react';
 
@@ -30,6 +34,7 @@ interface CadCanvasViewportProps {
   activeBalloonId: string | null;
   onSelectCharacteristic: (id: string) => void;
   onAddCharacteristic: (newChar: Characteristic) => void;
+  onUpdateCharacteristic?: (id: string, updates: Partial<Characteristic>) => void;
   onBulkUpdateCharacteristics?: (chars: Characteristic[]) => void;
   onUpdateCharacteristicPosition: (id: string, pos: Point) => void;
   onDeleteCharacteristic?: (id: string) => void;
@@ -57,6 +62,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   activeBalloonId,
   onSelectCharacteristic,
   onAddCharacteristic,
+  onUpdateCharacteristic,
   onBulkUpdateCharacteristics,
   onUpdateCharacteristicPosition,
   onDeleteCharacteristic,
@@ -715,6 +721,34 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     onAddCharacteristic(newChar);
     onSelectCharacteristic(newId);
     soundEngine.playInSpecPass();
+
+    // Stage A + Stage B: Gemini 2.5 Flash Vision + Deterministic Metrology Solver
+    if (cropDataUrl && onUpdateCharacteristic) {
+      analyzeCalloutCropWithGemini(cropDataUrl)
+        .then((analysis) => {
+          const guard = applyDeterministicMetrologyGuardrails(analysis, currentDrawing.standard);
+          onUpdateCharacteristic(newId, {
+            rawCallout: guard.nominal_text,
+            nominal_text: guard.nominal_text,
+            nominal_value: guard.nominal_value,
+            nominal: guard.nominal_value,
+            toleranceType: guard.toleranceType,
+            plusTolerance: guard.plusTolerance,
+            minusTolerance: guard.minusTolerance,
+            upper_limit: guard.upper_limit,
+            lower_limit: guard.lower_limit,
+            lsl: guard.lower_limit,
+            usl: guard.upper_limit,
+            instrument: guard.instrument,
+            confidence: guard.confidence,
+            featureDescription: analysis.characteristicType.replace('GDT_', 'GD&T ').toLowerCase(),
+          });
+          soundEngine.playInSpecPass();
+        })
+        .catch((err) => {
+          console.warn('Gemini vision crop analysis:', err);
+        });
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {

@@ -64,6 +64,7 @@ export interface WorkspaceHeaderProps {
   isExtracting?: boolean;
   showGrid?: boolean;
   onToggleGrid?: () => void;
+  onOpenGeminiModal?: () => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -98,6 +99,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   isExtracting = false,
   showGrid = true,
   onToggleGrid,
+  onOpenGeminiModal,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -169,6 +171,18 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             <span className="w-2 h-2 rounded-full bg-status-pass animate-pulse" />
             <span>Engine Ready · 300 DPI Vector + OCR</span>
           </div>
+
+          {/* Pill Button: [✨ Gemini 2.5 Vision: Active ⚙] */}
+          {onOpenGeminiModal && (
+            <button
+              onClick={onOpenGeminiModal}
+              className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 text-[11px] font-mono font-semibold text-accent-primary transition-all shadow-xs cursor-pointer"
+              title="Open Gemini 2.5 Flash Vision AI Pipeline Controls & API Key"
+            >
+              <Sparkles className="w-3 h-3 text-accent-primary animate-pulse" />
+              <span>Gemini 2.5 Vision: Active ⚙</span>
+            </button>
+          )}
         </div>
 
         {/* Right: View Switcher & Theme */}

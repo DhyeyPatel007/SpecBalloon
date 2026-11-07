@@ -23,3 +23,4 @@ Production FastAPI service for 2D CAD engineering drawing auto-ballooning, OCR e
 4. Interactive Swagger API Docs:
    - `http://localhost:8000/docs`
    - `http://localhost:8000/health`
+
