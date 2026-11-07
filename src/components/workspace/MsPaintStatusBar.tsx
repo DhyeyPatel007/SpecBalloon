@@ -1,5 +1,5 @@
 import React from 'react';
-import { Crosshair, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { Crosshair, ZoomIn, ZoomOut } from 'lucide-react';
 import { fmt3 } from '../../utils/metrologyMath';
 
 interface MsPaintStatusBarProps {
@@ -41,12 +41,12 @@ export const MsPaintStatusBar: React.FC<MsPaintStatusBarProps> = ({
 
   return (
     <footer className="h-7 w-full bg-surface border-t border-border-hairline px-3 flex items-center justify-between text-xs font-mono text-text-sec select-none z-30">
-      {/* Left: Cursor Position & Sheet Zone */}
+      {/* Left: Cursor Position (in PDF Points) & Sheet Zone */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 min-w-[170px]" title="Live Drawing Coordinates">
+        <div className="flex items-center gap-1.5 min-w-[170px]" title="Live Drawing Coordinates (PDF Points)">
           <Crosshair className="w-3.5 h-3.5 text-accent-primary" />
           <span className="font-semibold text-text-pri">
-            X: {fmt3(cursorPos.x)} mm, Y: {fmt3(cursorPos.y)} mm
+            X: {fmt3(cursorPos.x)} pt, Y: {fmt3(cursorPos.y)} pt
           </span>
         </div>
 
@@ -65,7 +65,7 @@ export const MsPaintStatusBar: React.FC<MsPaintStatusBarProps> = ({
         <div className="hidden sm:flex items-center gap-1 text-text-mut" title="Artboard Buffer Resolution">
           <span>Canvas:</span>
           <span className="font-semibold text-text-sec">
-            {canvasDimensions.width} × {canvasDimensions.height} px
+            {canvasDimensions.width} × {canvasDimensions.height} pt
           </span>
         </div>
 
@@ -82,7 +82,6 @@ export const MsPaintStatusBar: React.FC<MsPaintStatusBarProps> = ({
 
       {/* Right: Metrics Telemetry & Smooth Zoom Slider */}
       <div className="flex items-center gap-3">
-        {/* Characteristics Telemetry */}
         <div className="hidden lg:flex items-center gap-2 text-[11px]">
           <span className="font-semibold text-text-pri">{statusCounts.total} Dims</span>
           <span className="text-status-pass font-semibold">({statusCounts.inSpec} Pass</span>

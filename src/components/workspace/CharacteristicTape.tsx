@@ -1,14 +1,14 @@
 import React, { useRef, useEffect } from 'react';
 import { Characteristic, InspectionStatus } from '../../types/metrology';
-import { Trash2, AlertCircle, CheckCircle2, XCircle, Gauge } from 'lucide-react';
-import { fmt3 } from '../../utils/metrologyMath';
+import { Trash2, AlertCircle, CheckCircle2, XCircle, Gauge, Check } from 'lucide-react';
+import { fmt3, parseCalloutAndCalculateLimits } from '../../utils/metrologyMath';
 
 interface CharacteristicTapeProps {
   characteristics: Characteristic[];
-  activeBalloonId: number | null;
-  onSelectCharacteristic: (id: number) => void;
-  onUpdateCharacteristic: (id: number, updates: Partial<Characteristic>) => void;
-  onDeleteCharacteristic: (id: number) => void;
+  activeBalloonId: string | null;
+  onSelectCharacteristic: (id: string) => void;
+  onUpdateCharacteristic: (id: string, updates: Partial<Characteristic>) => void;
+  onDeleteCharacteristic: (id: string) => void;
   statusFilter: InspectionStatus | 'all';
   onFilterChange?: (status: InspectionStatus | 'all') => void;
   onResetFilter?: () => void;
@@ -27,13 +27,11 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const activeCardRef = useRef<HTMLDivElement>(null);
 
-  // Filter characteristics according to active status filter
   const filteredChars = characteristics.filter((c) => {
     if (statusFilter === 'all') return true;
     return c.status === statusFilter;
   });
 
-  // Status counts for filter pills
   const counts = {
     all: characteristics.length,
     in_spec: characteristics.filter((c) => c.status === 'in_spec').length,
@@ -41,7 +39,6 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
     out_of_spec: characteristics.filter((c) => c.status === 'out_of_spec').length,
   };
 
-  // Scroll active card into view when activeBalloonId changes
   useEffect(() => {
     if (activeCardRef.current) {
       activeCardRef.current.scrollIntoView({
@@ -51,79 +48,78 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
     }
   }, [activeBalloonId]);
 
-  // Handle keyboard navigation: Up/Down arrow or Tab
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
-        return;
-      }
-
-      if (e.key === 'ArrowDown' || e.key === 'Tab') {
-        e.preventDefault();
-        const currentIdx = filteredChars.findIndex((c) => c.id === activeBalloonId);
-        const nextIdx = (currentIdx + 1) % (filteredChars.length || 1);
-        if (filteredChars[nextIdx]) {
-          onSelectCharacteristic(filteredChars[nextIdx].id);
-        }
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        const currentIdx = filteredChars.findIndex((c) => c.id === activeBalloonId);
-        const prevIdx = (currentIdx - 1 + filteredChars.length) % (filteredChars.length || 1);
-        if (filteredChars[prevIdx]) {
-          onSelectCharacteristic(filteredChars[prevIdx].id);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filteredChars, activeBalloonId, onSelectCharacteristic]);
-
   const handleFieldChange = (
     char: Characteristic,
-    field: 'nominal' | 'plusTolerance' | 'minusTolerance' | 'measuredValue' | 'rawCallout',
+    field: 'nominal_text' | 'plusTolerance' | 'minusTolerance' | 'measuredValue' | 'rawCallout',
     val: string
   ) => {
-    const num = parseFloat(val);
-    if (field === 'rawCallout') {
-      onUpdateCharacteristic(char.id, { rawCallout: val });
+    if (field === 'rawCallout' || field === 'nominal_text') {
+      const parsed = parseCalloutAndCalculateLimits(val, char.toleranceType);
+      onUpdateCharacteristic(char.id, {
+        rawCallout: val,
+        nominal_text: parsed.nominal_text,
+        nominal_value: parsed.nominal_value,
+        nominal: parsed.nominal_value ?? char.nominal ?? 0,
+        plusTolerance: parsed.plusTolerance,
+        minusTolerance: parsed.minusTolerance,
+        upper_limit: parsed.upper_limit,
+        lower_limit: parsed.lower_limit,
+        lsl: parsed.lower_limit ?? 0,
+        usl: parsed.upper_limit ?? 0,
+        instrument: parsed.instrument || char.instrument,
+      });
       return;
     }
 
+    if (field === 'measuredValue') {
+      const num = parseFloat(val);
+      if (isNaN(num)) {
+        onUpdateCharacteristic(char.id, {
+          measuredValue: null,
+          status: 'needs_review',
+        });
+        return;
+      }
+
+      const lsl = char.lower_limit ?? char.lsl;
+      const usl = char.upper_limit ?? char.usl;
+      const isPass = num >= lsl && num <= usl;
+
+      onUpdateCharacteristic(char.id, {
+        measuredValue: num,
+        status: isPass ? 'in_spec' : 'out_of_spec',
+        reviewed: true,
+        isDemo: false,
+      });
+      return;
+    }
+
+    const num = parseFloat(val);
     if (isNaN(num)) return;
 
-    const updates: Partial<Characteristic> = { [field]: num };
-
-    // Recompute LSL / USL on nominal or tolerance changes
-    const nominal = field === 'nominal' ? num : char.nominal;
     const plus = field === 'plusTolerance' ? num : char.plusTolerance;
     const minus = field === 'minusTolerance' ? num : char.minusTolerance;
+    const nominal = char.nominal_value ?? char.nominal ?? 0;
 
-    let lsl: number;
-    let usl: number;
+    const lower = Number((nominal - minus).toFixed(4));
+    const upper = Number((nominal + plus).toFixed(4));
 
-    if (char.toleranceType === 'GD&T' || char.toleranceType === 'Surface') {
-      lsl = 0.000;
-      usl = Number(plus.toFixed(4));
-    } else {
-      lsl = Number((nominal - minus).toFixed(4));
-      usl = Number((nominal + plus).toFixed(4));
-    }
+    onUpdateCharacteristic(char.id, {
+      [field]: num,
+      upper_limit: upper,
+      lower_limit: lower,
+      lsl: lower,
+      usl: upper,
+    });
+  };
 
-    updates.lsl = lsl;
-    updates.usl = usl;
-
-    // Check inspection status against limits if measuredValue present
-    const measured = field === 'measuredValue' ? num : char.measuredValue;
-    if (measured !== undefined) {
-      if (measured >= lsl && measured <= usl) {
-        updates.status = 'in_spec';
-      } else {
-        updates.status = 'out_of_spec';
-      }
-    }
-
-    onUpdateCharacteristic(char.id, updates);
+  const handleMarkReviewed = (char: Characteristic, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onUpdateCharacteristic(char.id, {
+      status: 'in_spec',
+      reviewed: true,
+      isDemo: false,
+    });
   };
 
   return (
@@ -212,13 +208,16 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
             const isActive = char.id === activeBalloonId;
             const isPass = char.status === 'in_spec';
             const isFail = char.status === 'out_of_spec';
+            const isReview = char.status === 'needs_review';
 
-            // Calculate needle position in micro tolerance bar (0% to 100%)
+            const lslVal = char.lower_limit ?? char.lsl;
+            const uslVal = char.upper_limit ?? char.usl;
+
             let needlePct = 50;
-            if (char.measuredValue !== undefined) {
-              const spread = char.usl - char.lsl;
+            if (char.measuredValue !== undefined && char.measuredValue !== null) {
+              const spread = uslVal - lslVal;
               if (spread > 0) {
-                needlePct = Math.max(0, Math.min(100, ((char.measuredValue - char.lsl) / spread) * 100));
+                needlePct = Math.max(0, Math.min(100, ((char.measuredValue - lslVal) / spread) * 100));
               }
             }
 
@@ -233,10 +232,9 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                     : 'border-border-hairline bg-surface hover:border-border-strong hover:shadow-apple-sm'
                 }`}
               >
-                {/* Header: Balloon Badge + Zone + Designator + Pass/Fail Pill */}
+                {/* Header: Balloon Badge + Zone + Designator + Pass/Fail/Review Pill */}
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2">
-                    {/* Balloon Badge */}
                     <div
                       className={`w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-[11px] text-white flex-shrink-0 shadow-sm ${
                         isActive
@@ -251,12 +249,10 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                       {char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber}
                     </div>
 
-                    {/* Zone Badge */}
                     <span className="px-1.5 py-0.5 rounded bg-subtle border border-border-hairline font-mono font-medium text-[11px] text-text-sec">
                       Zone {char.zone}
                     </span>
 
-                    {/* Designator */}
                     <span
                       className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
                         char.designator === 'Critical'
@@ -268,10 +264,27 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                     >
                       {char.designator}
                     </span>
+
+                    {char.isDemo && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20 font-mono text-[9px] font-bold">
+                        DEMO ONLY
+                      </span>
+                    )}
                   </div>
 
-                  {/* Status Pill & Delete */}
+                  {/* Actions: Review button, Status Pill & Delete */}
                   <div className="flex items-center gap-1.5">
+                    {isReview && (
+                      <button
+                        onClick={(e) => handleMarkReviewed(char, e)}
+                        className="px-2 py-0.5 rounded bg-accent-primary/10 hover:bg-accent-primary text-accent-primary hover:text-white border border-accent-primary/30 transition-all font-medium text-[11px] flex items-center gap-1"
+                        title="Mark dimension as human reviewed"
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>Review</span>
+                      </button>
+                    )}
+
                     <span
                       className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
                         isPass
@@ -294,7 +307,7 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                       ) : (
                         <>
                           <AlertCircle className="w-3 h-3" />
-                          <span>Review</span>
+                          <span>NEEDS_REVIEW</span>
                         </>
                       )}
                     </span>
@@ -305,7 +318,7 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                         onDeleteCharacteristic(char.id);
                       }}
                       className="p-1 text-text-mut hover:text-status-fail transition-colors rounded hover:bg-subtle"
-                      title="Delete Characteristic"
+                      title="Delete Characteristic [D]"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -314,7 +327,6 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
 
                 {/* Middle: CAD Visual Crop & Callout Description */}
                 <div className="grid grid-cols-12 gap-2.5 items-center mb-2.5">
-                  {/* Cropped CAD Canvas Snippet */}
                   <div className="col-span-5 h-14 rounded-md border border-border-hairline bg-white flex items-center justify-center overflow-hidden relative shadow-inner">
                     {char.cropDataUrl ? (
                       <img
@@ -324,7 +336,7 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                       />
                     ) : (
                       <div className="text-text-pri font-mono font-bold text-[11px] text-center px-1">
-                        {char.rawCallout}
+                        {char.nominal_text || char.rawCallout}
                       </div>
                     )}
                     <div className="absolute bottom-0.5 right-0.5 bg-black/60 text-white font-mono text-[9px] px-1 rounded font-medium">
@@ -332,11 +344,15 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                     </div>
                   </div>
 
-                  {/* Feature & Callout */}
                   <div className="col-span-7 flex flex-col justify-center">
-                    <span className="font-mono font-bold text-text-pri text-xs truncate" title={char.rawCallout}>
-                      {char.rawCallout}
-                    </span>
+                    <input
+                      type="text"
+                      value={char.rawCallout}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => handleFieldChange(char, 'rawCallout', e.target.value)}
+                      className="font-mono font-bold text-text-pri text-xs border border-transparent hover:border-border-strong focus:border-accent-primary bg-transparent rounded px-1 -mx-1 truncate"
+                      title="Click to edit raw callout"
+                    />
                     <span className="text-text-sec text-[11px] truncate mt-0.5" title={char.featureDescription}>
                       {char.featureDescription}
                     </span>
@@ -348,11 +364,13 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                   </div>
                 </div>
 
-                {/* Metrology Limit Table (strictly fmt3 formatted) */}
+                {/* Metrology Limit Table: Nominal Text, +Tol, -Tol, Lower Limit, Upper Limit */}
                 <div className="grid grid-cols-5 gap-1 py-1.5 px-2 bg-subtle/60 rounded-md border border-border-hairline font-mono text-center mb-2.5">
                   <div>
-                    <span className="text-[10px] text-text-mut block">NOM</span>
-                    <span className="font-semibold text-text-pri text-[11px]">{fmt3(char.nominal)}</span>
+                    <span className="text-[10px] text-text-mut block">NOMINAL</span>
+                    <span className="font-semibold text-text-pri text-[11px] truncate block" title={char.nominal_text}>
+                      {char.nominal_text || fmt3(char.nominal_value ?? char.nominal)}
+                    </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-text-mut block">+TOL</span>
@@ -363,28 +381,25 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                     <span className="font-semibold text-text-pri text-[11px]">-{fmt3(char.minusTolerance)}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-text-mut block">LSL</span>
-                    <span className="font-semibold text-text-sec text-[11px]">{fmt3(char.lsl)}</span>
+                    <span className="text-[10px] text-text-mut block">LSL / LOWER</span>
+                    <span className="font-semibold text-text-sec text-[11px]">{fmt3(lslVal)}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-text-mut block">USL</span>
-                    <span className="font-semibold text-text-sec text-[11px]">{fmt3(char.usl)}</span>
+                    <span className="text-[10px] text-text-mut block">USL / UPPER</span>
+                    <span className="font-semibold text-text-sec text-[11px]">{fmt3(uslVal)}</span>
                   </div>
                 </div>
 
                 {/* Micro-Tolerance Needle Bar */}
                 <div className="mb-2.5">
                   <div className="flex justify-between text-[10px] font-mono text-text-mut mb-1">
-                    <span>LSL: {fmt3(char.lsl)}</span>
-                    <span className="font-semibold text-text-sec">NOM: {fmt3(char.nominal)}</span>
-                    <span>USL: {fmt3(char.usl)}</span>
+                    <span>LSL: {fmt3(lslVal)}</span>
+                    <span className="font-semibold text-text-sec">{char.nominal_text || fmt3(char.nominal_value ?? char.nominal)}</span>
+                    <span>USL: {fmt3(uslVal)}</span>
                   </div>
                   <div className="h-2 w-full bg-subtle rounded-full overflow-hidden relative border border-border-hairline">
-                    {/* Tolerance Zone Gradient: Yellow - Green - Yellow */}
                     <div className="absolute inset-0 bg-gradient-to-r from-amber-400/40 via-emerald-500/50 to-amber-400/40" />
-                    {/* Center Nominal Target Line */}
                     <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-text-mut/50 -translate-x-1/2" />
-                    {/* Dynamic Measurement Needle */}
                     <div
                       style={{ left: `${needlePct}%` }}
                       className={`absolute top-0 bottom-0 w-1.5 -translate-x-1/2 rounded-full shadow-sm ${
@@ -401,16 +416,15 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
                     <input
                       type="number"
                       step="0.001"
-                      value={char.measuredValue !== undefined ? char.measuredValue : ''}
+                      value={char.measuredValue !== undefined && char.measuredValue !== null ? char.measuredValue : ''}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => handleFieldChange(char, 'measuredValue', e.target.value)}
-                      placeholder={fmt3(char.nominal)}
+                      placeholder="Pending"
                       className="w-20 h-6 px-1.5 rounded border border-border-strong bg-surface font-mono font-semibold text-text-pri text-xs focus:outline-none focus:ring-1 focus:ring-accent-primary"
                     />
                     <span className="text-[11px] font-mono text-text-mut">{char.units}</span>
                   </div>
 
-                  {/* Instrument Badge */}
                   <span
                     className="text-[10px] text-text-mut truncate max-w-[150px] font-mono"
                     title={char.instrument}

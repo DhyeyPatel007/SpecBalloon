@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
 import {
   BoundingBox,
   Characteristic,
@@ -8,36 +9,47 @@ import {
 import { renderCADBlueprint, cropCanvasSnippet, generateAllCrops } from '../../utils/cadRenderer';
 import { ForceDirectedSimulator, PhysicsBalloon } from '../../utils/balloonPhysics';
 import { soundEngine } from '../../utils/audioSynthesizer';
+import { parseCalloutAndCalculateLimits } from '../../utils/metrologyMath';
+import { MsPaintToolbar, CanvasTool } from './MsPaintToolbar';
 import {
-  Move,
-  Crop,
-  Maximize2,
-  ZoomIn,
-  ZoomOut,
-  Crosshair,
-  Layers,
-  HelpCircle,
   Upload
 } from 'lucide-react';
+
+// Configure pdfjs worker if available
+if (typeof window !== 'undefined' && (pdfjsLib as unknown as { GlobalWorkerOptions?: { workerSrc: string } }).GlobalWorkerOptions) {
+  try {
+    (pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc =
+      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${(pdfjsLib as unknown as { version?: string }).version || '4.0.379'}/pdf.worker.min.mjs`;
+  } catch {
+    // Fallback to inline fake-worker
+  }
+}
 
 interface CadCanvasViewportProps {
   currentDrawing: DrawingSpec;
   characteristics: Characteristic[];
-  activeBalloonId: number | null;
-  onSelectCharacteristic: (id: number) => void;
+  activeBalloonId: string | null;
+  onSelectCharacteristic: (id: string) => void;
   onAddCharacteristic: (newChar: Characteristic) => void;
   onBulkUpdateCharacteristics?: (chars: Characteristic[]) => void;
-  onUpdateCharacteristicPosition: (id: number, pos: Point) => void;
+  onUpdateCharacteristicPosition: (id: string, pos: Point) => void;
+  onDeleteCharacteristic?: (id: string) => void;
   onReSortClockwise: () => void;
   inverted: boolean;
   onToggleInvert: () => void;
   customImage: HTMLImageElement | null;
-  onDropImageFile?: (file: File) => void;
+  onDropPdfFile?: (file: File) => void;
   toolMode?: 'pan' | 'box_balloon';
   onSetToolMode?: (mode: 'pan' | 'box_balloon') => void;
   zoom?: number;
   onZoomChange?: (z: number) => void;
   onCursorMove?: (pos: Point, zone: string) => void;
+  activePage?: number;
+  onPageChange?: (page: number) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
@@ -48,16 +60,20 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   onAddCharacteristic,
   onBulkUpdateCharacteristics,
   onUpdateCharacteristicPosition,
-  onReSortClockwise,
+  onDeleteCharacteristic,
   inverted,
-  onToggleInvert,
   customImage,
-  onDropImageFile,
+  onDropPdfFile,
   toolMode = 'pan',
   onSetToolMode,
   zoom: externalZoom,
   onZoomChange: externalOnZoomChange,
   onCursorMove,
+  activePage = 1,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -65,7 +81,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   const topRulerRef = useRef<HTMLCanvasElement>(null);
   const leftRulerRef = useRef<HTMLCanvasElement>(null);
 
-  // Pan & Zoom state
+  // Pan & Zoom state (zoom range: 0.35 to 3.0)
   const [internalZoom, setInternalZoom] = useState(1.0);
   const zoom = externalZoom !== undefined ? externalZoom : internalZoom;
   const setZoom = (z: number) => {
@@ -76,11 +92,58 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     }
   };
 
-  const [pan, setPan] = useState<Point>({ x: 60, y: 50 });
+  const [pan, setPan] = useState<Point>({ x: 75, y: 50 });
   const [isDragOver, setIsDragOver] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
 
-  // Pre-generate crops for initial characteristics once
+  // Cached rendered PDF page canvas
+  const [renderedPdfCanvas, setRenderedPdfCanvas] = useState<HTMLCanvasElement | null>(null);
+
+  // PDF Page loader
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadPdfPage() {
+      if (!currentDrawing.pdfBuffer) {
+        setRenderedPdfCanvas(null);
+        return;
+      }
+
+      try {
+        const loadingTask = pdfjsLib.getDocument({
+          data: currentDrawing.pdfBuffer.slice(0),
+        });
+        const pdfDoc = await loadingTask.promise;
+        const pageNum = Math.min(activePage, pdfDoc.numPages);
+        const page = await pdfDoc.getPage(pageNum);
+
+        const renderScale = 2.0;
+        const viewport = page.getViewport({ scale: renderScale });
+
+        const offscreen = document.createElement('canvas');
+        offscreen.width = viewport.width;
+        offscreen.height = viewport.height;
+        const offCtx = offscreen.getContext('2d');
+        if (!offCtx) return;
+
+        await page.render({ canvasContext: offCtx, viewport }).promise;
+
+        if (!isCancelled) {
+          setRenderedPdfCanvas(offscreen);
+        }
+      } catch (err) {
+        console.warn('PDF.js rendering fallback or error:', err);
+      }
+    }
+
+    loadPdfPage();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentDrawing.pdfBuffer, activePage]);
+
+  // Pre-generate visual crops for characteristics once
   const cropsGenerated = useRef<string | null>(null);
   useEffect(() => {
     if (cropsGenerated.current === currentDrawing.id) return;
@@ -101,18 +164,17 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   const [cursorPos, setCursorPos] = useState<Point>({ x: 0, y: 0 });
   const [sheetZone, setSheetZone] = useState('B2');
 
-  // Shift-Drag Box-Ballooning marquee state
+  // Box-Ballooning marquee state
   const isBoxSelecting = useRef(false);
   const boxStart = useRef<Point>({ x: 0, y: 0 });
   const [boxSelection, setBoxSelection] = useState<BoundingBox | null>(null);
 
   // Dragging individual balloon
-  const [draggedBalloonId, setDraggedBalloonId] = useState<number | null>(null);
+  const [draggedBalloonId, setDraggedBalloonId] = useState<string | null>(null);
 
   // Physics simulation instance
   const simRef = useRef<ForceDirectedSimulator | null>(null);
 
-  // Sync physics simulation with characteristics
   useEffect(() => {
     const physicsBalloons: PhysicsBalloon[] = characteristics.map((c) => ({
       id: c.id,
@@ -133,7 +195,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     }
   }, [characteristics]);
 
-  // Compute sheet grid zone (e.g., B4) based on sheet coordinates
   const computeZone = (x: number, y: number): string => {
     const margin = 24;
     const w = (currentDrawing.drawingWidth || 1200) - margin * 2;
@@ -144,11 +205,10 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     return `${rows[rowIdx]}${colIdx + 1}`;
   };
 
-  // Center artboard on mount or blueprint change
   const handleFitSheet = useCallback(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
-    const cw = container.clientWidth - 48; // padding
+    const cw = container.clientWidth - 80;
     const ch = container.clientHeight - 48;
     const dw = currentDrawing.drawingWidth || 1200;
     const dh = currentDrawing.drawingHeight || 800;
@@ -157,16 +217,16 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     const newZoom = Math.max(0.35, Math.round(fitScale * 100) / 100);
     setZoom(newZoom);
 
-    const targetX = Math.round((container.clientWidth - dw * newZoom) / 2);
+    const targetX = Math.round((container.clientWidth - dw * newZoom) / 2) + 20;
     const targetY = Math.round((container.clientHeight - dh * newZoom) / 2);
-    setPan({ x: Math.max(24, targetX), y: Math.max(24, targetY) });
+    setPan({ x: Math.max(80, targetX), y: Math.max(24, targetY) });
   }, [currentDrawing.drawingWidth, currentDrawing.drawingHeight]);
 
   useEffect(() => {
     handleFitSheet();
   }, [currentDrawing.id, handleFitSheet]);
 
-  // Render Top & Left Rulers
+  // Render Rulers in true PDF points (72 pt = 1 inch)
   useEffect(() => {
     const topCanvas = topRulerRef.current;
     const leftCanvas = leftRulerRef.current;
@@ -192,7 +252,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     topCtx.textAlign = 'center';
 
     const dw = currentDrawing.drawingWidth || 1200;
-    const step = 50; // mm step
+    const step = 50;
 
     for (let dX = 0; dX <= dw; dX += step) {
       const screenX = pan.x + dX * zoom;
@@ -205,12 +265,11 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         topCtx.stroke();
 
         if (isMajor && screenX > 20 && screenX < topCanvas.width - 20) {
-          topCtx.fillText(`${dX}`, screenX, topCanvas.height - 13);
+          topCtx.fillText(`${dX}pt`, screenX, topCanvas.height - 13);
         }
       }
     }
 
-    // Top Ruler Cursor Indicator
     const cursorScreenX = pan.x + cursorPos.x * zoom;
     if (cursorScreenX >= 0 && cursorScreenX <= topCanvas.width) {
       topCtx.strokeStyle = cursorColor;
@@ -248,13 +307,12 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
           leftCtx.translate(leftCanvas.width - 14, screenY);
           leftCtx.rotate(-Math.PI / 2);
           leftCtx.textAlign = 'center';
-          leftCtx.fillText(`${dY}`, 0, 0);
+          leftCtx.fillText(`${dY}pt`, 0, 0);
           leftCtx.restore();
         }
       }
     }
 
-    // Left Ruler Cursor Indicator
     const cursorScreenY = pan.y + cursorPos.y * zoom;
     if (cursorScreenY >= 0 && cursorScreenY <= leftCanvas.height) {
       leftCtx.strokeStyle = cursorColor;
@@ -268,24 +326,35 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
 
   // Main Canvas Render Loop
   useEffect(() => {
+    const t0 = performance.now();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Render underlying CAD blueprint
-    renderCADBlueprint(canvas, currentDrawing, {
-      inverted,
-      showGrid: true,
-      customImage,
-    });
+    const width = canvas.width;
+    const height = canvas.height;
 
-    // Step physics simulator
-    if (simRef.current) {
+    if (renderedPdfCanvas) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(renderedPdfCanvas, 0, 0, width, height);
+    } else if (customImage) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(customImage, 0, 0, width, height);
+    } else {
+      renderCADBlueprint(canvas, currentDrawing, {
+        inverted,
+        showGrid: true,
+        customImage: null,
+      });
+    }
+
+    if (simRef.current && !simRef.current.isSettled()) {
       simRef.current.step();
     }
 
-    // Render Balloons & Leader lines on top of drawing
     characteristics.forEach((char) => {
       const isSelected = char.id === activeBalloonId;
       const bX = char.balloonPosition.x;
@@ -293,7 +362,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       const anchorX = char.bbox.x + char.bbox.width / 2;
       const anchorY = char.bbox.y + char.bbox.height / 2;
 
-      // Color coding: Selected (Fluent Blue #0066CC), Pass (#107C41), Fail (#DC2626), Warn (#D97706), Default QA Crimson (#E11D48)
       const balloonColor = isSelected
         ? '#0066CC'
         : char.status === 'in_spec'
@@ -302,7 +370,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         ? '#DC2626'
         : '#D97706';
 
-      // Leader line
       ctx.save();
       ctx.strokeStyle = balloonColor;
       ctx.lineWidth = isSelected ? 2 : 1.25;
@@ -312,7 +379,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       ctx.lineTo(bX, bY);
       ctx.stroke();
 
-      // Arrowhead at anchor
       const angle = Math.atan2(anchorY - bY, anchorX - bX);
       ctx.fillStyle = balloonColor;
       ctx.beginPath();
@@ -322,7 +388,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       ctx.closePath();
       ctx.fill();
 
-      // Concentric Radar Halo on selected balloon
       if (isSelected) {
         ctx.strokeStyle = 'rgba(0, 102, 204, 0.4)';
         ctx.lineWidth = 1.5;
@@ -336,18 +401,15 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         ctx.stroke();
       }
 
-      // Balloon Circle
       ctx.fillStyle = balloonColor;
       ctx.beginPath();
       ctx.arc(bX, bY, 12, 0, Math.PI * 2);
       ctx.fill();
 
-      // Thin crisp white border
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 1.25;
       ctx.stroke();
 
-      // Balloon Number text
       ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 10px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
@@ -358,17 +420,21 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       ctx.restore();
     });
 
-    // Render Minimap Radar
     renderMinimap();
+
+    const elapsed = performance.now() - t0;
+    if (elapsed > 30) {
+      console.debug(`[SpecBalloon Canvas] Frame rendered in ${elapsed.toFixed(1)}ms`);
+    }
   }, [
     currentDrawing,
     characteristics,
     activeBalloonId,
     inverted,
     customImage,
+    renderedPdfCanvas,
   ]);
 
-  // Minimap Renderer
   const renderMinimap = () => {
     const minimap = minimapCanvasRef.current;
     if (!minimap) return;
@@ -381,7 +447,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     const scaleX = minimap.width / (currentDrawing.drawingWidth || 1200);
     const scaleY = minimap.height / (currentDrawing.drawingHeight || 800);
 
-    // Draw balloon dots on minimap
     characteristics.forEach((char) => {
       const isSel = char.id === activeBalloonId;
       mCtx.fillStyle = isSel
@@ -396,7 +461,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       mCtx.fill();
     });
 
-    // Draw Viewport Frustum Box
     if (containerRef.current) {
       const cW = containerRef.current.clientWidth;
       const cH = containerRef.current.clientHeight;
@@ -414,7 +478,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     }
   };
 
-  // Handle Wheel Zoom (centered on cursor)
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     if (!containerRef.current) return;
@@ -435,7 +498,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     setPan({ x: newPanX, y: newPanY });
   };
 
-  // Convert mouse event to canvas coordinate
   const getCanvasCoords = (e: React.MouseEvent | React.PointerEvent): Point => {
     if (!containerRef.current) return { x: 0, y: 0 };
     const rect = containerRef.current.getBoundingClientRect();
@@ -447,11 +509,10 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     };
   };
 
-  // Pointer Down
   const handlePointerDown = (e: React.PointerEvent) => {
     const coords = getCanvasCoords(e);
 
-    // 1. Check if clicked on a balloon circle (within 16px radius)
+    // 1. Balloon hit test (16px radius)
     const clickedBalloon = characteristics.find((c) => {
       const dx = c.balloonPosition.x - coords.x;
       const dy = c.balloonPosition.y - coords.y;
@@ -481,7 +542,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
-  // Pointer Move
   const handlePointerMove = (e: React.PointerEvent) => {
     const coords = getCanvasCoords(e);
     const currentZone = computeZone(coords.x, coords.y);
@@ -492,13 +552,12 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       onCursorMove(coords, currentZone);
     }
 
-    // Dragging individual balloon
     if (draggedBalloonId !== null) {
       onUpdateCharacteristicPosition(draggedBalloonId, coords);
+      if (simRef.current) simRef.current.wake();
       return;
     }
 
-    // Dragging box selection marquee
     if (isBoxSelecting.current) {
       const startX = boxStart.current.x;
       const startY = boxStart.current.y;
@@ -510,7 +569,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       return;
     }
 
-    // Panning canvas
     if (isPanning.current) {
       setPan({
         x: e.clientX - panStart.current.x,
@@ -519,7 +577,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     }
   };
 
-  // Pointer Up
   const handlePointerUp = (e: React.PointerEvent) => {
     try {
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
@@ -533,7 +590,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
 
     if (isBoxSelecting.current && boxSelection) {
       isBoxSelecting.current = false;
-      if (boxSelection.width > 20 && boxSelection.height > 12) {
+      if (boxSelection.width > 15 && boxSelection.height > 10) {
         handleCreateBoxBalloon(boxSelection);
       }
       setBoxSelection(null);
@@ -542,13 +599,14 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     isPanning.current = false;
   };
 
-  // Create new Characteristic from Shift-Drag box
   const handleCreateBoxBalloon = (bbox: BoundingBox) => {
     const canvas = canvasRef.current;
     const cropDataUrl = canvas ? cropCanvasSnippet(canvas, bbox, 140, 48) : '';
-    const newId = Date.now();
+    const newId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `b-${Date.now()}`;
     const nextBalloonNum = characteristics.length + 1;
     const zone = computeZone(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+
+    const parsed = parseCalloutAndCalculateLimits('NEW DIM ±0.10', 'Bilateral');
 
     const newChar: Characteristic = {
       id: newId,
@@ -557,24 +615,30 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       designator: 'Minor',
       rawCallout: 'NEW DIM ±0.10',
       featureDescription: 'User-Selected Dimension Callout',
-      nominal: 25.000,
+      nominal_text: parsed.nominal_text,
+      nominal_value: parsed.nominal_value,
+      nominal: parsed.nominal_value ?? 0,
       toleranceType: 'Bilateral',
-      plusTolerance: 0.100,
-      minusTolerance: 0.100,
-      lsl: 24.900,
-      usl: 25.100,
+      plusTolerance: parsed.plusTolerance,
+      minusTolerance: parsed.minusTolerance,
+      upper_limit: parsed.upper_limit,
+      lower_limit: parsed.lower_limit,
+      lsl: parsed.lower_limit ?? 0,
+      usl: parsed.upper_limit ?? 0,
       units: 'mm',
-      instrument: 'Mitutoyo Digital Caliper',
-      measuredValue: 25.000,
-      lotMeasurements: [25.000, 25.000, 25.000],
-      status: 'in_spec',
-      confidence: 96.5,
+      instrument: 'Precision Digital Caliper',
+      measuredValue: null,
+      lotMeasurements: [],
+      status: 'needs_review',
+      confidence: 90.0,
       bbox,
       balloonPosition: {
         x: Math.round(bbox.x + bbox.width + 30),
         y: Math.round(bbox.y - 15)
       },
-      cropDataUrl
+      cropDataUrl,
+      reviewed: false,
+      isDemo: false,
     };
 
     onAddCharacteristic(newChar);
@@ -582,7 +646,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     soundEngine.playInSpecPass();
   };
 
-  // Drag and Drop File Handlers
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(true);
@@ -597,8 +660,8 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     setIsDragOver(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (onDropImageFile) {
-        onDropImageFile(file);
+      if (onDropPdfFile) {
+        onDropPdfFile(file);
       }
     }
   };
@@ -607,9 +670,8 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     <div className="flex-1 w-full h-full relative flex flex-col overflow-hidden bg-page select-none">
       {/* 1. Top Ruler Bar */}
       <div className="h-6 w-full flex items-center bg-subtle border-b border-border-hairline z-20">
-        {/* Top-Left Corner Square (Origin Marker) */}
         <div className="w-6 h-6 border-r border-border-hairline bg-subtle flex items-center justify-center text-[10px] font-mono text-text-mut font-semibold">
-          mm
+          pt
         </div>
         <div className="flex-1 h-6 relative overflow-hidden">
           <canvas
@@ -621,9 +683,8 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         </div>
       </div>
 
-      {/* 2. Main Viewport Area (Left Ruler + Artboard Canvas) */}
+      {/* 2. Main Viewport Area */}
       <div className="flex-1 w-full flex relative overflow-hidden">
-        {/* Left Ruler Bar */}
         <div className="w-6 h-full bg-subtle border-r border-border-hairline z-20 relative overflow-hidden">
           <canvas
             ref={leftRulerRef}
@@ -633,7 +694,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
           />
         </div>
 
-        {/* Artboard Container with subtle grid background */}
         <div
           ref={containerRef}
           onWheel={handleWheel}
@@ -647,7 +707,35 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
             toolMode === 'box_balloon' ? 'crosshair' : isPanning.current ? 'grabbing' : 'grab'
           }`}
         >
-          {/* Centered Artboard Sheet (elevated white canvas) */}
+          {/* MS Paint Style Tool Palette (Docked on Left of Canvas Viewport) */}
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MsPaintToolbar
+              currentTool={toolMode === 'box_balloon' ? 'box_balloon' : 'pan'}
+              onSelectTool={(t) => {
+                if (onSetToolMode) {
+                  onSetToolMode(t === 'box_balloon' ? 'box_balloon' : 'pan');
+                }
+              }}
+              onUndo={onUndo || (() => {})}
+              onRedo={onRedo || (() => {})}
+              canUndo={Boolean(canUndo)}
+              canRedo={Boolean(canRedo)}
+              onZoomIn={() => setZoom(Math.min(3.0, Math.round((zoom + 0.1) * 10) / 10))}
+              onZoomOut={() => setZoom(Math.max(0.35, Math.round((zoom - 0.1) * 10) / 10))}
+              onFitScreen={handleFitSheet}
+              activeBalloonId={activeBalloonId}
+              onDeleteActiveBalloon={() => {
+                if (activeBalloonId && onDeleteCharacteristic) {
+                  onDeleteCharacteristic(activeBalloonId);
+                }
+              }}
+            />
+          </div>
+
+          {/* Centered Artboard Sheet */}
           <div
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -664,7 +752,6 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
               className="block rounded-xs"
             />
 
-            {/* Marquee Box Selection Overlay */}
             {boxSelection && (
               <div
                 style={{
@@ -682,16 +769,16 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
           {isDragOver && (
             <div className="absolute inset-0 bg-accent-primary/20 backdrop-blur-sm border-2 border-dashed border-accent-primary flex flex-col items-center justify-center z-40">
               <Upload className="w-12 h-12 text-accent-primary animate-bounce mb-2" />
-              <div className="text-base font-bold text-text-pri">Drop 2D CAD Blueprint or PDF Here</div>
-              <div className="text-xs text-text-sec mt-1">Autonomous OCR and AI Auto-Ballooning will trigger instantly</div>
+              <div className="text-base font-bold text-text-pri">Drop Vector CAD PDF Here</div>
+              <div className="text-xs text-text-sec mt-1">Accepts vector PDF (max 10 MB, max 5 pages)</div>
             </div>
           )}
 
-          {/* Floating Minimap Radar (bottom right of viewport) */}
+          {/* Floating Minimap Radar */}
           {showMinimap && (
             <div className="absolute bottom-3 right-3 bg-surface/90 backdrop-blur-sm border border-border-hairline rounded-lg shadow-apple-md p-1.5 z-20">
               <div className="flex items-center justify-between text-[10px] text-text-mut px-1 mb-1 font-mono">
-                <span>RADAR OVERVIEW</span>
+                <span>MINIMAP</span>
                 <button
                   onClick={() => setShowMinimap(false)}
                   className="hover:text-text-pri font-bold ml-2"
