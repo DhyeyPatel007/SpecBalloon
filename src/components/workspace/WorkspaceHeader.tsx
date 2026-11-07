@@ -22,7 +22,11 @@ import {
   CheckCircle2,
   Sliders,
   ChevronDown,
-  GitCompare
+  GitCompare,
+  Play,
+  Cpu,
+  BookOpen,
+  Zap
 } from 'lucide-react';
 import { DrawingSpec, GeneralToleranceStandard, InspectionStatus } from '../../types/metrology';
 
@@ -44,6 +48,7 @@ export interface WorkspaceHeaderProps {
   onExportCSV: () => void;
   onExportExcel: () => void;
   onExportBalloonedPdf: () => void;
+  onExportPdfDeck?: () => void;
   onExitToLanding: () => void;
   statusCounts: {
     total: number;
@@ -68,6 +73,9 @@ export interface WorkspaceHeaderProps {
   onOpenGeminiModal?: () => void;
   isRevisionDiffMode?: boolean;
   onToggleRevisionDiff?: () => void;
+  onOpenCmmImport?: () => void;
+  onStartTour?: () => void;
+  onSimulateCaliperBurst?: () => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -105,6 +113,10 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onOpenGeminiModal,
   isRevisionDiffMode = false,
   onToggleRevisionDiff,
+  onOpenCmmImport,
+  onStartTour,
+  onExportPdfDeck,
+  onSimulateCaliperBurst,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -190,8 +202,39 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           )}
         </div>
 
-        {/* Right: View Switcher & Theme */}
+        {/* Right: View Switcher, Tour, Caliper Wedge & Theme */}
         <div className="flex items-center gap-2">
+          {/* Hackathon Judge 45s Guided Product Tour */}
+          {onStartTour && (
+            <button
+              type="button"
+              onClick={onStartTour}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-xs text-xs font-bold transition-all cursor-pointer border border-blue-400/40"
+              title="Run 45s Interactive Metrology Tour for Hackathon Judges"
+            >
+              <Play className="w-3 h-3 fill-white" />
+              <span>▶ Interactive Tour</span>
+              <span className="px-1 py-0.2 rounded bg-white/20 text-[9px] font-mono tracking-tight hidden sm:inline">
+                45s Demo
+              </span>
+            </button>
+          )}
+
+          {/* Caliper Wedge Status / Test Trigger */}
+          {onSimulateCaliperBurst && (
+            <button
+              type="button"
+              onClick={onSimulateCaliperBurst}
+              className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-xs font-mono font-medium transition-all cursor-pointer"
+              title="Test hardware USB-HID digital caliper burst (simulates Mitutoyo keyboard wedge)"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-500" />
+              <span>⚡ Test USB Caliper</span>
+            </button>
+          )}
+
+          <div className="h-4 w-px bg-border-hairline hidden sm:block" />
+
           <button
             onClick={onToggleViewMode}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-all ${
@@ -397,6 +440,18 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                 <span>Approve All</span>
               </button>
             )}
+
+            {onOpenCmmImport && (
+              <button
+                type="button"
+                onClick={onOpenCmmImport}
+                className="h-8 px-2.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 text-accent-primary hover:bg-indigo-100 dark:hover:bg-indigo-900/40 flex items-center gap-1 transition-all text-xs font-semibold cursor-pointer"
+                title="Import CMM coordinate run (ZEISS Calypso / Hexagon PC-DMIS) and calculate true position error"
+              >
+                <Cpu className="w-3.5 h-3.5 text-accent-primary" />
+                <span>📥 Import CMM</span>
+              </button>
+            )}
           </div>
           <span className="text-[10px] text-text-muted text-center font-medium">Metrology & Auto-Balloon</span>
         </div>
@@ -406,16 +461,27 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           <div className="flex items-center gap-1.5">
             <button
               onClick={onExportExcel}
-              className="h-8 px-3 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-all text-xs font-semibold shadow-xs"
-              title="Export AS9102 Form 3 / PPAP Excel (.xlsx)"
+              className="h-8 px-3 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-all text-xs font-semibold shadow-xs cursor-pointer"
+              title="Export 4-Sheet AS9102 Rev C Excel Suite (.xlsx)"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>Excel AS9102</span>
             </button>
 
+            {onExportPdfDeck && (
+              <button
+                onClick={onExportPdfDeck}
+                className="h-8 px-2.5 rounded-md border border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/50 flex items-center gap-1.5 transition-all text-xs font-semibold shadow-xs cursor-pointer"
+                title="Export 2-Page AS9102 Printable PDF Inspection Deck with Mobile QR Deep-Link Traveler"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                <span>📕 PDF Deck</span>
+              </button>
+            )}
+
             <button
               onClick={onExportBalloonedPdf}
-              className="h-8 px-2.5 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-secondary hover:text-text-primary flex items-center gap-1 transition-all text-xs font-medium"
+              className="h-8 px-2.5 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-secondary hover:text-text-primary flex items-center gap-1 transition-all text-xs font-medium cursor-pointer"
               title="Export Ballooned CAD PDF"
             >
               <Download className="w-3.5 h-3.5 text-accent-primary" />
@@ -424,7 +490,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
 
             <button
               onClick={onExportCSV}
-              className="h-8 px-2 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-secondary hover:text-text-primary flex items-center gap-1 transition-all text-xs font-medium"
+              className="h-8 px-2 rounded-md border border-border-hairline bg-subtle hover:bg-surface text-text-secondary hover:text-text-primary flex items-center gap-1 transition-all text-xs font-medium cursor-pointer"
               title="Export CSV"
             >
               <FileText className="w-3.5 h-3.5" />

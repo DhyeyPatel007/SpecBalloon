@@ -23,7 +23,8 @@ import {
   ShieldAlert,
   ChevronRight,
   Split,
-  Maximize2
+  Maximize2,
+  Cpu
 } from 'lucide-react';
 import {
   Characteristic,
@@ -59,6 +60,9 @@ interface BillOfCharacteristicsProps {
   onToggleHeight?: () => void;
   isExpanded?: boolean;
   isRevisionDiffMode?: boolean;
+  onOpenCmmImport?: () => void;
+  activeSubTab?: 'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing';
+  onTabChange?: (tab: 'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing') => void;
 }
 
 export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
@@ -74,8 +78,16 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
   isExpanded = true,
   onToggleHeight,
   isRevisionDiffMode = false,
+  onOpenCmmImport,
+  activeSubTab: externalSubTab,
+  onTabChange: externalOnTabChange,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing'>('main_boc');
+  const [internalSubTab, setInternalSubTab] = useState<'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing'>('main_boc');
+  const activeSubTab = externalSubTab ?? internalSubTab;
+  const setActiveSubTab = (tab: 'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing') => {
+    setInternalSubTab(tab);
+    externalOnTabChange?.(tab);
+  };
   const [searchTerm, setSearchTerm] = useState('');
 
   // Multi-Feature Cavity Expansion state (#04 -> #04.1..4)
@@ -232,12 +244,24 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
 
           <button
             onClick={onAutoCalculateFits}
-            className="px-2 py-1 rounded-md border border-border-hairline bg-surface hover:bg-subtle text-text-secondary hover:text-text-primary font-medium text-[11px] flex items-center gap-1 transition-all"
+            className="px-2 py-1 rounded-md border border-border-hairline bg-surface hover:bg-subtle text-text-secondary hover:text-text-primary font-medium text-[11px] flex items-center gap-1 transition-all cursor-pointer"
             title="Auto-Calculate Limits (ISO 286 / ISO 2768)"
           >
             <Calculator className="w-3.5 h-3.5 text-accent-primary" />
             <span className="hidden md:inline">ISO Fits</span>
           </button>
+
+          {onOpenCmmImport && (
+            <button
+              type="button"
+              onClick={onOpenCmmImport}
+              className="px-2 py-1 rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 text-accent-primary hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-semibold text-[11px] flex items-center gap-1 transition-all cursor-pointer"
+              title="Import CMM coordinate run (ZEISS Calypso / Hexagon PC-DMIS) and calculate true position error"
+            >
+              <Cpu className="w-3.5 h-3.5 text-accent-primary" />
+              <span className="hidden md:inline">Import CMM</span>
+            </button>
+          )}
 
           <button
             onClick={onExportExcel}
