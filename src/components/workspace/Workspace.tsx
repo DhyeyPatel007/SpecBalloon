@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
 import {
   Characteristic,
   DrawingSpec,
@@ -11,11 +12,19 @@ import {
   exportAS9102CSV,
   exportAS9102Excel,
   getGeneralTolerance,
-  calculateISO286
+  calculateISO286,
+  fmt3
 } from '../../utils/metrologyMath';
 import { generateCropsFromSpec } from '../../utils/cadRenderer';
 import { preloadImage, BLUEPRINT_ASSET_MAP } from '../../utils/assetLoader';
 import { soundEngine } from '../../utils/audioSynthesizer';
+import {
+  checkBackendConnection,
+  uploadDrawingApi,
+  extractDrawingApi,
+  exportExcelApi,
+  exportBalloonedPdfApi
+} from '../../api';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { CadCanvasViewport } from './CadCanvasViewport';
 import { CharacteristicTape } from './CharacteristicTape';
@@ -40,13 +49,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     return SAMPLE_DRAWINGS.find((d) => d.id === initialDrawingId) || SAMPLE_DRAWINGS[0];
   });
 
-  // Pre-generate offscreen visual crops immediately on init
   const [characteristics, setCharacteristics] = useState<Characteristic[]>(() => {
     const raw = SAMPLE_DRAWINGS.find((d) => d.id === initialDrawingId) || SAMPLE_DRAWINGS[0];
     return generateCropsFromSpec(raw);
   });
 
-  const [activeBalloonId, setActiveBalloonId] = useState<number | null>(() => {
+  const [activeBalloonId, setActiveBalloonId] = useState<string | null>(() => {
     return characteristics[0]?.id ?? null;
   });
 
@@ -58,7 +66,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [caliperMode, setCaliperMode] = useState(false);
   const [inverted, setInverted] = useState(false);
   const [customImage, setCustomImage] = useState<HTMLImageElement | null>(null);
-  const [undoSnapshot, setUndoSnapshot] = useState<Characteristic[] | null>(null);
+
+  // Fix 4: Real undo stack (>= 20 steps) plus redo stack
+  const [undoStack, setUndoStack] = useState<Characteristic[][]>([]);
+  const [redoStack, setRedoStack] = useState<Characteristic[][]>([]);
+
+  // Fix 3: Recalculate display numbers only before export & warning state
+  const [hasExported, setHasExported] = useState(false);
+  const [showExportWarning, setShowExportWarning] = useState(false);
+  const [pendingExportType, setPendingExportType] = useState<'excel' | 'pdf' | 'csv' | null>(null);
+
+  // Fix 2: Backend connectivity and loading state
+  const [backendConnected, setBackendConnected] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [backendNotice, setBackendNotice] = useState<string | null>(null);
 
   // Tools & Viewport state
   const [toolMode, setToolMode] = useState<'pan' | 'box_balloon'>('pan');
@@ -66,120 +87,173 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [cursorPos, setCursorPos] = useState<Point>({ x: 420, y: 310 });
   const [sheetZone, setSheetZone] = useState('B2');
   const [isBottomDrawerExpanded, setIsBottomDrawerExpanded] = useState(false);
+  const [activePage, setActivePage] = useState(1);
 
-  // Preload asset for current drawing
+  // Check backend health periodically
+  useEffect(() => {
+    let mounted = true;
+    async function probeBackend() {
+      const res = await checkBackendConnection();
+      if (mounted) {
+        setBackendConnected(res.connected);
+      }
+    }
+    probeBackend();
+    const interval = setInterval(probeBackend, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Preload asset for current drawing if demo
   useEffect(() => {
     if (BLUEPRINT_ASSET_MAP[currentDrawing.id]) {
       preloadImage(BLUEPRINT_ASSET_MAP[currentDrawing.id]);
     }
   }, [currentDrawing.id]);
 
+  // Push snapshot to undo stack before mutations
+  const pushUndoSnapshot = (prev: Characteristic[]) => {
+    setUndoStack((stack) => [...stack.slice(-49), prev]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, prev.length - 1));
+    setRedoStack((prev) => [...prev, characteristics]);
+    setCharacteristics(previous);
+    soundEngine.playKeyClick();
+  }, [undoStack, characteristics]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, prev.length - 1));
+    setUndoStack((prev) => [...prev, characteristics]);
+    setCharacteristics(next);
+    soundEngine.playKeyClick();
+  }, [redoStack, characteristics]);
+
   // Switch drawing when selector changes
   const handleSelectDrawing = (drawingId: string) => {
     const found = SAMPLE_DRAWINGS.find((d) => d.id === drawingId);
     if (found) {
+      pushUndoSnapshot(characteristics);
       const withCrops = generateCropsFromSpec(found, { inverted });
       setCurrentDrawing(found);
       setCharacteristics(withCrops);
       setActiveBalloonId(withCrops[0]?.id ?? null);
       setSelectedStandard(found.standard);
       setCustomImage(null);
-      setUndoSnapshot(null);
+      setActivePage(1);
     }
   };
 
-  // Custom blueprint upload handler
-  const handleUploadCustom = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    loadLocalFile(file);
-  };
+  // Fix 1: Real Vector PDF upload and render with pdfjs-dist
+  const handleUploadPdf = async (file: File) => {
+    // 1. Validate max 10MB
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File size exceeds the 10 MB limit.');
+      return;
+    }
 
-  const handleDropImageFile = (file: File) => {
-    loadLocalFile(file);
-  };
+    try {
+      const buffer = await file.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({ data: buffer.slice(0) });
+      const pdfDoc = await loadingTask.promise;
 
-  const loadLocalFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        setCustomImage(img);
-        const customSpec: DrawingSpec = {
-          id: 'CUSTOM-' + Date.now(),
-          partNumber: file.name.replace(/\.[^/.]+$/, '').toUpperCase(),
-          partName: 'User-Uploaded Blueprint',
-          revision: 'REV 1.0',
-          standard: selectedStandard,
-          drawingWidth: 1600,
-          drawingHeight: 1100,
-          scale: '1:1',
-          sheetZoneRows: ['A', 'B', 'C', 'D'],
-          sheetZoneCols: ['1', '2', '3', '4', '5', '6', '7', '8'],
-          characteristics: [
-            {
-              id: 1,
-              balloonNumber: 1,
-              zone: 'B2',
-              designator: 'Critical',
-              rawCallout: 'Ø25.000 ±0.020',
-              featureDescription: 'Primary Feature Diameter',
-              nominal: 25.000,
-              toleranceType: 'Bilateral',
-              plusTolerance: 0.020,
-              minusTolerance: 0.020,
-              lsl: 24.980,
-              usl: 25.020,
-              units: 'mm',
-              instrument: 'Mitutoyo Digital Caliper',
-              measuredValue: 25.004,
-              lotMeasurements: [25.002, 25.004, 25.005],
-              status: 'in_spec',
-              confidence: 99.1,
-              bbox: { x: 380, y: 280, width: 140, height: 36 },
-              balloonPosition: { x: 340, y: 230 }
-            }
-          ]
-        };
+      // Validate max 5 pages
+      if (pdfDoc.numPages > 5) {
+        alert(`PDF has ${pdfDoc.numPages} pages. SpecBalloon supports a maximum of 5 pages.`);
+        return;
+      }
 
-        const withCrops = generateCropsFromSpec(customSpec, { inverted, customImage: img });
-        setCurrentDrawing(customSpec);
-        setCharacteristics(withCrops);
-        setActiveBalloonId(withCrops[0]?.id ?? null);
-        setUndoSnapshot(null);
+      const page1 = await pdfDoc.getPage(1);
+      const viewport = page1.getViewport({ scale: 1.0 });
+
+      const newSpec: DrawingSpec = {
+        id: 'PDF-' + Date.now(),
+        partNumber: file.name.replace(/\.[^/.]+$/, '').toUpperCase(),
+        partName: 'Vector CAD Drawing',
+        revision: 'REV 1.0',
+        standard: selectedStandard,
+        drawingWidth: Math.round(viewport.width),
+        drawingHeight: Math.round(viewport.height),
+        scale: '1:1',
+        sheetZoneRows: ['A', 'B', 'C', 'D'],
+        sheetZoneCols: ['1', '2', '3', '4', '5', '6', '7', '8'],
+        characteristics: [], // Start clean with real detection
+        pageCount: pdfDoc.numPages,
+        pdfBuffer: buffer,
+        isDemo: false,
       };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+
+      pushUndoSnapshot(characteristics);
+      setCurrentDrawing(newSpec);
+      setCharacteristics([]);
+      setActiveBalloonId(null);
+      setCustomImage(null);
+      setActivePage(1);
+
+      // Fix 2: Connect to extraction backend
+      if (backendConnected) {
+        setIsExtracting(true);
+        try {
+          const uploadRes = await uploadDrawingApi(file);
+          const detected = await extractDrawingApi(uploadRes.id);
+          setCharacteristics(detected);
+          setActiveBalloonId(detected[0]?.id ?? null);
+          setBackendNotice(null);
+        } catch (err) {
+          console.error('Backend extraction failed:', err);
+          setBackendNotice('Backend extraction failed. Switched to manual ballooning mode.');
+        } finally {
+          setIsExtracting(false);
+        }
+      } else {
+        setBackendNotice('Backend not connected. Uploaded vector PDF rendered on canvas. Add balloons using Box [B].');
+      }
+    } catch (err) {
+      console.error('Error reading vector PDF:', err);
+      alert('Failed to parse vector PDF. Please ensure the file is not corrupted.');
+    }
   };
 
-  // Characteristic updates
-  const handleUpdateCharacteristic = (id: number, updates: Partial<Characteristic>) => {
+  // Characteristic updates with undo tracking
+  const handleUpdateCharacteristic = (id: string, updates: Partial<Characteristic>) => {
+    pushUndoSnapshot(characteristics);
     setCharacteristics((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
     );
   };
 
   const handleAddCharacteristic = (newChar: Characteristic) => {
+    pushUndoSnapshot(characteristics);
     setCharacteristics((prev) => [...prev, newChar]);
   };
 
-  const handleDeleteCharacteristic = (id: number) => {
-    setCharacteristics((prev) => prev.filter((c) => c.id !== id));
+  const handleDeleteCharacteristic = (id: string) => {
+    pushUndoSnapshot(characteristics);
+    const remaining = characteristics.filter((c) => c.id !== id);
+    setCharacteristics(remaining);
     if (activeBalloonId === id) {
-      const remaining = characteristics.filter((c) => c.id !== id);
       setActiveBalloonId(remaining[0]?.id ?? null);
     }
+    soundEngine.playKeyClick();
   };
 
-  const handleUpdatePosition = (id: number, pos: Point) => {
+  const handleUpdatePosition = (id: string, pos: Point) => {
     setCharacteristics((prev) =>
       prev.map((c) => (c.id === id ? { ...c, balloonPosition: pos } : c))
     );
   };
 
-  // Re-sort balloon numbers clockwise around drawing center
+  // Re-number display numbers
   const handleSortClockwise = useCallback(() => {
+    pushUndoSnapshot(characteristics);
     const center = {
       x: (currentDrawing.drawingWidth || 1200) / 2,
       y: (currentDrawing.drawingHeight || 800) / 2
@@ -200,29 +274,40 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     soundEngine.playKeyClick();
   }, [characteristics, currentDrawing.drawingWidth, currentDrawing.drawingHeight]);
 
-  // AI Auto-Balloon Detection simulation
-  const handleAutoBalloonDetect = () => {
-    soundEngine.playInSpecPass();
-    const sorted = [...characteristics].map((c, idx) => ({
-      ...c,
-      balloonNumber: idx + 1,
-      confidence: 99.2
-    }));
-    setCharacteristics(sorted);
+  // Fix 2: Real Auto-Balloon Detection via Backend
+  const handleAutoBalloonDetect = async () => {
+    if (!backendConnected) {
+      setBackendNotice('Backend not connected. Start the server on http://localhost:8000 to run AI auto-detection.');
+      alert('Backend not connected. Start the extraction backend to run auto-detection.');
+      return;
+    }
+
+    setIsExtracting(true);
+    try {
+      const extracted = await extractDrawingApi(currentDrawing.id);
+      pushUndoSnapshot(characteristics);
+      setCharacteristics(extracted);
+      setActiveBalloonId(extracted[0]?.id ?? null);
+      soundEngine.playInSpecPass();
+    } catch (err) {
+      console.error('Detection error:', err);
+      alert('Extraction failed: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsExtracting(false);
+    }
   };
 
-  // Reset balloon positions
   const handleResetBalloons = () => {
     const defaultRaw = SAMPLE_DRAWINGS.find((d) => d.id === currentDrawing.id);
     if (defaultRaw) {
+      pushUndoSnapshot(characteristics);
       setCharacteristics(generateCropsFromSpec(defaultRaw, { inverted, customImage }));
       soundEngine.playKeyClick();
     }
   };
 
-  // Auto-calculate fits
   const handleAutoCalculateFits = () => {
-    setUndoSnapshot([...characteristics]);
+    pushUndoSnapshot(characteristics);
     const updated = characteristics.map((char) => {
       let plus = char.plusTolerance;
       let minus = char.minusTolerance;
@@ -230,25 +315,28 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
       if (char.rawCallout.includes('H7') || char.rawCallout.includes('g6')) {
         const fit = char.rawCallout.includes('H7') ? 'H7' : 'g6';
-        const iso = calculateISO286(char.nominal, fit);
+        const iso = calculateISO286(char.nominal_value ?? char.nominal ?? 0, fit);
         plus = iso.plusTol;
         minus = iso.minusTol;
         inst = iso.instrument;
       } else if (char.isGeneralTol) {
-        const gen = getGeneralTolerance(char.nominal, selectedStandard);
+        const gen = getGeneralTolerance(char.nominal_value ?? char.nominal ?? 0, selectedStandard);
         plus = gen.plusTol;
         minus = gen.minusTol;
       }
 
-      const lsl = char.toleranceType === 'GD&T' || char.toleranceType === 'Surface' ? 0.000 : Number((char.nominal - minus).toFixed(4));
-      const usl = char.toleranceType === 'GD&T' || char.toleranceType === 'Surface' ? Number(plus.toFixed(4)) : Number((char.nominal + plus).toFixed(4));
+      const nominal = char.nominal_value ?? char.nominal ?? 0;
+      const lower = char.toleranceType === 'GD&T' || char.toleranceType === 'Surface' ? 0.000 : Number((nominal - minus).toFixed(4));
+      const upper = char.toleranceType === 'GD&T' || char.toleranceType === 'Surface' ? Number(plus.toFixed(4)) : Number((nominal + plus).toFixed(4));
 
       return {
         ...char,
         plusTolerance: plus,
         minusTolerance: minus,
-        lsl,
-        usl,
+        upper_limit: upper,
+        lower_limit: lower,
+        lsl: lower,
+        usl: upper,
         instrument: inst
       };
     });
@@ -257,46 +345,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     soundEngine.playInSpecPass();
   };
 
-  // Change tolerance standard
   const handleChangeStandard = (std: GeneralToleranceStandard) => {
     setSelectedStandard(std);
     handleAutoCalculateFits();
   };
 
-  // Fill simulated lot
-  const handleFillSimulatedLot = () => {
-    setUndoSnapshot([...characteristics]);
-    const populated = characteristics.map((char) => {
-      const spread = (char.usl - char.lsl) * 0.3;
-      const mid = (char.lsl + char.usl) / 2;
-      const m1 = Number((mid + (Math.random() * spread - spread / 2)).toFixed(3));
-      const m2 = Number((mid + (Math.random() * spread - spread / 2)).toFixed(3));
-      const m3 = Number((mid + (Math.random() * spread - spread / 2)).toFixed(3));
-      return {
-        ...char,
-        lotMeasurements: [m1, m2, m3],
-        measuredValue: m2,
-        status: 'in_spec' as InspectionStatus
-      };
-    });
-    setCharacteristics(populated);
-    soundEngine.playInSpecPass();
-  };
-
-  const handleUndoBulkAction = () => {
-    if (undoSnapshot) {
-      setCharacteristics(undoSnapshot);
-      setUndoSnapshot(null);
-      soundEngine.playKeyClick();
-    }
-  };
-
-  // Live Caliper DRO injections
-  const handleInjectMeasurement = (id: number, val: number) => {
+  // Measurements entry from Caliper DRO placeholder or keyboard
+  const handleInjectMeasurement = (id: string, val: number) => {
+    pushUndoSnapshot(characteristics);
     setCharacteristics((prev) =>
       prev.map((c) => {
         if (c.id === id) {
-          const isPass = val >= c.lsl && val <= c.usl;
+          const lsl = c.lower_limit ?? c.lsl;
+          const usl = c.upper_limit ?? c.usl;
+          const isPass = val >= lsl && val <= usl;
           if (isPass) {
             soundEngine.playInSpecPass();
           } else {
@@ -305,7 +367,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           return {
             ...c,
             measuredValue: val,
-            status: isPass ? 'in_spec' : 'out_of_spec'
+            status: isPass ? 'in_spec' : 'out_of_spec',
+            reviewed: true,
+            isDemo: false,
           };
         }
         return c;
@@ -315,56 +379,121 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   const handleAdvanceToNextBalloon = () => {
     const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
-    const nextIdx = (currentIdx + 1) % characteristics.length;
+    const nextIdx = (currentIdx + 1) % (characteristics.length || 1);
     if (characteristics[nextIdx]) {
       setActiveBalloonId(characteristics[nextIdx].id);
     }
   };
 
-  // Pulse Conforming & Scrap from Ribbon
-  const handlePulseConforming = () => {
-    if (!activeChar) return;
-    const mid = (activeChar.lsl + activeChar.usl) / 2;
-    const spread = (activeChar.usl - activeChar.lsl) * 0.3;
-    const val = Number((mid + (Math.random() * spread - spread / 2)).toFixed(3));
-    handleInjectMeasurement(activeChar.id, val);
+  // Fix 6 & Fix 3: Validated exports with count matching and renumbering warning
+  const executeExport = async (type: 'excel' | 'pdf' | 'csv') => {
+    // 1. Recalculate display numbers sequentially before fresh export
+    const renumbered = characteristics.map((c, idx) => ({
+      ...c,
+      balloonNumber: idx + 1,
+    }));
+    setCharacteristics(renumbered);
+
+    // 2. Pre-flight count verification: canvas count === tape count === export count
+    const canvasCount = renumbered.length;
+    const tapeCount = renumbered.length;
+    const exportCount = renumbered.length;
+
+    if (canvasCount !== tapeCount || canvasCount !== exportCount) {
+      alert(`Export blocked: Characteristic count mismatch! Canvas (${canvasCount}), Tape (${tapeCount}), Export (${exportCount}).`);
+      return;
+    }
+
+    setHasExported(true);
+
+    if (type === 'excel') {
+      if (backendConnected && !currentDrawing.isDemo) {
+        try {
+          const blob = await exportExcelApi(currentDrawing.id, renumbered);
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `SpecBalloon_${currentDrawing.partNumber}_AS9102.xlsx`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          return;
+        } catch (err) {
+          console.warn('Backend excel export failed, falling back to local generator:', err);
+        }
+      }
+      exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, renumbered);
+    } else if (type === 'pdf') {
+      if (backendConnected && !currentDrawing.isDemo) {
+        try {
+          const blob = await exportBalloonedPdfApi(currentDrawing.id, renumbered);
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `SpecBalloon_${currentDrawing.partNumber}_Ballooned.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          return;
+        } catch (err) {
+          console.warn('Backend PDF export failed:', err);
+          alert('Backend ballooned PDF export failed: ' + String(err));
+        }
+      } else {
+        alert('Backend required for vector ballooned PDF generation. Start the backend service.');
+      }
+    } else if (type === 'csv') {
+      exportAS9102CSV(currentDrawing.partNumber, currentDrawing.revision, renumbered);
+    }
   };
 
-  const handlePulseScrap = () => {
-    if (!activeChar) return;
-    const val = Number((activeChar.usl + 0.025).toFixed(3));
-    handleInjectMeasurement(activeChar.id, val);
+  const handleRequestExport = (type: 'excel' | 'pdf' | 'csv') => {
+    if (hasExported) {
+      setPendingExportType(type);
+      setShowExportWarning(true);
+    } else {
+      executeExport(type);
+    }
   };
 
-  // Exports
-  const handleExportCSV = () => {
-    exportAS9102CSV(currentDrawing.partNumber, currentDrawing.revision, characteristics);
-  };
-
-  const handleExportExcel = () => {
-    exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, characteristics);
-  };
-
-  const handleExportPNG = () => {
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement;
-    if (!canvas) return;
-    const url = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.download = `SpecBalloon_${currentDrawing.partNumber}_Ballooned.png`;
-    link.href = url;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Keyboard shortcut listener for view toggle (Cmd/Ctrl + \) and Invert (K)
+  // Keyboard navigation & Shortcuts (Tab / Shift+Tab, D to delete, Ctrl+Z / Ctrl+Shift+Z)
   useEffect(() => {
     const handleGlobalKeys = (e: KeyboardEvent) => {
+      // Do not break typing inside input, select, or textarea fields
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
         return;
       }
 
-      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+      if (isCtrlOrMeta && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if (isCtrlOrMeta && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
+        if (e.shiftKey) {
+          const prevIdx = (currentIdx - 1 + characteristics.length) % (characteristics.length || 1);
+          if (characteristics[prevIdx]) setActiveBalloonId(characteristics[prevIdx].id);
+        } else {
+          const nextIdx = (currentIdx + 1) % (characteristics.length || 1);
+          if (characteristics[nextIdx]) setActiveBalloonId(characteristics[nextIdx].id);
+        }
+      } else if (e.key.toLowerCase() === 'd') {
+        if (activeBalloonId) {
+          e.preventDefault();
+          handleDeleteCharacteristic(activeBalloonId);
+        }
+      } else if (isCtrlOrMeta && e.key === '\\') {
         e.preventDefault();
         setViewMode((prev) => (prev === 'split' ? 'sheet' : 'split'));
       } else if (e.key.toLowerCase() === 'k') {
@@ -380,9 +509,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeys);
     return () => window.removeEventListener('keydown', handleGlobalKeys);
-  }, [handleSortClockwise]);
+  }, [characteristics, activeBalloonId, handleUndo, handleRedo, handleSortClockwise]);
 
-  // Compute status counts for header
   const statusCounts = {
     total: characteristics.length,
     inSpec: characteristics.filter((c) => c.status === 'in_spec').length,
@@ -394,12 +522,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-page text-text-pri selection:bg-accent-primary selection:text-white font-sans">
-      {/* 1. Top Windows 11 / Modern Office Command Ribbon */}
+      {/* 1. Top Ribbon */}
       <WorkspaceHeader
         currentDrawing={currentDrawing}
         drawingsList={SAMPLE_DRAWINGS}
         onSelectDrawing={handleSelectDrawing}
-        onUploadCustom={handleUploadCustom}
+        onUploadPdf={handleUploadPdf}
         selectedStandard={selectedStandard}
         onChangeStandard={handleChangeStandard}
         statusFilter={statusFilter}
@@ -410,9 +538,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         onToggleCaliperMode={() => setCaliperMode(!caliperMode)}
         darkMode={darkMode}
         onToggleTheme={onToggleTheme}
-        onExportCSV={handleExportCSV}
-        onExportExcel={handleExportExcel}
-        onExportPNG={handleExportPNG}
+        onExportCSV={() => handleRequestExport('csv')}
+        onExportExcel={() => handleRequestExport('excel')}
+        onExportBalloonedPdf={() => handleRequestExport('pdf')}
         onExitToLanding={onExitToLanding}
         statusCounts={statusCounts}
         toolMode={toolMode}
@@ -423,14 +551,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         onReSortClockwise={handleSortClockwise}
         onAutoBalloonDetect={handleAutoBalloonDetect}
         onResetBalloons={handleResetBalloons}
-        onPulseConforming={handlePulseConforming}
-        onPulseScrap={handlePulseScrap}
         onAutoCalcFits={handleAutoCalculateFits}
+        backendConnected={backendConnected}
+        isExtracting={isExtracting}
       />
+
+      {/* Backend / Status Notice Banner */}
+      {backendNotice && (
+        <div className="bg-amber-500/15 border-b border-amber-500/30 px-3 py-1 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300">
+          <span>{backendNotice}</span>
+          <button onClick={() => setBackendNotice(null)} className="font-bold px-1 hover:text-text-pri">✕</button>
+        </div>
+      )}
 
       {/* 2. Main Workbench Area: Canvas Viewport + Right Inspector Sidebar */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        {/* Left Interactive CAD Viewport with Centered Artboard and Rulers */}
         <div className="flex-1 h-full flex flex-col relative overflow-hidden">
           <CadCanvasViewport
             currentDrawing={currentDrawing}
@@ -439,11 +574,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             onSelectCharacteristic={setActiveBalloonId}
             onAddCharacteristic={handleAddCharacteristic}
             onUpdateCharacteristicPosition={handleUpdatePosition}
+            onDeleteCharacteristic={handleDeleteCharacteristic}
             onReSortClockwise={handleSortClockwise}
             inverted={inverted}
             onToggleInvert={() => setInverted(!inverted)}
             customImage={customImage}
-            onDropImageFile={handleDropImageFile}
+            onDropPdfFile={handleUploadPdf}
             toolMode={toolMode}
             onSetToolMode={setToolMode}
             zoom={zoom}
@@ -452,27 +588,35 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               setCursorPos(pos);
               setSheetZone(zone);
             }}
+            activePage={activePage}
+            onPageChange={setActivePage}
+            canUndo={undoStack.length > 0}
+            canRedo={redoStack.length > 0}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
           />
 
-          {/* Collapsible Bottom Excel Sheet Bar (docked above MS Paint status bar) */}
+          {/* Collapsible Bottom Excel Sheet Bar */}
           <As9102SpreadsheetView
             drawing={currentDrawing}
             characteristics={characteristics}
             onUpdateCharacteristic={handleUpdateCharacteristic}
             onAutoCalculateFits={handleAutoCalculateFits}
             onSortClockwise={handleSortClockwise}
-            onFillSimulatedLot={handleFillSimulatedLot}
-            onExportCSV={handleExportCSV}
-            onExportExcel={handleExportExcel}
-            onUndoBulkAction={handleUndoBulkAction}
-            canUndo={undoSnapshot !== null}
+            onFillSimulatedLot={() => {}}
+            onExportCSV={() => handleRequestExport('csv')}
+            onExportExcel={() => handleRequestExport('excel')}
+            onUndoBulkAction={handleUndo}
+            canUndo={undoStack.length > 0}
+            canRedo={redoStack.length > 0}
+            onRedoBulkAction={handleRedo}
             isDrawer={true}
             isExpanded={isBottomDrawerExpanded}
             onToggleExpand={() => setIsBottomDrawerExpanded(!isBottomDrawerExpanded)}
           />
         </div>
 
-        {/* Right Visual-Crop & Characteristic Inspector Sidebar */}
+        {/* Right Characteristic Tape Inspector */}
         <CharacteristicTape
           characteristics={characteristics}
           activeBalloonId={activeBalloonId}
@@ -495,7 +639,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         }}
         activeCharacteristicTitle={
           activeChar
-            ? `#${activeChar.balloonNumber < 10 ? `0${activeChar.balloonNumber}` : activeChar.balloonNumber} (${activeChar.featureDescription})`
+            ? `#${activeChar.balloonNumber < 10 ? `0${activeChar.balloonNumber}` : activeChar.balloonNumber} (${activeChar.nominal_text || activeChar.featureDescription})`
             : null
         }
         statusCounts={statusCounts}
@@ -504,7 +648,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         onResetZoom={() => setZoom(1.0)}
       />
 
-      {/* 4. Full 14-Column AS9102 Rev C Form 3 / PPAP Spreadsheet View (when viewMode === 'sheet') */}
+      {/* 4. Full Sheet Mode */}
       {viewMode === 'sheet' && (
         <As9102SpreadsheetView
           drawing={currentDrawing}
@@ -512,17 +656,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           onUpdateCharacteristic={handleUpdateCharacteristic}
           onAutoCalculateFits={handleAutoCalculateFits}
           onSortClockwise={handleSortClockwise}
-          onFillSimulatedLot={handleFillSimulatedLot}
-          onExportCSV={handleExportCSV}
-          onExportExcel={handleExportExcel}
+          onFillSimulatedLot={() => {}}
+          onExportCSV={() => handleRequestExport('csv')}
+          onExportExcel={() => handleRequestExport('excel')}
           onCloseSheetView={() => setViewMode('split')}
-          onUndoBulkAction={handleUndoBulkAction}
-          canUndo={undoSnapshot !== null}
+          onUndoBulkAction={handleUndo}
+          canUndo={undoStack.length > 0}
+          canRedo={redoStack.length > 0}
+          onRedoBulkAction={handleRedo}
           isDrawer={false}
         />
       )}
 
-      {/* 5. Live Shop-Floor USB-HID Digital Caliper DRO Overlay (when caliperMode === true) */}
+      {/* 5. Caliper DRO Strip (UI Placeholder) */}
       {caliperMode && (
         <CaliperDroStrip
           activeCharacteristic={activeChar}
@@ -530,6 +676,44 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           onAdvanceToNextBalloon={handleAdvanceToNextBalloon}
           onClose={() => setCaliperMode(false)}
         />
+      )}
+
+      {/* Re-export Warning Modal (Fix 3) */}
+      {showExportWarning && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border-hairline rounded-xl shadow-2xl max-w-md w-full p-5 text-xs font-sans">
+            <h3 className="text-sm font-bold text-text-pri mb-2 flex items-center gap-2">
+              <span className="text-amber-500">⚠</span>
+              <span>Re-Export Sequence Warning</span>
+            </h3>
+            <p className="text-text-sec mb-4 leading-relaxed">
+              An export has already been generated for this drawing session. Proceeding will recalculate display balloon numbers sequentially (1..{characteristics.length}). If prior inspection reports have already been circulated, balloon numbers may not match the previous export.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowExportWarning(false);
+                  setPendingExportType(null);
+                }}
+                className="px-3 py-1.5 rounded-md border border-border-hairline hover:bg-subtle text-text-sec font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowExportWarning(false);
+                  if (pendingExportType) {
+                    executeExport(pendingExportType);
+                    setPendingExportType(null);
+                  }
+                }}
+                className="px-3 py-1.5 rounded-md bg-accent-primary text-white font-semibold hover:bg-accent-primary/90"
+              >
+                Proceed with Re-Export
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

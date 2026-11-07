@@ -1,7 +1,7 @@
 import { Point } from '../types/metrology';
 
 export interface PhysicsBalloon {
-  id: number;
+  id: string | number;
   label: string;
   x: number;
   y: number;
@@ -19,17 +19,38 @@ export class ForceDirectedSimulator {
   repulsionK = 3800;
   damping = 0.82;
   minDist = 32;
+  private settled = false;
+  private iterations = 0;
+  private readonly maxIterations = 60; // Settle within 60 steps
 
   constructor(balloons: PhysicsBalloon[]) {
     this.balloons = balloons;
+    this.settled = false;
+    this.iterations = 0;
   }
 
   setBalloons(balloons: PhysicsBalloon[]) {
     this.balloons = balloons;
+    this.settled = false;
+    this.iterations = 0;
   }
 
-  step(cursorPos?: Point | null) {
+  wake() {
+    this.settled = false;
+    this.iterations = 0;
+  }
+
+  isSettled(): boolean {
+    return this.settled;
+  }
+
+  step(cursorPos?: Point | null): boolean {
+    // Fix 8: Do not run balloon physics continuously if already settled
+    if (this.settled) return false;
+
+    this.iterations++;
     const n = this.balloons.length;
+    let maxVelocity = 0;
 
     for (let i = 0; i < n; i++) {
       const b1 = this.balloons[i];
@@ -79,7 +100,15 @@ export class ForceDirectedSimulator {
 
       b1.x += b1.vx;
       b1.y += b1.vy;
+
+      const v = Math.sqrt(b1.vx * b1.vx + b1.vy * b1.vy);
+      if (v > maxVelocity) maxVelocity = v;
     }
+
+    if (maxVelocity < 0.05 || this.iterations >= this.maxIterations) {
+      this.settled = true;
+    }
+
+    return !this.settled;
   }
 }
-

@@ -5,10 +5,8 @@ import {
   Download,
   FileSpreadsheet,
   RotateCw,
-  Sparkles,
   Search,
   Undo2,
-  AlertTriangle,
   ChevronUp,
   ChevronDown,
   CheckCircle2,
@@ -19,7 +17,7 @@ import {
 interface As9102SpreadsheetViewProps {
   drawing: DrawingSpec;
   characteristics: Characteristic[];
-  onUpdateCharacteristic: (id: number, updates: Partial<Characteristic>) => void;
+  onUpdateCharacteristic: (id: string, updates: Partial<Characteristic>) => void;
   onAutoCalculateFits: () => void;
   onSortClockwise: () => void;
   onFillSimulatedLot: () => void;
@@ -28,6 +26,8 @@ interface As9102SpreadsheetViewProps {
   onCloseSheetView?: () => void;
   onUndoBulkAction?: () => void;
   canUndo?: boolean;
+  canRedo?: boolean;
+  onRedoBulkAction?: () => void;
   isDrawer?: boolean;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
@@ -45,25 +45,26 @@ export const As9102SpreadsheetView: React.FC<As9102SpreadsheetViewProps> = ({
   onCloseSheetView,
   onUndoBulkAction,
   canUndo,
+  canRedo,
+  onRedoBulkAction,
   isDrawer = false,
   isExpanded = false,
   onToggleExpand,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [showLotConfirm, setShowLotConfirm] = useState(false);
 
   const filtered = characteristics.filter(
     (c) =>
       c.rawCallout.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.zone.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.designator.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.instrument.toLowerCase().includes(searchTerm.toLowerCase())
+      c.instrument.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.nominal_text.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const inSpecCount = characteristics.filter((c) => c.status === 'in_spec').length;
   const passRate = characteristics.length > 0 ? (inSpecCount / characteristics.length) * 100 : 100;
 
-  // Header Bar Content (reusable between drawer and full view)
   const headerBar = (
     <div className="h-10 border-b border-border-hairline px-3 bg-surface flex items-center justify-between text-xs font-sans">
       <div className="flex items-center gap-3">
@@ -90,7 +91,6 @@ export const As9102SpreadsheetView: React.FC<As9102SpreadsheetViewProps> = ({
         </div>
       </div>
 
-      {/* Search Input & Actions */}
       <div className="flex items-center gap-2">
         <div className="flex items-center border border-border-hairline rounded-md bg-subtle/50 px-2 py-1 w-44 sm:w-56 text-xs">
           <Search className="w-3.5 h-3.5 text-text-mut mr-1.5 flex-shrink-0" />
@@ -99,215 +99,174 @@ export const As9102SpreadsheetView: React.FC<As9102SpreadsheetViewProps> = ({
             placeholder="Search callout, zone..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="bg-transparent focus:outline-none text-text-pri text-xs w-full"
+            className="w-full bg-transparent border-none outline-none text-text-pri text-xs placeholder:text-text-mut"
           />
         </div>
-
-        <button
-          onClick={() => setShowLotConfirm(true)}
-          className="h-7 px-2.5 rounded-md border border-border-hairline bg-surface hover:bg-subtle text-text-sec text-xs font-medium transition-all hidden sm:flex items-center gap-1.5"
-          title="Populate 3-part production lot samples"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-accent-primary" />
-          <span>Fill Lot</span>
-        </button>
 
         {canUndo && onUndoBulkAction && (
           <button
             onClick={onUndoBulkAction}
-            className="h-7 px-2.5 rounded-md border border-amber-300 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/30 text-status-warn text-xs font-semibold flex items-center gap-1"
-            title="Undo bulk lot action"
+            className="apple-btn-secondary px-2 py-1 text-xs font-medium flex items-center gap-1"
+            title="Undo Last Action (Ctrl+Z)"
           >
             <Undo2 className="w-3.5 h-3.5" />
             <span>Undo</span>
           </button>
         )}
 
+        {canRedo && onRedoBulkAction && (
+          <button
+            onClick={onRedoBulkAction}
+            className="apple-btn-secondary px-2 py-1 text-xs font-medium flex items-center gap-1"
+            title="Redo Action (Ctrl+Shift+Z)"
+          >
+            <span>Redo</span>
+          </button>
+        )}
+
+        <button
+          onClick={onExportExcel}
+          className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm"
+          title="Export AS9102 Form 3 Excel (.xlsx)"
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5" />
+          <span>Excel</span>
+        </button>
+
+        <button
+          onClick={onExportCSV}
+          className="apple-btn-secondary px-2.5 py-1 text-xs font-medium flex items-center gap-1.5"
+          title="Export CSV"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>CSV</span>
+        </button>
+
         {isDrawer && onToggleExpand && (
           <button
             onClick={onToggleExpand}
-            className="h-7 px-2.5 rounded-md border border-border-hairline bg-surface hover:bg-subtle text-text-pri text-xs font-semibold flex items-center gap-1 transition-all"
+            className="apple-btn-secondary p-1 ml-1"
             title={isExpanded ? 'Collapse Bottom Sheet' : 'Expand Bottom Sheet'}
           >
-            {isExpanded ? (
-              <>
-                <ChevronDown className="w-3.5 h-3.5 text-text-mut" />
-                <span>Collapse</span>
-              </>
-            ) : (
-              <>
-                <ChevronUp className="w-3.5 h-3.5 text-accent-primary" />
-                <span>Expand Sheet</span>
-              </>
-            )}
+            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
           </button>
         )}
       </div>
     </div>
   );
 
-  return (
-    <div
-      className={`${
-        isDrawer
-          ? `w-full border-t border-border-hairline bg-surface flex flex-col z-20 transition-all duration-300 ${
-              isExpanded ? 'h-80 shadow-apple-lg' : 'h-10'
-            }`
-          : 'fixed inset-0 top-[36px] bg-surface flex flex-col z-40 select-none font-mono text-xs overflow-hidden'
-      }`}
-    >
-      {headerBar}
+  const tableContent = (
+    <div className="flex-1 overflow-auto bg-surface">
+      <table className="w-full border-collapse text-left text-xs font-mono select-text">
+        <thead className="bg-subtle/80 sticky top-0 border-b border-border-hairline z-10 text-text-mut text-[11px] font-sans">
+          <tr>
+            <th className="p-2 font-semibold w-12 text-center">Char #</th>
+            <th className="p-2 font-semibold w-16">Zone</th>
+            <th className="p-2 font-semibold w-20">Type</th>
+            <th className="p-2 font-semibold min-w-[180px]">Requirement / Specification</th>
+            <th className="p-2 font-semibold w-24">Nominal (Truth)</th>
+            <th className="p-2 font-semibold w-20">+Tol</th>
+            <th className="p-2 font-semibold w-20">-Tol</th>
+            <th className="p-2 font-semibold w-24">Lower Limit</th>
+            <th className="p-2 font-semibold w-24">Upper Limit</th>
+            <th className="p-2 font-semibold w-14">Units</th>
+            <th className="p-2 font-semibold min-w-[160px]">Tooling / Gauge</th>
+            <th className="p-2 font-semibold w-24">Measured</th>
+            <th className="p-2 font-semibold w-20">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border-hairline">
+          {filtered.map((char) => {
+            const isPass = char.status === 'in_spec';
+            const isFail = char.status === 'out_of_spec';
 
-      {/* Lot Confirmation Modal */}
-      {showLotConfirm && (
-        <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-status-warn/30 px-3 py-2 flex items-center justify-between text-xs font-sans z-30">
-          <div className="flex items-center gap-2 text-status-warn font-medium">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            <span>
-              Populate 3-part production lot samples across all {characteristics.length} characteristics?
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                onFillSimulatedLot();
-                setShowLotConfirm(false);
-              }}
-              className="apple-btn-primary px-3 py-1 text-xs"
-            >
-              Confirm
-            </button>
-            <button
-              onClick={() => setShowLotConfirm(false)}
-              className="apple-btn-secondary px-3 py-1 text-xs"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 14-Column Table */}
-      {(!isDrawer || isExpanded) && (
-        <div className="flex-1 overflow-auto bg-surface font-mono">
-          <table className="w-full text-left border-collapse min-w-[1300px] text-xs">
-            <thead className="sticky top-0 bg-subtle border-b border-border-hairline z-10 text-[11px] text-text-sec font-semibold">
-              <tr>
-                <th className="p-2 border-r border-border-hairline text-center w-12">1. CHAR</th>
-                <th className="p-2 border-r border-border-hairline text-center w-16">2. ZONE</th>
-                <th className="p-2 border-r border-border-hairline w-20">3. CLASS</th>
-                <th className="p-2 border-r border-border-hairline min-w-[180px]">4. REQUIREMENT / GD&T</th>
-                <th className="p-2 border-r border-border-hairline text-right w-20">5. NOM</th>
-                <th className="p-2 border-r border-border-hairline w-20">6. TYPE</th>
-                <th className="p-2 border-r border-border-hairline text-right w-16">7. +TOL</th>
-                <th className="p-2 border-r border-border-hairline text-right w-16">8. -TOL</th>
-                <th className="p-2 border-r border-border-hairline text-right w-20 text-status-pass font-bold">9. LSL</th>
-                <th className="p-2 border-r border-border-hairline text-right w-20 text-accent-primary font-bold">10. USL</th>
-                <th className="p-2 border-r border-border-hairline text-center w-12">11. UNIT</th>
-                <th className="p-2 border-r border-border-hairline min-w-[160px]">12. GAUGE</th>
-                <th className="p-2 border-r border-border-hairline text-right w-24">13. MEASURED</th>
-                <th className="p-2 border-r border-border-hairline text-center w-28">LOT (M1,M2,M3)</th>
-                <th className="p-2 text-center w-28">14. STATUS / CPK</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border-hairline text-xs">
-              {filtered.map((char) => {
-                const spc = calculateSPC(char.lsl, char.usl, char.lotMeasurements);
-                const isPass = char.status === 'in_spec';
-                const isFail = char.status === 'out_of_spec';
-
-                return (
-                  <tr
-                    key={char.id}
-                    className="hover:bg-subtle/50 transition-colors"
+            return (
+              <tr
+                key={char.id}
+                className="hover:bg-subtle/40 transition-colors cursor-pointer group"
+              >
+                <td className="p-2 text-center font-bold text-accent-primary">
+                  {char.balloonNumber}
+                </td>
+                <td className="p-2 text-text-sec">{char.zone}</td>
+                <td className="p-2">
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                      char.designator === 'Critical'
+                        ? 'bg-red-50 dark:bg-red-950/40 text-status-fail'
+                        : char.designator === 'Major'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 text-accent-primary'
+                        : 'bg-subtle text-text-sec'
+                    }`}
                   >
-                    <td className="p-2 border-r border-border-hairline text-center font-bold">
-                      {char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-center text-text-sec">
-                      {char.zone}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline">
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                          char.designator === 'Critical'
-                            ? 'bg-red-50 dark:bg-red-950/40 text-status-fail'
-                            : char.designator === 'Major'
-                            ? 'bg-blue-50 dark:bg-blue-950/40 text-accent-primary'
-                            : 'text-text-sec'
-                        }`}
-                      >
-                        {char.designator}
-                      </span>
-                    </td>
-                    <td className="p-2 border-r border-border-hairline font-bold text-text-pri">
-                      {char.rawCallout}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-right font-semibold">
-                      {fmt3(char.nominal)}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-text-sec text-[11px]">
-                      {char.toleranceType}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-right text-text-mut">
-                      +{fmt3(char.plusTolerance)}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-right text-text-mut">
-                      -{fmt3(char.minusTolerance)}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-right font-bold text-status-pass">
-                      {fmt3(char.lsl)}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-right font-bold text-accent-primary">
-                      {fmt3(char.usl)}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-center text-text-mut">
-                      {char.units}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-text-sec truncate max-w-[160px]" title={char.instrument}>
-                      {char.instrument}
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-right">
-                      <input
-                        type="number"
-                        step="0.001"
-                        value={char.measuredValue !== undefined ? char.measuredValue : ''}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          if (!isNaN(val)) {
-                            const newStatus = val >= char.lsl && val <= char.usl ? 'in_spec' : 'out_of_spec';
-                            onUpdateCharacteristic(char.id, { measuredValue: val, status: newStatus });
-                          }
-                        }}
-                        className="w-20 px-1 py-0.5 rounded border border-border-strong bg-surface text-right font-semibold text-xs focus:outline-none focus:ring-1 focus:ring-accent-primary"
-                      />
-                    </td>
-                    <td className="p-2 border-r border-border-hairline text-center text-[10px] text-text-mut">
-                      {char.lotMeasurements && char.lotMeasurements.length > 0
-                        ? char.lotMeasurements.map((m) => fmt3(m)).join(', ')
-                        : '—'}
-                    </td>
-                    <td className="p-2 text-center">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                          isPass
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-status-pass'
-                            : isFail
-                            ? 'bg-red-50 dark:bg-red-950/40 text-status-fail'
-                            : 'bg-amber-50 dark:bg-amber-950/40 text-status-warn'
-                        }`}
-                      >
-                        {isPass ? 'PASS' : isFail ? 'FAIL' : 'REV'}
-                        <span className="text-[10px] font-mono text-text-mut">({fmtSpc(spc.cpk)})</span>
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    {char.designator}
+                  </span>
+                </td>
+                <td className="p-2 font-semibold text-text-pri truncate max-w-[220px]" title={char.rawCallout}>
+                  {char.rawCallout}
+                </td>
+                <td className="p-2 text-text-pri font-semibold truncate max-w-[120px]" title={char.nominal_text}>
+                  {char.nominal_text || fmt3(char.nominal_value ?? char.nominal)}
+                </td>
+                <td className="p-2 text-text-mut">+{fmt3(char.plusTolerance)}</td>
+                <td className="p-2 text-text-mut">-{fmt3(char.minusTolerance)}</td>
+                <td className="p-2 text-text-sec">{fmt3(char.lower_limit ?? char.lsl)}</td>
+                <td className="p-2 text-text-sec">{fmt3(char.upper_limit ?? char.usl)}</td>
+                <td className="p-2 text-text-mut">{char.units}</td>
+                <td className="p-2 text-text-sec truncate max-w-[180px]" title={char.instrument}>
+                  {char.instrument}
+                </td>
+                <td className="p-2 font-semibold">
+                  {char.isDemo ? (
+                    <span className="text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                      DEMO ONLY
+                    </span>
+                  ) : char.measuredValue !== undefined && char.measuredValue !== null ? (
+                    <span className={isPass ? 'text-status-pass' : 'text-status-fail'}>
+                      {fmt3(char.measuredValue)}
+                    </span>
+                  ) : (
+                    <span className="text-text-mut italic">NEEDS_REVIEW</span>
+                  )}
+                </td>
+                <td className="p-2">
+                  <span
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                      isPass
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-status-pass'
+                        : isFail
+                        ? 'bg-red-50 dark:bg-red-950/40 text-status-fail'
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-status-warn'
+                    }`}
+                  >
+                    {isPass ? 'PASS' : isFail ? 'FAIL' : 'REVIEW'}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  if (isDrawer) {
+    return (
+      <div
+        className={`w-full bg-surface border-t border-border-hairline shadow-lg transition-all duration-300 z-20 flex flex-col ${
+          isExpanded ? 'h-72' : 'h-10'
+        }`}
+      >
+        {headerBar}
+        {isExpanded && tableContent}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 top-9 bg-surface z-40 flex flex-col">
+      {headerBar}
+      {tableContent}
     </div>
   );
 };

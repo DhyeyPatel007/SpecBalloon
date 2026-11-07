@@ -17,29 +17,49 @@ export interface Point {
 }
 
 export interface Characteristic {
-  id: number;
+  /** Stable UUID identifier for traceability across edits, moves, and exports */
+  id: string;
+  /** Display-only sequence number, recomputed explicitly before fresh exports */
   balloonNumber: number;
-  zone: string; // e.g., 'B4', 'C2'
+  /** Drawing zone (e.g. 'B4', 'C2') */
+  zone: string;
   designator: CharacteristicDesignator;
-  rawCallout: string; // e.g. 'Ø30.00 H7' or '|⌖|Ø0.05(M)|A|B|'
-  featureDescription: string; // e.g. 'Bore Diameter', 'True Position', 'Surface Finish'
-  nominal: number;
+  rawCallout: string; // e.g. 'Ø30.00 H7', 'M6x1.0 - 6H', or '50.00 / 49.95'
+  featureDescription: string;
+  /** Source of truth for alphanumeric nominal dimensions (threads, fits, limits) */
+  nominal_text: string;
+  /** Numeric nominal value or null for non-numeric callouts */
+  nominal_value: number | null;
+  /** Legacy alias for backward compatibility */
+  nominal?: number;
   toleranceType: 'Bilateral' | 'Unilateral' | 'Limit' | 'Basic' | 'GD&T' | 'Surface';
   plusTolerance: number;
-  minusTolerance: number; // positive number representing lower offset (nominal - minusTol = LSL)
+  minusTolerance: number;
+  /** Calculated upper limit in code, nullable */
+  upper_limit: number | null;
+  /** Calculated lower limit in code, nullable */
+  lower_limit: number | null;
   lsl: number;
   usl: number;
   units: 'mm' | 'in' | 'deg' | 'µm';
-  instrument: string; // e.g. 'Air Plug Gauge', 'Mitutoyo Digital Caliper', 'CMM Probe'
-  measuredValue?: number;
+  instrument: string;
+  measuredValue?: number | null;
   lotMeasurements: number[];
   status: InspectionStatus;
   confidence: number; // 0 to 100 percentage
-  bbox: BoundingBox; // coordinates on drawing canvas
-  balloonPosition: Point; // current position of balloon circle
-  cropDataUrl?: string; // high-contrast crop of CAD canvas
-  isGeneralTol?: boolean; // governed by general tolerance standard
-  mmcBonus?: string; // MMC bonus tolerance range e.g. '+0.000 TO +0.021mm'
+  /** Bounding box in PDF points */
+  bbox: BoundingBox;
+  /** Balloon center position in PDF points */
+  balloonPosition: Point;
+  cropDataUrl?: string;
+  isGeneralTol?: boolean;
+  mmcBonus?: string;
+  /** PDF Page index (1-based, max 5 pages) */
+  pageNumber?: number;
+  /** Explicit human review marker */
+  reviewed?: boolean;
+  /** Marker indicating synthetic/demo measurement data */
+  isDemo?: boolean;
 }
 
 export interface DrawingSpec {
@@ -51,9 +71,13 @@ export interface DrawingSpec {
   drawingWidth: number;
   drawingHeight: number;
   scale: string;
-  sheetZoneRows: string[]; // ['A', 'B', 'C', 'D']
-  sheetZoneCols: string[]; // ['1', '2', '3', '4', '5', '6', '7', '8']
+  sheetZoneRows: string[];
+  sheetZoneCols: string[];
   characteristics: Characteristic[];
+  pageCount?: number;
+  pdfUrl?: string;
+  pdfBuffer?: ArrayBuffer;
+  isDemo?: boolean;
 }
 
 export interface TelemetryMetrics {
@@ -64,4 +88,5 @@ export interface TelemetryMetrics {
   cp: number;
   cpk: number;
   passPercentage: number;
+  renderTimeMs?: number;
 }
