@@ -3,19 +3,33 @@
 @tailwind utilities;
 
 :root {
-  /* Light Theme (Studio Paper — Museum-Grade Swiss Minimalism) */
+  /* Default Studio Paper */
   --bg-app: #FAFAFA;
   --bg-page: #FAFAFA;
   --bg-surface: #FFFFFF;
+  --bg-panel: #F8FAFC;
   --bg-subtle: #F4F4F5;
   --bg-selected: #F0F9FF;
+  --border: #E4E4E7;
   --border-hairline: #E4E4E7;
   --border-strong: #D4D4D8;
+  --text-main: #09090B;
   --text-primary: #09090B;
   --text-secondary: #52525B;
   --text-muted: #71717A;
+  --accent: #0284C7;
   --accent-primary: #0284C7;
   --accent-balloon: #09090B;
+  --status-bar: #0F172A;
+
+  /* Semantic Metrology Syntax Tokens */
+  --syntax-nominal: #0284C7;
+  --syntax-tolerance: #0D9488;
+  --syntax-gdt: #7C3AED;
+  --syntax-fit: #D97706;
+  --syntax-pass: #059669;
+  --syntax-warn: #D97706;
+  --syntax-fail: #DC2626;
 
   /* Strict 10% Metrology Truth Signals */
   --status-pass-bg: rgba(5, 150, 105, 0.12);
@@ -42,6 +56,162 @@
   --border-focus: var(--accent-primary);
   --accent-orange: #EA580C;
   --accent-cobalt: var(--accent-primary);
+}
+
+/* 1. Theme: Light Studio */
+[data-ide-theme="light-studio"] {
+  --bg-app: #F1F5F9;
+  --bg-page: #F1F5F9;
+  --bg-surface: #FFFFFF;
+  --bg-panel: #F8FAFC;
+  --bg-subtle: #F1F5F9;
+  --bg-selected: #EFF6FF;
+  --border: #E2E8F0;
+  --border-hairline: #E2E8F0;
+  --border-strong: #CBD5E1;
+  --text-main: #0F172A;
+  --text-primary: #0F172A;
+  --text-muted: #64748B;
+  --text-secondary: #475569;
+  --accent: #2563EB;
+  --accent-primary: #2563EB;
+  --accent-balloon: #0F172A;
+  --status-bar: #0F172A;
+
+  --syntax-nominal: #0284C7;
+  --syntax-tolerance: #0D9488;
+  --syntax-gdt: #7C3AED;
+  --syntax-fit: #D97706;
+  --syntax-pass: #10B981;
+  --syntax-warn: #F59E0B;
+  --syntax-fail: #EF4444;
+
+  --status-pass-bg: rgba(16, 185, 129, 0.12);
+  --status-pass-text: #059669;
+  --status-pass-border: #059669;
+  --status-warn-bg: rgba(245, 158, 11, 0.12);
+  --status-warn-text: #D97706;
+  --status-warn-border: #D97706;
+  --status-fail-bg: rgba(239, 68, 68, 0.12);
+  --status-fail-text: #DC2626;
+  --status-fail-border: #DC2626;
+}
+
+/* 2. Theme: Dark Carbon */
+[data-ide-theme="dark-carbon"] {
+  --bg-app: #090D16;
+  --bg-page: #090D16;
+  --bg-surface: #111827;
+  --bg-panel: #1E293B;
+  --bg-subtle: #162032;
+  --bg-selected: #0E2847;
+  --border: #1F2937;
+  --border-hairline: #1F2937;
+  --border-strong: #374151;
+  --text-main: #F8FAFC;
+  --text-primary: #F8FAFC;
+  --text-muted: #94A3B8;
+  --text-secondary: #CBD5E1;
+  --accent: #38BDF8;
+  --accent-primary: #38BDF8;
+  --accent-balloon: #F8FAFC;
+  --status-bar: #0284C7;
+
+  --syntax-nominal: #569CD6;
+  --syntax-tolerance: #4EC9B0;
+  --syntax-gdt: #C586C0;
+  --syntax-fit: #CE9178;
+  --syntax-pass: #10B981;
+  --syntax-warn: #F59E0B;
+  --syntax-fail: #EF4444;
+
+  --status-pass-bg: rgba(16, 185, 129, 0.18);
+  --status-pass-text: #10B981;
+  --status-pass-border: #10B981;
+  --status-warn-bg: rgba(245, 158, 11, 0.18);
+  --status-warn-text: #F59E0B;
+  --status-warn-border: #F59E0B;
+  --status-fail-bg: rgba(239, 68, 68, 0.18);
+  --status-fail-text: #EF4444;
+  --status-fail-border: #EF4444;
+}
+
+/* 3. Theme: VS Code Dark+ */
+[data-ide-theme="vscode-dark"] {
+  --bg-app: #1E1E1E;
+  --bg-page: #1E1E1E;
+  --bg-surface: #252526;
+  --bg-panel: #2D2D30;
+  --bg-subtle: #2D2D30;
+  --bg-selected: #094771;
+  --border: #3E3E42;
+  --border-hairline: #3E3E42;
+  --border-strong: #4F4F54;
+  --text-main: #D4D4D4;
+  --text-primary: #D4D4D4;
+  --text-muted: #858585;
+  --text-secondary: #A6A6A6;
+  --accent: #007ACC;
+  --accent-primary: #007ACC;
+  --accent-balloon: #FFFFFF;
+  --status-bar: #007ACC;
+
+  --syntax-nominal: #569CD6;
+  --syntax-tolerance: #4EC9B0;
+  --syntax-gdt: #C586C0;
+  --syntax-fit: #CE9178;
+  --syntax-pass: #10B981;
+  --syntax-warn: #F59E0B;
+  --syntax-fail: #EF4444;
+
+  --status-pass-bg: rgba(16, 185, 129, 0.18);
+  --status-pass-text: #4EC9B0;
+  --status-pass-border: #4EC9B0;
+  --status-warn-bg: rgba(245, 158, 11, 0.18);
+  --status-warn-text: #CCA700;
+  --status-warn-border: #CCA700;
+  --status-fail-bg: rgba(239, 68, 68, 0.18);
+  --status-fail-text: #F14C4C;
+  --status-fail-border: #F14C4C;
+}
+
+/* 4. Theme: PyCharm Darcula (JetBrains New UI) */
+[data-ide-theme="darcula"] {
+  --bg-app: #1E1F22;
+  --bg-page: #1E1F22;
+  --bg-surface: #2B2D30;
+  --bg-panel: #393B40;
+  --bg-subtle: #393B40;
+  --bg-selected: #2E436E;
+  --border: #43454A;
+  --border-hairline: #43454A;
+  --border-strong: #5A5D63;
+  --text-main: #BCBEC4;
+  --text-primary: #BCBEC4;
+  --text-muted: #7A7E85;
+  --text-secondary: #9DA0A8;
+  --accent: #3574F0;
+  --accent-primary: #3574F0;
+  --accent-balloon: #DFE1E5;
+  --status-bar: #2B2D30;
+
+  --syntax-nominal: #569CD6;
+  --syntax-tolerance: #4EC9B0;
+  --syntax-gdt: #C586C0;
+  --syntax-fit: #CE9178;
+  --syntax-pass: #10B981;
+  --syntax-warn: #F59E0B;
+  --syntax-fail: #EF4444;
+
+  --status-pass-bg: rgba(16, 185, 129, 0.18);
+  --status-pass-text: #59A869;
+  --status-pass-border: #59A869;
+  --status-warn-bg: rgba(245, 158, 11, 0.18);
+  --status-warn-text: #EDA200;
+  --status-warn-border: #EDA200;
+  --status-fail-bg: rgba(239, 68, 68, 0.18);
+  --status-fail-text: #DB5860;
+  --status-fail-border: #DB5860;
 }
 
 .dark {
@@ -242,4 +412,27 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* Metrology Semantic Syntax Highlighting */
+.syntax-nominal {
+  color: var(--syntax-nominal);
+}
+.syntax-tolerance {
+  color: var(--syntax-tolerance);
+}
+.syntax-gdt {
+  color: var(--syntax-gdt);
+}
+.syntax-fit {
+  color: var(--syntax-fit);
+}
+.syntax-pass {
+  color: var(--syntax-pass);
+}
+.syntax-warn {
+  color: var(--syntax-warn);
+}
+.syntax-fail {
+  color: var(--syntax-fail);
 }

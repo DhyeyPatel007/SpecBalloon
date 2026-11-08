@@ -67,7 +67,7 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
 
   if (!characteristic) {
     return (
-      <div className="w-[360px] border-l border-border-hairline bg-surface flex flex-col items-center justify-center p-6 text-center text-text-muted text-xs select-none">
+      <div className="w-[340px] border-l border-border-hairline bg-surface flex flex-col items-center justify-center p-6 text-center text-text-muted text-xs select-none">
         <Sliders className="w-8 h-8 text-border-strong mb-2" />
         <p className="font-semibold text-text-secondary">No Characteristic Selected</p>
         <p className="text-[11px] mt-1">Select a callout on the CAD drawing or spreadsheet to inspect.</p>
@@ -250,70 +250,83 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
   const spcData: MovingRangeSPCResult = calculateMovingRangeSPC(lslVal, uslVal, lotSamples);
 
   return (
-    <div className="w-[360px] border-l border-border-hairline bg-surface flex flex-col select-none text-xs font-sans h-full z-20 flex-shrink-0 shadow-sm">
-      {/* 1. Top Action Bar: [🟢 Approve & Next (Enter)] */}
-      <div className="p-2 border-b border-border-hairline bg-subtle/50 flex items-center justify-between gap-2">
+    <div className="w-[340px] border-l border-[var(--border-hairline)] bg-[var(--bg-surface)] flex flex-col select-none text-xs font-sans h-full z-20 flex-shrink-0 shadow-sm">
+      {/* 1. Progression Header: Inspecting #01 of 17 + [🟢 Approve & Jump to Next (Enter)] */}
+      <div className="p-2.5 border-b border-[var(--border-hairline)] bg-[var(--bg-panel)] flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-[var(--text-secondary)]">
+              Inspecting
+            </span>
+            <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-[var(--bg-selected)] text-[var(--accent)] border border-[var(--accent)]/30">
+              #{characteristic.balloonNumber < 10 ? `0${characteristic.balloonNumber}` : characteristic.balloonNumber}
+            </span>
+            <span className="text-[11px] text-[var(--text-muted)] font-mono">
+              of {totalCount < 10 ? `0${totalCount}` : totalCount}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handlePrev}
+              className="p-1 rounded-md border border-[var(--border-hairline)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+              title="Previous Characteristic (Shift+Tab / ↑)"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleNext}
+              className="p-1 rounded-md border border-[var(--border-hairline)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+              title="Next Characteristic (Tab / ↓)"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Primary Approve Button */}
         <button
           onClick={handleApproveAndNext}
-          className="flex-1 h-8 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+          className="w-full h-8 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
           title="Mark Characteristic Approved and Advance to Next (Enter)"
         >
           <CheckCircle2 className="w-3.5 h-3.5" />
-          <span>Approve & Next (Enter)</span>
+          <span>Approve & Jump to Next</span>
+          <kbd className="px-1.5 py-0.2 rounded bg-black/20 text-[9.5px] font-mono">Enter ↵</kbd>
         </button>
-
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handlePrev}
-            className="w-8 h-8 rounded-md border border-border-hairline hover:bg-subtle flex items-center justify-center text-text-secondary hover:text-text-primary"
-            title="Previous Characteristic [Shift+Tab]"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleNext}
-            className="w-8 h-8 rounded-md border border-border-hairline hover:bg-subtle flex items-center justify-center text-text-secondary hover:text-text-primary"
-            title="Next Characteristic [Tab]"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
       </div>
 
       {/* 2. Sub-Tabs Header */}
-      <div className="h-9 px-3 border-b border-border-hairline flex items-center justify-between bg-surface">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-accent-primary text-xs px-1.5 py-0.5 rounded bg-selected border border-accent-primary/20">
-            #{characteristic.balloonNumber < 10 ? `0${characteristic.balloonNumber}` : characteristic.balloonNumber}
-          </span>
-          <span className="text-[11px] font-semibold text-text-primary truncate max-w-[130px]">
+      <div className="h-9 px-3 border-b border-[var(--border-hairline)] flex items-center justify-between bg-[var(--bg-surface)]">
+        <div className="flex items-center gap-1.5 truncate max-w-[170px]">
+          <span className="text-[11px] font-semibold text-[var(--text-primary)] truncate">
             {characteristic.featureDescription || 'Linear Dim'}
           </span>
-          <span className="text-[10px] font-mono text-text-muted">
-            ({currentIndex + 1}/{totalCount})
+          <span className="text-[10px] font-mono text-[var(--text-muted)] shrink-0">
+            [{characteristic.zone}]
           </span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-hairline)] text-[11px]">
           <button
             onClick={() => setActiveTab('ocr_edit')}
-            className={`px-2 py-1 rounded text-[11px] font-semibold transition-all ${
+            className={`px-2 py-0.5 rounded font-semibold transition-all cursor-pointer ${
               activeTab === 'ocr_edit'
-                ? 'bg-accent-primary text-white'
-                : 'text-text-secondary hover:bg-subtle'
+                ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-2xs'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
             OCR & Edit
           </button>
           <button
             onClick={() => setActiveTab('spc_chart')}
-            className={`px-2 py-1 rounded text-[11px] font-semibold transition-all ${
+            className={`px-2 py-0.5 rounded font-semibold transition-all cursor-pointer ${
               activeTab === 'spc_chart'
-                ? 'bg-accent-primary text-white'
-                : 'text-text-secondary hover:bg-subtle'
+                ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-2xs'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
-            SPC Chart
+            SPC Moving Range
           </button>
         </div>
       </div>
@@ -322,7 +335,7 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
       <div className="flex-1 overflow-y-auto p-3 space-y-3.5">
         {activeTab === 'ocr_edit' ? (
           <>
-            {/* Giant High-Res Zoomed Callout Preview (100% width × 110px height) */}
+            {/* High-Res 300 DPI Callout Preview */}
             <div className="w-full">
               <div className="flex items-center justify-between text-[11px] font-semibold text-text-secondary mb-1">
                 <span>Visual Callout Crop (300 DPI)</span>
@@ -524,21 +537,21 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
             {/* Limits & Tolerances Grid */}
             <div className="grid grid-cols-2 gap-2 text-[11px]">
               <div>
-                <label className="text-text-muted block mb-0.5 font-medium">Nominal Value</label>
+                <label className="text-[var(--text-muted)] block mb-0.5 font-medium">Nominal Value</label>
                 <input
                   type="text"
                   value={characteristic.nominal_text || fmt3(characteristic.nominal_value ?? characteristic.nominal)}
                   onChange={(e) => handleFieldChange('nominal_text', e.target.value)}
-                  className="w-full h-7 px-2 rounded border border-border-hairline bg-surface font-mono font-semibold text-text-primary"
+                  className="w-full h-7 px-2 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] font-mono font-bold syntax-nominal focus:outline-none focus:border-[var(--accent)]"
                 />
               </div>
 
               <div>
-                <label className="text-text-muted block mb-0.5 font-medium">Designator</label>
+                <label className="text-[var(--text-muted)] block mb-0.5 font-medium">Designator</label>
                 <select
                   value={characteristic.designator}
                   onChange={(e) => handleFieldChange('designator', e.target.value as 'Critical' | 'Major' | 'Minor')}
-                  className="w-full h-7 px-2 rounded border border-border-hairline bg-surface font-semibold text-text-primary text-[11px]"
+                  className="w-full h-7 px-2 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] font-semibold text-[var(--text-primary)] text-[11px]"
                 >
                   <option value="Critical">Critical (AS9102 Key)</option>
                   <option value="Major">Major</option>
@@ -547,15 +560,15 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
               </div>
 
               <div>
-                <label className="text-text-muted block mb-0.5 font-medium">Lower Limit (LSL)</label>
-                <div className="h-7 px-2 rounded border border-border-hairline bg-subtle flex items-center font-mono font-bold text-text-secondary">
+                <label className="text-[var(--text-muted)] block mb-0.5 font-medium">Lower Limit (LSL)</label>
+                <div className="h-7 px-2 rounded border border-[var(--border-hairline)] bg-[var(--bg-subtle)] flex items-center font-mono font-bold syntax-tolerance">
                   {fmt3(lslVal)} {characteristic.units}
                 </div>
               </div>
 
               <div>
-                <label className="text-text-muted block mb-0.5 font-medium">Upper Limit (USL)</label>
-                <div className="h-7 px-2 rounded border border-border-hairline bg-subtle flex items-center font-mono font-bold text-text-secondary">
+                <label className="text-[var(--text-muted)] block mb-0.5 font-medium">Upper Limit (USL)</label>
+                <div className="h-7 px-2 rounded border border-[var(--border-hairline)] bg-[var(--bg-subtle)] flex items-center font-mono font-bold syntax-tolerance">
                   {fmt3(uslVal)} {characteristic.units}
                 </div>
               </div>

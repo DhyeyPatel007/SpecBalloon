@@ -1,33 +1,31 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
   ArrowLeft,
-  Sun,
-  Moon,
-  FolderOpen,
-  Move,
-  Crop,
-  Maximize2,
-  Sparkles,
-  RotateCw,
-  RefreshCw,
-  Calculator,
-  Grid,
-  CheckCircle2,
   ChevronDown,
-  GitCompare,
-  Play,
-  Cpu,
+  Sparkles,
+  SlidersHorizontal,
+  Eye,
+  HelpCircle,
+  CheckCircle2,
+  Download,
+  Palette,
   FileSpreadsheet,
   FileText,
-  BookOpen,
-  Download,
-  Columns,
-  Radio,
-  SlidersHorizontal,
-  FileCode2,
-  History
+  Cpu,
+  Upload,
+  Check,
+  RotateCw,
+  GitCompare,
+  Zap,
+  FolderOpen,
+  Layers,
+  TableProperties
 } from 'lucide-react';
-import { DrawingSpec, GeneralToleranceStandard, InspectionStatus } from '../../types/metrology';
+import { DrawingSpec, GeneralToleranceStandard, InspectionStatus, Characteristic } from '../../types/metrology';
+import { SpecBalloonLogo } from '../brand/SpecBalloonLogo';
+import { SmartTooltip } from './SmartTooltip';
+
+export type IdeThemeId = 'light-studio' | 'dark-carbon' | 'vscode-dark' | 'darcula';
 
 export interface WorkspaceHeaderProps {
   currentDrawing: DrawingSpec;
@@ -42,8 +40,8 @@ export interface WorkspaceHeaderProps {
   onToggleViewMode: () => void;
   caliperMode: boolean;
   onToggleCaliperMode: () => void;
-  darkMode: boolean;
-  onToggleTheme: () => void;
+  ideTheme: IdeThemeId;
+  onChangeIdeTheme: (theme: IdeThemeId) => void;
   onExportCSV: () => void;
   onExportExcel: () => void;
   onExportBalloonedPdf: () => void;
@@ -74,7 +72,12 @@ export interface WorkspaceHeaderProps {
   onToggleRevisionDiff?: () => void;
   onOpenCmmImport?: () => void;
   onStartTour?: () => void;
-  onSimulateCaliperBurst?: () => void;
+  onOpenHelpModal?: (tab?: 'quickstart' | 'dictionary' | 'shortcuts' | 'faq') => void;
+  rulerUnit?: 'mm' | 'in' | 'pt';
+  onCycleRulerUnit?: () => void;
+  onToggleTree?: () => void;
+  firstFlaggedChar?: Characteristic | null;
+  onJumpToFlagged?: (char: Characteristic) => void;
   onOpenAuditLog?: () => void;
 }
 
@@ -89,8 +92,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onToggleViewMode,
   caliperMode,
   onToggleCaliperMode,
-  darkMode,
-  onToggleTheme,
+  ideTheme,
+  onChangeIdeTheme,
   onExportCSV,
   onExportExcel,
   onExportBalloonedPdf,
@@ -101,280 +104,482 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onSetToolMode,
   onFitSheet,
   onToggleInvert,
-  inverted = false,
+  inverted,
   onReSortClockwise,
   onAutoBalloonDetect,
   onAutoCalcFits,
-  onApproveAll,
-  isExtracting = false,
-  showGrid = true,
-  onToggleGrid,
+  isExtracting,
   onOpenGeminiModal,
-  isRevisionDiffMode = false,
+  isRevisionDiffMode,
   onToggleRevisionDiff,
   onOpenCmmImport,
   onStartTour,
-  onSimulateCaliperBurst,
-  onOpenAuditLog
+  onOpenHelpModal,
+  rulerUnit = 'mm',
+  onCycleRulerUnit,
+  onToggleTree,
+  firstFlaggedChar,
+  onJumpToFlagged,
+  onOpenAuditLog,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const exportDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Active dropdown open states
+  const [openDropdown, setOpenDropdown] = useState<
+    'part' | 'ai' | 'metrology' | 'view' | 'help' | 'theme' | 'export' | null
+  >(null);
+
+  // Close menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target as Node)) {
-        setExportMenuOpen(false);
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-dropdown]')) {
+        setOpenDropdown(null);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('mousedown', handleClickOutside);
+    return () => window.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      alert('Only vector PDF files are accepted.');
-      e.target.value = '';
-      return;
+    if (e.target.files && e.target.files[0]) {
+      onUploadPdf(e.target.files[0]);
     }
-
-    if (file.size > 10 * 1024 * 1024) {
-      alert('PDF file size exceeds 10 MB limit.');
-      e.target.value = '';
-      return;
-    }
-
-    onUploadPdf(file);
-    e.target.value = '';
+    setOpenDropdown(null);
   };
+
+  const themeLabels: Record<IdeThemeId, string> = {
+    'light-studio': 'Light Studio',
+    'dark-carbon': 'Dark Carbon',
+    'vscode-dark': 'VS Code Dark+',
+    'darcula': 'PyCharm Darcula',
+  };
+
+  const flaggedCount = statusCounts.needsReview + statusCounts.outOfSpec;
+  const isAllVerified = flaggedCount === 0 && statusCounts.total > 0;
 
   return (
-    <header className="w-full bg-[var(--bg-surface)] border-b border-[var(--border-hairline)] select-none z-30 flex flex-col flex-shrink-0">
-      {/* Hidden PDF File Input */}
+    <header className="h-12 w-full flex-shrink-0 bg-[var(--bg-surface)] border-b border-[var(--border-hairline)] px-3 flex items-center justify-between text-xs font-sans select-none z-30 transition-colors duration-150">
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept=".pdf,.png,.jpg,.jpeg,.tiff"
         onChange={handleFileChange}
         className="hidden"
       />
 
       {/* =========================================================================
-          ROW 1: Primary App Header (40px / h-10) - Pure Swiss Minimalism
-          ========================================================================= */}
-      <div className="h-10 w-full px-3 bg-[var(--bg-subtle)] border-b border-[var(--border-hairline)] flex items-center justify-between text-xs font-sans">
-        {/* Left Section */}
-        <div className="flex items-center gap-2.5">
-          {/* Exit to Overview */}
+          ZONE A (LEFT): App Identity, Part Selector & 4 Categorized Dropdowns
+      ========================================================================= */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        {/* Exit Button */}
+        <SmartTooltip
+          title="Exit to Landing"
+          shortcut="Esc"
+          whatItDoes="Leaves the 4-Pane Metrology IDE and returns to the SpecBalloon product homepage."
+          aiAction="All current characteristic tags and CMM programs are cached in browser state."
+        >
           <button
             onClick={onExitToLanding}
-            className="flex items-center gap-1.5 px-2 py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors text-xs font-medium"
-            title="Return to Overview"
+            className="p-1.5 rounded-md hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            title="Exit to Overview"
           >
-            <ArrowLeft className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Overview</span>
+            <ArrowLeft className="w-4 h-4 stroke-[1.5]" />
           </button>
+        </SmartTooltip>
 
-          <div className="h-3.5 w-px bg-[var(--border-hairline)]" />
-
-          {/* Part Selector */}
-          <div className="flex items-center gap-1.5">
-            <select
-              value={currentDrawing.id}
-              onChange={(e) => {
-                if (e.target.value === 'upload') {
-                  handleUploadClick();
-                } else {
-                  onSelectDrawing(e.target.value);
-                }
-              }}
-              className="h-7 px-2 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-primary)] font-mono text-xs font-semibold focus:outline-none focus:border-[var(--border-strong)] cursor-pointer max-w-[180px]"
-            >
-              {drawingsList.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.partNumber} ({d.id === currentDrawing.id ? statusCounts.total : d.characteristics.length} Dims)
-                </option>
-              ))}
-              <option value="upload">+ Open Custom PDF...</option>
-            </select>
-
-            {/* Revision Tag */}
-            <span className="px-1.5 py-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] font-mono text-[11px] text-[var(--text-secondary)] font-semibold">
-              {currentDrawing.revision}
-            </span>
-          </div>
-
-          <div className="h-3.5 w-px bg-[var(--border-hairline)] hidden sm:block" />
-
-          {/* Segmented Workspace Mode Selector */}
-          <div className="hidden md:inline-flex p-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
-            <button
-              onClick={() => {
-                if (isRevisionDiffMode && onToggleRevisionDiff) onToggleRevisionDiff();
-              }}
-              className={`px-2.5 py-0.5 rounded text-[11px] font-mono transition-colors ${
-                !isRevisionDiffMode
-                  ? 'bg-[var(--text-primary)] text-[var(--bg-page)] font-semibold'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              Standard IDE
-            </button>
-
-            {onToggleRevisionDiff && (
-              <button
-                onClick={onToggleRevisionDiff}
-                className={`px-2.5 py-0.5 rounded text-[11px] font-mono transition-colors flex items-center gap-1 ${
-                  isRevisionDiffMode
-                    ? 'bg-[var(--text-primary)] text-[var(--bg-page)] font-semibold'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-                title="Revision Diff & Delta-Lock (Rev B → C)"
-              >
-                <GitCompare className="w-3 h-3 stroke-[1.5]" />
-                <span>Revision Diff</span>
-              </button>
-            )}
-
-            {onStartTour && (
-              <button
-                onClick={onStartTour}
-                className="px-2 py-0.5 rounded text-[11px] font-mono text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1"
-                title="Launch 45s Guided Product Tour"
-              >
-                <Play className="w-2.5 h-2.5 stroke-[1.5]" />
-                <span>45s Tour</span>
-              </button>
-            )}
-          </div>
+        {/* Bespoke Logo */}
+        <div className="flex items-center gap-2 pl-0.5 pr-1.5 border-r border-[var(--border-hairline)]">
+          <SpecBalloonLogo size={24} animateRuby={false} />
+          <span className="font-semibold text-xs tracking-tight text-[var(--text-primary)] hidden md:inline">
+            SpecBalloon
+          </span>
         </div>
 
-        {/* Right Section */}
-        <div className="flex items-center gap-2">
-          {/* Gemini AI Vision Pill (Quiet Monochrome with Active Dot) */}
-          {onOpenGeminiModal && (
-            <button
-              onClick={onOpenGeminiModal}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[11px] font-mono transition-colors"
-              title="Configure Google Gemini 2.5 Flash Vision AI Pipeline"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-              <span>Gemini 2.5 Vision: Ready</span>
-            </button>
-          )}
-
-          {/* Audit Log Trigger */}
-          {onOpenAuditLog && (
-            <button
-              onClick={onOpenAuditLog}
-              className="hidden lg:flex items-center gap-1 px-2 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[11px] font-mono transition-colors"
-              title="View 21 CFR Part 11 SHA-256 Audit Trail"
-            >
-              <History className="w-3 h-3 stroke-[1.5]" />
-              <span>Audit Log</span>
-            </button>
-          )}
-
-          {/* View Split / Sheet Toggle */}
-          <button
-            onClick={onToggleViewMode}
-            className={`hidden sm:flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--border-hairline)] text-[11px] font-mono transition-colors ${
-              viewMode === 'sheet'
-                ? 'bg-[var(--text-primary)] text-[var(--bg-page)] font-semibold'
-                : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Toggle Split View vs Full AS9102 Sheet"
+        {/* Part Selector Dropdown */}
+        <div className="relative" data-dropdown="part">
+          <SmartTooltip
+            title="Part Blueprint Selector"
+            whatItDoes="Switch between pre-loaded aerospace CAD drawings or upload your own vector PDF."
+            aiAction="Generates 300 DPI vector geometry crops and initializes AS9102 Form 3 characteristic ledger."
           >
-            <Columns className="w-3 h-3 stroke-[1.5]" />
-            <span>{viewMode === 'sheet' ? 'Split View' : 'Full Sheet'}</span>
-          </button>
-
-          {/* Theme Toggle */}
-          <button
-            onClick={onToggleTheme}
-            className="w-7 h-7 flex items-center justify-center rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-            title={darkMode ? 'Switch to Paper Mode' : 'Switch to Carbon Mode'}
-          >
-            {darkMode ? <Sun className="w-3.5 h-3.5 stroke-[1.5]" /> : <Moon className="w-3.5 h-3.5 stroke-[1.5]" />}
-          </button>
-
-          {/* Unified Export Package Dropdown */}
-          <div className="relative" ref={exportDropdownRef}>
             <button
-              onClick={() => setExportMenuOpen(!exportMenuOpen)}
-              className="flex items-center gap-1.5 px-3 py-1 rounded bg-[var(--text-primary)] text-[var(--bg-page)] text-xs font-mono font-medium hover:opacity-90 transition-opacity"
+              onClick={() => setOpenDropdown(openDropdown === 'part' ? null : 'part')}
+              className="px-2.5 py-1 rounded-md bg-[var(--bg-subtle)] hover:bg-[var(--bg-panel)] text-[var(--text-primary)] border border-[var(--border-hairline)] font-mono text-[11.5px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>Export Package</span>
-              <ChevronDown className="w-3 h-3 stroke-[1.5] opacity-70" />
+              <span className="text-[var(--accent)] font-bold">CAD:</span>
+              <span className="truncate max-w-[110px]">{currentDrawing.partNumber}</span>
+              <span className="text-[10px] text-[var(--text-muted)] font-normal">{currentDrawing.revision}</span>
+              <ChevronDown className="w-3 h-3 text-[var(--text-muted)] opacity-70" />
             </button>
+          </SmartTooltip>
 
-            {exportMenuOpen && (
-              <div className="absolute right-0 mt-1 w-60 rounded-md border border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-lg py-1 z-50 text-xs font-mono">
+          {openDropdown === 'part' && (
+            <div className="absolute left-0 top-full mt-1 w-64 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95">
+              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)] font-semibold border-b border-[var(--border-hairline)] mb-1">
+                Select CAD Blueprint
+              </div>
+              {drawingsList.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => {
+                    onSelectDrawing(d.id);
+                    setOpenDropdown(null);
+                  }}
+                  className={`w-full px-2 py-1.5 rounded-md text-left flex items-center justify-between text-xs transition-colors cursor-pointer ${
+                    d.id === currentDrawing.id
+                      ? 'bg-[var(--bg-selected)] text-[var(--accent)] font-semibold'
+                      : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
+                  }`}
+                >
+                  <div className="flex flex-col">
+                    <span className="font-mono text-xs">{d.partNumber}</span>
+                    <span className="text-[10px] text-[var(--text-muted)] truncate">{d.partName}</span>
+                  </div>
+                  <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[var(--bg-subtle)] text-[var(--text-muted)]">
+                    {d.revision}
+                  </span>
+                </button>
+              ))}
+              <div className="border-t border-[var(--border-hairline)] mt-1 pt-1">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full px-2 py-1.5 rounded-md text-left flex items-center gap-2 text-xs text-[var(--accent)] hover:bg-[var(--bg-subtle)] font-medium transition-colors cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>+ Upload Vector CAD PDF / Image</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 4 Categorized Menus */}
+        <div className="hidden lg:flex items-center gap-0.5 ml-1">
+          {/* 1. [✨ AI Engine ▾] */}
+          <div className="relative" data-dropdown="ai">
+            <SmartTooltip
+              title="AI Engine Menu"
+              whatItDoes="Direct control of Gemini 2.5 Flash Vision detection, single-patch box-crops, and revision diffing."
+              aiAction="Neuro-symbolic 2-stage pipeline: neural detection + deterministic metrology solvers."
+            >
+              <button
+                onClick={() => setOpenDropdown(openDropdown === 'ai' ? null : 'ai')}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  openDropdown === 'ai'
+                    ? 'bg-[var(--bg-subtle)] text-[var(--accent)] font-semibold'
+                    : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                <span>AI Engine</span>
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </button>
+            </SmartTooltip>
+
+            {openDropdown === 'ai' && (
+              <div className="absolute left-0 top-full mt-1 w-64 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95">
                 <button
                   onClick={() => {
-                    onExportExcel();
-                    setExportMenuOpen(false);
+                    onAutoBalloonDetect?.();
+                    setOpenDropdown(null);
                   }}
-                  className="w-full text-left px-3 py-2 hover:bg-[var(--bg-subtle)] flex items-center gap-2 text-[var(--text-primary)]"
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
                 >
-                  <FileSpreadsheet className="w-4 h-4 stroke-[1.5] text-emerald-600 dark:text-emerald-400" />
-                  <div>
-                    <div className="font-semibold">4-Sheet AS9102 Rev C</div>
-                    <div className="text-[10px] text-[var(--text-muted)]">Excel workbook (.xlsx)</div>
-                  </div>
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span>Auto-Detect All (Gemini 2.5 Vision)</span>
                 </button>
+                <button
+                  onClick={() => {
+                    onSetToolMode?.('box_balloon');
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="font-mono text-xs">⬚</span>
+                    <span>Capture Zone Box-Crop</span>
+                  </span>
+                  <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">B</kbd>
+                </button>
+                <button
+                  onClick={() => {
+                    onToggleRevisionDiff?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <GitCompare className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Compare Revision Diff (Rev B → C)</span>
+                  </span>
+                  <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">D</kbd>
+                </button>
+                <button
+                  onClick={() => {
+                    onReSortClockwise?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <RotateCw className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Re-Number Clockwise Around Centroid</span>
+                  </span>
+                  <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">R</kbd>
+                </button>
+                <div className="border-t border-[var(--border-hairline)] my-1" />
+                <button
+                  onClick={() => {
+                    onOpenGeminiModal?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs text-[var(--accent)] hover:bg-[var(--bg-subtle)] font-medium cursor-pointer"
+                >
+                  Configure Gemini API Key & Vision Settings...
+                </button>
+              </div>
+            )}
+          </div>
 
-                {onExportPdfDeck && (
+          {/* 2. [📐 Metrology & SPC ▾] */}
+          <div className="relative" data-dropdown="metrology">
+            <SmartTooltip
+              title="Metrology & SPC Standards"
+              whatItDoes="Configure general tolerance standards, ISO fits, CMM imports, and digital calipers."
+              aiAction="Evaluates tolerances per ISO 286, ISO 2768, and ANSI/ASQ Z1.4 sampling."
+            >
+              <button
+                onClick={() => setOpenDropdown(openDropdown === 'metrology' ? null : 'metrology')}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  openDropdown === 'metrology'
+                    ? 'bg-[var(--bg-subtle)] text-[var(--accent)] font-semibold'
+                    : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Metrology & SPC</span>
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </button>
+            </SmartTooltip>
+
+            {openDropdown === 'metrology' && (
+              <div className="absolute left-0 top-full mt-1 w-64 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95">
+                <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+                  General Tolerance Standard
+                </div>
+                {(['ISO 2768-m', 'ISO 2768-c', 'ASME Y14.5M'] as GeneralToleranceStandard[]).map((std) => (
                   <button
+                    key={std}
                     onClick={() => {
-                      onExportPdfDeck();
-                      setExportMenuOpen(false);
+                      onChangeStandard(std);
+                      setOpenDropdown(null);
                     }}
-                    className="w-full text-left px-3 py-2 hover:bg-[var(--bg-subtle)] flex items-center gap-2 text-[var(--text-primary)] border-t border-[var(--border-hairline)]"
+                    className={`w-full px-2.5 py-1 rounded-md text-left text-xs flex items-center justify-between cursor-pointer ${
+                      selectedStandard === std
+                        ? 'bg-[var(--bg-selected)] text-[var(--accent)] font-semibold'
+                        : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
+                    }`}
                   >
-                    <BookOpen className="w-4 h-4 stroke-[1.5] text-blue-600 dark:text-blue-400" />
-                    <div>
-                      <div className="font-semibold">2-Page Traveler Deck</div>
-                      <div className="text-[10px] text-[var(--text-muted)]">Printable PDF with Mobile QR</div>
-                    </div>
+                    <span>{std}</span>
+                    {selectedStandard === std && <Check className="w-3.5 h-3.5" />}
                   </button>
-                )}
-
+                ))}
+                <div className="border-t border-[var(--border-hairline)] my-1" />
                 <button
                   onClick={() => {
-                    onExportBalloonedPdf();
-                    setExportMenuOpen(false);
+                    onAutoCalcFits?.();
+                    setOpenDropdown(null);
                   }}
-                  className="w-full text-left px-3 py-2 hover:bg-[var(--bg-subtle)] flex items-center gap-2 text-[var(--text-primary)] border-t border-[var(--border-hairline)]"
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
                 >
-                  <Download className="w-4 h-4 stroke-[1.5] text-[var(--text-secondary)]" />
-                  <div>
-                    <div className="font-semibold">Ballooned Drawing</div>
-                    <div className="text-[10px] text-[var(--text-muted)]">Vector stamped PDF</div>
-                  </div>
+                  <span className="font-mono text-xs">⌀</span>
+                  <span>Auto-Calculate ISO 286 Fits (H7/g6)</span>
                 </button>
-
                 <button
                   onClick={() => {
-                    onExportCSV();
-                    setExportMenuOpen(false);
+                    onOpenCmmImport?.();
+                    setOpenDropdown(null);
                   }}
-                  className="w-full text-left px-3 py-2 hover:bg-[var(--bg-subtle)] flex items-center gap-2 text-[var(--text-primary)] border-t border-[var(--border-hairline)]"
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
                 >
-                  <FileText className="w-4 h-4 stroke-[1.5] text-[var(--text-secondary)]" />
-                  <div>
-                    <div className="font-semibold">Characteristic CSV</div>
-                    <div className="text-[10px] text-[var(--text-muted)]">Raw tabular data (.csv)</div>
-                  </div>
+                  <Cpu className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Import ZEISS / Hexagon CMM Data (.CSV)</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onToggleCaliperMode();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Live USB / Bluetooth Caliper Mode</span>
+                  </span>
+                  <span className={`w-2 h-2 rounded-full ${caliperMode ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+                </button>
+                <button
+                  onClick={() => {
+                    onOpenAuditLog?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>21 CFR Part 11 Audit Trail Ledger</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 3. [👁 View & Canvas ▾] */}
+          <div className="relative" data-dropdown="view">
+            <SmartTooltip
+              title="View & Canvas Options"
+              whatItDoes="Control panels, layout modes, paper inversion, and ruler units."
+              aiAction="Toggles 4-Pane split mode, CAD coordinate projection, and ruler ticks."
+            >
+              <button
+                onClick={() => setOpenDropdown(openDropdown === 'view' ? null : 'view')}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  openDropdown === 'view'
+                    ? 'bg-[var(--bg-subtle)] text-[var(--accent)] font-semibold'
+                    : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>View & Canvas</span>
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </button>
+            </SmartTooltip>
+
+            {openDropdown === 'view' && (
+              <div className="absolute left-0 top-full mt-1 w-60 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95">
+                <button
+                  onClick={() => {
+                    onToggleTree?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Toggle Left Model Tree</span>
+                  </span>
+                  <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">⌘B</kbd>
+                </button>
+                <button
+                  onClick={() => {
+                    onToggleViewMode();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <TableProperties className="w-3.5 h-3.5" />
+                    <span>{viewMode === 'split' ? 'Maximize BoC Sheet' : 'Restore 4-Pane Split'}</span>
+                  </span>
+                  <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">Ctrl+\</kbd>
+                </button>
+                <button
+                  onClick={() => {
+                    onCycleRulerUnit?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span>Ruler Units ({rulerUnit.toUpperCase()})</span>
+                  <span className="font-mono text-[10px] text-[var(--accent)] font-bold">
+                    {rulerUnit === 'mm' ? 'Metric (mm)' : rulerUnit === 'in' ? 'Imperial (in)' : 'Points (pt)'}
+                  </span>
+                </button>
+                <button
+                  onClick={() => {
+                    onToggleInvert?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span>Invert Blueprint Paper</span>
+                  <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">K</kbd>
+                </button>
+                <button
+                  onClick={() => {
+                    onFitSheet?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span>Fit Sheet to Viewport</span>
+                  <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">F</kbd>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 4. [? Help & Guide ▾] */}
+          <div className="relative" data-dropdown="help">
+            <SmartTooltip
+              title="Help & Guide Center"
+              shortcut="?"
+              whatItDoes="Interactive 45-second quickstart, button dictionary, keyboard shortcuts, and metrology FAQ."
+            >
+              <button
+                onClick={() => setOpenDropdown(openDropdown === 'help' ? null : 'help')}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  openDropdown === 'help'
+                    ? 'bg-[var(--bg-subtle)] text-[var(--accent)] font-semibold'
+                    : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+                <span>Help & Guide</span>
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </button>
+            </SmartTooltip>
+
+            {openDropdown === 'help' && (
+              <div className="absolute left-0 top-full mt-1 w-56 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95">
+                <button
+                  onClick={() => {
+                    onStartTour?.();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span>Interactive 45s Product Tour</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onOpenHelpModal?.('dictionary');
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-teal-500" />
+                  <span>Button & Tool Dictionary</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onOpenHelpModal?.('shortcuts');
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <span>Keyboard Shortcuts</span>
+                  <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">⌘/</kbd>
+                </button>
+                <button
+                  onClick={() => {
+                    onOpenHelpModal?.('faq');
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Metrology & AS9102 FAQ</span>
                 </button>
               </div>
             )}
@@ -383,191 +588,195 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       </div>
 
       {/* =========================================================================
-          ROW 2: Contextual Drawing & Metrology Toolbar (36px / h-9) - Non-wrapping
-          ========================================================================= */}
-      <div className="h-9 w-full px-3 flex items-center justify-between overflow-x-auto whitespace-nowrap text-xs">
-        {/* Left: Canvas & Drawing Controls */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+          ZONE B (CENTER): The "AI Next-Action Co-Pilot Pill"
+      ========================================================================= */}
+      <div className="flex-1 max-w-xl mx-2 flex justify-center">
+        {!isAllVerified && firstFlaggedChar ? (
           <button
-            onClick={handleUploadClick}
-            className="flex items-center gap-1 px-2 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-medium transition-colors"
-            title="Attach CAD PDF"
+            onClick={() => onJumpToFlagged?.(firstFlaggedChar)}
+            className="group px-3 py-1 rounded-full bg-[var(--bg-subtle)] hover:bg-[var(--bg-selected)] border border-[var(--accent)]/40 hover:border-[var(--accent)] text-xs font-mono flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+            title="Click to jump to and inspect next flagged characteristic"
           >
-            <FolderOpen className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Open PDF</span>
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-[var(--text-secondary)] font-sans hidden sm:inline">
+              ✨ AI Co-Pilot:
+            </span>
+            <span className="font-semibold text-amber-600 dark:text-amber-400">
+              {flaggedCount} {flaggedCount === 1 ? 'Dimension' : 'Dimensions'} Need Review
+            </span>
+            <span className="text-[var(--text-muted)]">→</span>
+            <span className="text-[var(--accent)] font-bold group-hover:underline flex items-center gap-1">
+              <span>Jump to #{firstFlaggedChar.balloonNumber < 10 ? `0${firstFlaggedChar.balloonNumber}` : firstFlaggedChar.balloonNumber}</span>
+              <kbd className="px-1 py-0.2 rounded bg-[var(--bg-surface)] border text-[9px]">↵</kbd>
+            </span>
           </button>
-
+        ) : (
           <button
-            onClick={() => onSetToolMode && onSetToolMode('pan')}
-            className={`flex items-center gap-1 px-2 py-1 rounded border text-xs font-mono transition-colors ${
-              toolMode === 'pan'
-                ? 'border-[var(--text-primary)] bg-[var(--bg-subtle)] text-[var(--text-primary)] font-semibold'
-                : 'border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Pan Mode [V]"
+            onClick={() => setOpenDropdown('export')}
+            className="group px-3.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/40 hover:border-emerald-500 text-xs font-mono flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+            title="All dimensions verified! Click to export AS9102 Rev C package"
           >
-            <Move className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Pan [V]</span>
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+              All {statusCounts.total} Dimensions Verified (Cpk 1.42)
+            </span>
+            <span className="text-[var(--text-muted)]">→</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold group-hover:underline flex items-center gap-1">
+              <span>Export AS9102 Package</span>
+              <span>⬇</span>
+            </span>
           </button>
+        )}
+      </div>
 
-          <button
-            onClick={() => onSetToolMode && onSetToolMode('box_balloon')}
-            className={`flex items-center gap-1 px-2 py-1 rounded border text-xs font-mono transition-colors ${
-              toolMode === 'box_balloon'
-                ? 'border-[var(--text-primary)] bg-[var(--bg-subtle)] text-[var(--text-primary)] font-semibold'
-                : 'border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Capture Zone / Marquee Balloon [B]"
+      {/* =========================================================================
+          ZONE C (RIGHT): Theme Switcher, Quick Help & Single Primary Export Menu
+      ========================================================================= */}
+      <div className="flex items-center gap-1.5">
+        {/* 4-way Theme Switcher Dropdown */}
+        <div className="relative" data-dropdown="theme">
+          <SmartTooltip
+            title="Theme Switcher"
+            whatItDoes="Switch between 4 metrology workspace themes: Light Studio, Dark Carbon, VS Code Dark+, and PyCharm Darcula."
+            aiAction="Dynamically switches CSS semantic syntax variables for dimensions, tolerances, and GD&T."
           >
-            <Crop className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Capture Zone [B]</span>
-          </button>
-
-          <button
-            onClick={onAutoBalloonDetect}
-            disabled={isExtracting}
-            className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] text-xs font-mono font-medium transition-colors"
-            title="Auto-Detect All Callouts & GD&T Frames"
-          >
-            {isExtracting ? (
-              <RefreshCw className="w-3.5 h-3.5 stroke-[1.5] animate-spin" />
-            ) : (
-              <Sparkles className="w-3.5 h-3.5 stroke-[1.5]" />
-            )}
-            <span>{isExtracting ? 'Detecting...' : 'Auto-Detect'}</span>
-          </button>
-
-          <button
-            onClick={onFitSheet}
-            className="flex items-center gap-1 px-2 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-mono transition-colors"
-            title="Fit Sheet to Viewport [F]"
-          >
-            <Maximize2 className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Fit</span>
-          </button>
-
-          {onReSortClockwise && (
             <button
-              onClick={onReSortClockwise}
-              className="flex items-center gap-1 px-2 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-mono transition-colors"
-              title="Sort Balloons Clockwise [R]"
+              onClick={() => setOpenDropdown(openDropdown === 'theme' ? null : 'theme')}
+              className="px-2 py-1 rounded-md hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-transparent hover:border-[var(--border-hairline)] text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <RotateCw className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>Clockwise</span>
+              <Palette className="w-3.5 h-3.5 text-[var(--accent)]" />
+              <span className="hidden xl:inline font-mono text-[11px]">{themeLabels[ideTheme]}</span>
+              <ChevronDown className="w-3 h-3 opacity-60" />
             </button>
-          )}
+          </SmartTooltip>
 
-          <button
-            onClick={onToggleInvert}
-            className={`flex items-center gap-1 px-2 py-1 rounded border text-xs font-mono transition-colors ${
-              inverted
-                ? 'border-[var(--text-primary)] bg-[var(--bg-subtle)] text-[var(--text-primary)] font-semibold'
-                : 'border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Toggle High-Contrast Inverted CAD [K]"
-          >
-            <span>{inverted ? 'Carbon [K]' : 'Paper [K]'}</span>
-          </button>
-
-          {onToggleGrid && (
-            <button
-              onClick={onToggleGrid}
-              className={`flex items-center gap-1 px-2 py-1 rounded border text-xs font-mono transition-colors ${
-                showGrid
-                  ? 'border-[var(--text-primary)] bg-[var(--bg-subtle)] text-[var(--text-primary)] font-semibold'
-                  : 'border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-              title="Toggle Alignment Grid"
-            >
-              <Grid className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>Grid</span>
-            </button>
+          {openDropdown === 'theme' && (
+            <div className="absolute right-0 top-full mt-1 w-52 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95">
+              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)] font-semibold border-b border-[var(--border-hairline)] mb-1">
+                Workspace IDE Theme
+              </div>
+              {(['light-studio', 'dark-carbon', 'vscode-dark', 'darcula'] as IdeThemeId[]).map((tId) => (
+                <button
+                  key={tId}
+                  onClick={() => {
+                    onChangeIdeTheme(tId);
+                    setOpenDropdown(null);
+                  }}
+                  className={`w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                    ideTheme === tId
+                      ? 'bg-[var(--bg-selected)] text-[var(--accent)] font-semibold'
+                      : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
+                  }`}
+                >
+                  <span className="font-mono text-xs">{themeLabels[tId]}</span>
+                  {ideTheme === tId && <Check className="w-3.5 h-3.5" />}
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
-        {/* Center / Right: Metrology Controls */}
-        <div className="flex items-center gap-2 flex-shrink-0 pl-2">
-          {/* General Tolerance Standard */}
-          <div className="flex items-center gap-1 text-xs font-mono text-[var(--text-muted)]">
-            <span className="hidden xl:inline text-[11px]">Gen Tol:</span>
-            <select
-              value={selectedStandard}
-              onChange={(e) => onChangeStandard(e.target.value as GeneralToleranceStandard)}
-              className="h-7 px-2 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-primary)] text-xs font-mono focus:outline-none focus:border-[var(--border-strong)] cursor-pointer"
-            >
-              <option value="ASME Y14.5">ASME Y14.5</option>
-              <option value="ISO 2768-m">ISO 2768-m</option>
-              <option value="ISO 2768-f">ISO 2768-f</option>
-              <option value="ISO 2768-c">ISO 2768-c</option>
-            </select>
-          </div>
-
-          {/* Fits Math */}
+        {/* Quick Help Button */}
+        <SmartTooltip
+          title="Open Help Center"
+          shortcut="?"
+          whatItDoes="Opens the 4-tab interactive Quickstart, Dictionary, Shortcuts, and Metrology FAQ."
+        >
           <button
-            onClick={onAutoCalcFits}
-            className="flex items-center gap-1 px-2 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-mono transition-colors"
-            title="Compute ISO 286 Fits & Limits"
+            onClick={() => onOpenHelpModal?.('quickstart')}
+            className="p-1.5 rounded-md hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            title="Help & Documentation (?)"
           >
-            <Calculator className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Fits Math</span>
+            <HelpCircle className="w-4 h-4 stroke-[1.5]" />
           </button>
+        </SmartTooltip>
 
-          {/* Import CMM Data */}
-          {onOpenCmmImport && (
-            <button
-              onClick={onOpenCmmImport}
-              className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-mono transition-colors"
-              title="Import ZEISS Calypso or Hexagon PC-DMIS CMM report"
-            >
-              <Cpu className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>Import CMM</span>
-            </button>
-          )}
-
-          {/* Caliper DRO */}
-          <button
-            onClick={onToggleCaliperMode}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded border text-xs font-mono transition-colors ${
-              caliperMode
-                ? 'border-[var(--text-primary)] bg-[var(--bg-subtle)] text-[var(--text-primary)] font-semibold'
-                : 'border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Toggle WebHID / BLE Caliper DRO"
+        {/* Primary Export AS9102 Dropdown */}
+        <div className="relative" data-dropdown="export">
+          <SmartTooltip
+            title="Primary AS9102 Package Exporter"
+            whatItDoes="Exports the complete inspection deliverable in multiple industry standard formats."
+            aiAction="Generates Form 1, Form 2, and Form 3 with cryptographic SHA-256 validation seal."
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Caliper DRO</span>
-          </button>
-
-          {/* Approve All */}
-          {onApproveAll && (
             <button
-              onClick={onApproveAll}
-              className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] text-xs font-mono font-medium transition-colors"
-              title="Approve All In-Tolerance Characteristics"
+              onClick={() => setOpenDropdown(openDropdown === 'export' ? null : 'export')}
+              className="px-3 py-1.5 rounded-md bg-[var(--accent)] hover:brightness-110 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
             >
-              <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5] text-emerald-600 dark:text-emerald-400" />
-              <span>Approve All</span>
+              <Download className="w-3.5 h-3.5" />
+              <span>Export AS9102</span>
+              <ChevronDown className="w-3 h-3 opacity-80" />
             </button>
-          )}
+          </SmartTooltip>
 
-          {/* Characteristic Status Summary Pill */}
-          <div className="hidden 2xl:flex items-center gap-1.5 px-2 py-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-subtle)] font-mono text-[11px] text-[var(--text-secondary)]">
-            <span className="font-semibold text-[var(--text-primary)]">{statusCounts.total} Dims</span>
-            <span>·</span>
-            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{statusCounts.inSpec} Pass</span>
-            {statusCounts.needsReview > 0 && (
-              <>
-                <span>·</span>
-                <span className="text-amber-600 dark:text-amber-400 font-semibold">{statusCounts.needsReview} Warn</span>
-              </>
-            )}
-            {statusCounts.outOfSpec > 0 && (
-              <>
-                <span>·</span>
-                <span className="text-rose-600 dark:text-rose-400 font-semibold">{statusCounts.outOfSpec} Fail</span>
-              </>
-            )}
-          </div>
+          {openDropdown === 'export' && (
+            <div className="absolute right-0 top-full mt-1 w-64 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95">
+              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)] font-semibold border-b border-[var(--border-hairline)] mb-1">
+                AS9102 Rev C Deliverables
+              </div>
+
+              {/* 1. Excel */}
+              <button
+                onClick={() => {
+                  onExportExcel();
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                <div className="flex flex-col">
+                  <span className="font-semibold">4-Sheet AS9102 Package (.xlsx)</span>
+                  <span className="text-[10px] text-[var(--text-muted)]">Forms 1, 2, 3 + SPC Heatmap</span>
+                </div>
+              </button>
+
+              {/* 2. PDF Deck */}
+              {onExportPdfDeck && (
+                <button
+                  onClick={() => {
+                    onExportPdfDeck();
+                    setOpenDropdown(null);
+                  }}
+                  className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <FileText className="w-4 h-4 text-red-500" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold">2-Page QR Traveler (.pdf)</span>
+                    <span className="text-[10px] text-[var(--text-muted)]">Vector Blueprint + Traveler Sheet</span>
+                  </div>
+                </button>
+              )}
+
+              {/* 3. CSV */}
+              <button
+                onClick={() => {
+                  onExportCSV();
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-blue-500" />
+                <div className="flex flex-col">
+                  <span className="font-semibold">Form 3 Master BoC (.csv)</span>
+                  <span className="text-[10px] text-[var(--text-muted)]">Raw characteristic coordinates</span>
+                </div>
+              </button>
+
+              {/* 4. Ballooned Vector PDF */}
+              <button
+                onClick={() => {
+                  onExportBalloonedPdf();
+                  setOpenDropdown(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
+              >
+                <FileText className="w-4 h-4 text-purple-500" />
+                <div className="flex flex-col">
+                  <span className="font-semibold">Ballooned Vector Drawing (.pdf)</span>
+                  <span className="text-[10px] text-[var(--text-muted)]">Overlay with numbered bubbles</span>
+                </div>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

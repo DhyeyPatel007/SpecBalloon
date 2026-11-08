@@ -57,6 +57,8 @@ interface CadCanvasViewportProps {
   isRevisionDiffMode?: boolean;
   onAcceptRevisionDeltas?: () => void;
   selectedDatumHighlight?: 'A' | 'B' | 'C' | null;
+  rulerUnit?: 'mm' | 'in' | 'pt';
+  onCycleRulerUnit?: () => void;
 }
 
 export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
@@ -85,7 +87,18 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   isRevisionDiffMode = false,
   onAcceptRevisionDeltas,
   selectedDatumHighlight = null,
+  rulerUnit: externalRulerUnit,
+  onCycleRulerUnit,
 }) => {
+  const [internalRulerUnit, setInternalRulerUnit] = useState<'mm' | 'in' | 'pt'>('mm');
+  const activeRulerUnit = externalRulerUnit || internalRulerUnit;
+  const handleUnitCycle = () => {
+    if (onCycleRulerUnit) {
+      onCycleRulerUnit();
+    } else {
+      setInternalRulerUnit((prev) => (prev === 'mm' ? 'in' : prev === 'in' ? 'pt' : 'mm'));
+    }
+  };
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -237,103 +250,205 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     handleFitSheet();
   }, [currentDrawing.id, handleFitSheet]);
 
-  // Render Rulers in true PDF points (72 pt = 1 inch)
+  // Render Dynamic HTML5 Canvas Rulers spanning 100% of Viewport Width and Height
   useEffect(() => {
     const topCanvas = topRulerRef.current;
     const leftCanvas = leftRulerRef.current;
     if (!topCanvas || !leftCanvas) return;
 
+    const topWidth = topCanvas.clientWidth || 1200;
+    const topHeight = 22;
+    if (topCanvas.width !== topWidth || topCanvas.height !== topHeight) {
+      topCanvas.width = topWidth;
+      topCanvas.height = topHeight;
+    }
+
+    const leftWidth = 22;
+    const leftHeight = leftCanvas.clientHeight || 800;
+    if (leftCanvas.width !== leftWidth || leftCanvas.height !== leftHeight) {
+      leftCanvas.width = leftWidth;
+      leftCanvas.height = leftHeight;
+    }
+
     const topCtx = topCanvas.getContext('2d');
-    const leftCtx = leftRulerRef.current?.getContext('2d');
+    const leftCtx = leftCanvas.getContext('2d');
     if (!topCtx || !leftCtx) return;
 
-    const rulerBg = inverted ? '#1C1C1E' : '#F0F2F5';
-    const tickColor = inverted ? '#48484A' : '#C7C7CC';
-    const textColor = inverted ? '#8E8E93' : '#6E6E73';
-    const cursorColor = '#0066CC';
+    const rulerBg = inverted ? '#18181B' : '#F1F5F9';
+    const tickColor = inverted ? '#3F3F46' : '#CBD5E1';
+    const majorTickColor = inverted ? '#71717A' : '#94A3B8';
+    const textColor = inverted ? '#A1A1AA' : '#64748B';
+    const accentColor = '#0284C7';
 
-    // 1. Top Ruler
+    // Unit conversion:
+    // Drawing coordinates are in mm (1200mm x 800mm base).
+    let unitScale = 1.0;
+    let step = 25;
+    let majorStep = 50;
+    let unitSuffix = 'mm';
+
+    if (activeRulerUnit === 'in') {
+      unitScale = 1 / 25.4;
+      step = 1;
+      majorStep = 2;
+      unitSuffix = '"';
+    } else if (activeRulerUnit === 'pt') {
+      unitScale = 72 / 25.4;
+      step = 50;
+      majorStep = 100;
+      unitSuffix = 'pt';
+    } else {
+      // mm
+      unitScale = 1.0;
+      if (zoom > 1.8) {
+        step = 10;
+        majorStep = 50;
+      } else if (zoom < 0.6) {
+        step = 50;
+        majorStep = 200;
+      } else {
+        step = 25;
+        majorStep = 50;
+      }
+      unitSuffix = 'mm';
+    }
+
+    // 1. TOP RULER (Spans 100% of viewport width)
     topCtx.fillStyle = rulerBg;
-    topCtx.fillRect(0, 0, topCanvas.width, topCanvas.height);
+    topCtx.fillRect(0, 0, topWidth, topHeight);
 
     topCtx.strokeStyle = tickColor;
-    topCtx.fillStyle = textColor;
+    topCtx.lineWidth = 1;
+    topCtx.beginPath();
+    topCtx.moveTo(0, topHeight - 0.5);
+    topCtx.lineTo(topWidth, topHeight - 0.5);
+    topCtx.stroke();
+
     topCtx.font = '9px "JetBrains Mono", monospace';
     topCtx.textBaseline = 'bottom';
     topCtx.textAlign = 'center';
 
-    const dw = currentDrawing.drawingWidth || 1200;
-    const step = 50;
+    const minUnitX = Math.floor(((-pan.x) / zoom * unitScale) / step) * step;
+    const maxUnitX = Math.ceil(((topWidth - pan.x) / zoom * unitScale) / step) * step;
 
-    for (let dX = 0; dX <= dw; dX += step) {
-      const screenX = pan.x + dX * zoom;
-      if (screenX >= 0 && screenX <= topCanvas.width) {
-        const isMajor = dX % 100 === 0;
-        const tickH = isMajor ? 12 : 6;
+    for (let u = minUnitX; u <= maxUnitX; u += step) {
+      const drawCoord = u / unitScale;
+      const screenX = pan.x + drawCoord * zoom;
+      if (screenX >= 0 && screenX <= topWidth) {
+        const isMajor = Math.abs(u) % majorStep === 0 || Math.abs(u % majorStep) < 0.001;
+        const tickH = isMajor ? 11 : 6;
+        topCtx.strokeStyle = isMajor ? majorTickColor : tickColor;
         topCtx.beginPath();
-        topCtx.moveTo(screenX, topCanvas.height);
-        topCtx.lineTo(screenX, topCanvas.height - tickH);
+        topCtx.moveTo(screenX + 0.5, topHeight);
+        topCtx.lineTo(screenX + 0.5, topHeight - tickH);
         topCtx.stroke();
 
-        if (isMajor && screenX > 20 && screenX < topCanvas.width - 20) {
-          topCtx.fillText(`${dX}pt`, screenX, topCanvas.height - 13);
+        if (isMajor && screenX > 25 && screenX < topWidth - 25) {
+          topCtx.fillStyle = textColor;
+          topCtx.fillText(`${Math.round(u * 10) / 10}`, screenX, topHeight - 11);
         }
       }
     }
 
+    // Cursor indicator on Top Ruler
     const cursorScreenX = pan.x + cursorPos.x * zoom;
-    if (cursorScreenX >= 0 && cursorScreenX <= topCanvas.width) {
-      topCtx.strokeStyle = cursorColor;
+    if (cursorScreenX >= 0 && cursorScreenX <= topWidth) {
+      topCtx.strokeStyle = accentColor;
       topCtx.lineWidth = 1.5;
       topCtx.beginPath();
       topCtx.moveTo(cursorScreenX, 0);
-      topCtx.lineTo(cursorScreenX, topCanvas.height);
+      topCtx.lineTo(cursorScreenX, topHeight);
       topCtx.stroke();
+
+      const cursorVal = (cursorPos.x * unitScale).toFixed(1);
+      const badgeText = `${cursorVal} ${unitSuffix}`;
+      topCtx.font = 'bold 8.5px "JetBrains Mono", monospace';
+      const tw = topCtx.measureText(badgeText).width + 8;
+      const badgeX = Math.max(tw / 2, Math.min(topWidth - tw / 2, cursorScreenX));
+
+      topCtx.fillStyle = accentColor;
+      topCtx.beginPath();
+      topCtx.roundRect(badgeX - tw / 2, 2, tw, 12, 3);
+      topCtx.fill();
+
+      topCtx.fillStyle = '#FFFFFF';
+      topCtx.textAlign = 'center';
+      topCtx.textBaseline = 'middle';
+      topCtx.fillText(badgeText, badgeX, 8);
     }
 
-    // 2. Left Ruler
+    // 2. LEFT RULER (Spans 100% of viewport height)
     leftCtx.fillStyle = rulerBg;
-    leftCtx.fillRect(0, 0, leftCanvas.width, leftCanvas.height);
+    leftCtx.fillRect(0, 0, leftWidth, leftHeight);
 
     leftCtx.strokeStyle = tickColor;
-    leftCtx.fillStyle = textColor;
+    leftCtx.lineWidth = 1;
+    leftCtx.beginPath();
+    leftCtx.moveTo(leftWidth - 0.5, 0);
+    leftCtx.lineTo(leftWidth - 0.5, leftHeight);
+    leftCtx.stroke();
+
     leftCtx.font = '9px "JetBrains Mono", monospace';
-    leftCtx.textBaseline = 'middle';
-    leftCtx.textAlign = 'right';
 
-    const dh = currentDrawing.drawingHeight || 800;
+    const minUnitY = Math.floor(((-pan.y) / zoom * unitScale) / step) * step;
+    const maxUnitY = Math.ceil(((leftHeight - pan.y) / zoom * unitScale) / step) * step;
 
-    for (let dY = 0; dY <= dh; dY += step) {
-      const screenY = pan.y + dY * zoom;
-      if (screenY >= 0 && screenY <= leftCanvas.height) {
-        const isMajor = dY % 100 === 0;
-        const tickW = isMajor ? 12 : 6;
+    for (let u = minUnitY; u <= maxUnitY; u += step) {
+      const drawCoord = u / unitScale;
+      const screenY = pan.y + drawCoord * zoom;
+      if (screenY >= 0 && screenY <= leftHeight) {
+        const isMajor = Math.abs(u) % majorStep === 0 || Math.abs(u % majorStep) < 0.001;
+        const tickW = isMajor ? 11 : 6;
+        leftCtx.strokeStyle = isMajor ? majorTickColor : tickColor;
         leftCtx.beginPath();
-        leftCtx.moveTo(leftCanvas.width, screenY);
-        leftCtx.lineTo(leftCanvas.width - tickW, screenY);
+        leftCtx.moveTo(leftWidth, screenY + 0.5);
+        leftCtx.lineTo(leftWidth - tickW, screenY + 0.5);
         leftCtx.stroke();
 
-        if (isMajor && screenY > 15 && screenY < leftCanvas.height - 15) {
+        if (isMajor && screenY > 20 && screenY < leftHeight - 20) {
           leftCtx.save();
-          leftCtx.translate(leftCanvas.width - 14, screenY);
+          leftCtx.translate(leftWidth - 11, screenY);
           leftCtx.rotate(-Math.PI / 2);
+          leftCtx.fillStyle = textColor;
           leftCtx.textAlign = 'center';
-          leftCtx.fillText(`${dY}pt`, 0, 0);
+          leftCtx.textBaseline = 'bottom';
+          leftCtx.fillText(`${Math.round(u * 10) / 10}`, 0, 0);
           leftCtx.restore();
         }
       }
     }
 
+    // Cursor indicator on Left Ruler
     const cursorScreenY = pan.y + cursorPos.y * zoom;
-    if (cursorScreenY >= 0 && cursorScreenY <= leftCanvas.height) {
-      leftCtx.strokeStyle = cursorColor;
+    if (cursorScreenY >= 0 && cursorScreenY <= leftHeight) {
+      leftCtx.strokeStyle = accentColor;
       leftCtx.lineWidth = 1.5;
       leftCtx.beginPath();
       leftCtx.moveTo(0, cursorScreenY);
-      leftCtx.lineTo(leftCanvas.width, cursorScreenY);
+      leftCtx.lineTo(leftWidth, cursorScreenY);
       leftCtx.stroke();
+
+      const cursorValY = (cursorPos.y * unitScale).toFixed(1);
+      const badgeTextY = `${cursorValY}`;
+      leftCtx.save();
+      leftCtx.font = 'bold 8.5px "JetBrains Mono", monospace';
+      const twY = leftCtx.measureText(badgeTextY).width + 6;
+      const badgeY = Math.max(twY / 2, Math.min(leftHeight - twY / 2, cursorScreenY));
+
+      leftCtx.translate(9, badgeY);
+      leftCtx.rotate(-Math.PI / 2);
+      leftCtx.fillStyle = accentColor;
+      leftCtx.beginPath();
+      leftCtx.roundRect(-twY / 2, -6, twY, 13, 3);
+      leftCtx.fill();
+
+      leftCtx.fillStyle = '#FFFFFF';
+      leftCtx.textAlign = 'center';
+      leftCtx.textBaseline = 'middle';
+      leftCtx.fillText(badgeTextY, 0, 0);
+      leftCtx.restore();
     }
-  }, [pan, zoom, cursorPos, currentDrawing.drawingWidth, currentDrawing.drawingHeight, inverted]);
+  }, [pan, zoom, cursorPos, currentDrawing.drawingWidth, currentDrawing.drawingHeight, inverted, activeRulerUnit]);
 
   // Main Canvas Render Loop
   useEffect(() => {
@@ -828,28 +943,31 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
 
   return (
     <div className="flex-1 w-full h-full relative flex flex-col overflow-hidden bg-page select-none">
-      {/* 1. Top Ruler Bar */}
-      <div className="h-6 w-full flex items-center bg-subtle border-b border-border-hairline z-20">
-        <div className="w-6 h-6 border-r border-border-hairline bg-subtle flex items-center justify-center text-[10px] font-mono text-text-mut font-semibold">
-          pt
-        </div>
-        <div className="flex-1 h-6 relative overflow-hidden">
+      {/* 1. Top Ruler Bar (22px) */}
+      <div className="h-[22px] w-full flex items-center bg-[var(--bg-subtle)] border-b border-[var(--border-hairline)] z-20">
+        <button
+          onClick={handleUnitCycle}
+          type="button"
+          className="w-[22px] h-[22px] border-r border-[var(--border-hairline)] bg-[var(--bg-subtle)] hover:bg-[var(--bg-selected)] flex items-center justify-center text-[9px] font-mono text-[var(--text-secondary)] hover:text-[var(--accent)] font-bold cursor-pointer transition-colors"
+          title="Click to cycle ruler units (mm ↔ in ↔ pt)"
+        >
+          {activeRulerUnit.toUpperCase()}
+        </button>
+        <div className="flex-1 h-[22px] relative overflow-hidden">
           <canvas
             ref={topRulerRef}
-            width={1920}
-            height={24}
+            height={22}
             className="w-full h-full block"
           />
         </div>
       </div>
 
-      {/* 2. Main Viewport Area */}
+      {/* 2. Main Viewport Area with Left Ruler (22px) */}
       <div className="flex-1 w-full flex relative overflow-hidden">
-        <div className="w-6 h-full bg-subtle border-r border-border-hairline z-20 relative overflow-hidden">
+        <div className="w-[22px] h-full bg-[var(--bg-subtle)] border-r border-[var(--border-hairline)] z-20 relative overflow-hidden">
           <canvas
             ref={leftRulerRef}
-            width={24}
-            height={1080}
+            width={22}
             className="w-full h-full block"
           />
         </div>
@@ -930,6 +1048,80 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
                 className="absolute border-2 border-dashed border-accent-primary bg-accent-primary/10 pointer-events-none rounded-xs"
               />
             )}
+          </div>
+
+          {/* Minimalist Floating Canvas Pill (Bottom-Center) */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 bg-[var(--bg-surface)]/95 backdrop-blur-md border border-[var(--border-strong)] rounded-full px-2 py-1 shadow-2xl flex items-center gap-1 text-xs">
+            {/* Pan Tool */}
+            <button
+              type="button"
+              onClick={() => onSetToolMode?.('pan')}
+              className={`px-2.5 py-1 rounded-full flex items-center gap-1.5 font-medium transition-colors cursor-pointer ${
+                toolMode === 'pan'
+                  ? 'bg-[var(--accent)] text-white shadow-xs font-semibold'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]'
+              }`}
+              title="Pan Tool (V)"
+            >
+              <span>✋ Pan</span>
+              <kbd className="text-[9px] font-mono opacity-80">V</kbd>
+            </button>
+
+            {/* Box-Crop Tool */}
+            <button
+              type="button"
+              onClick={() => onSetToolMode?.('box_balloon')}
+              className={`px-2.5 py-1 rounded-full flex items-center gap-1.5 font-medium transition-colors cursor-pointer ${
+                toolMode === 'box_balloon'
+                  ? 'bg-[var(--accent)] text-white shadow-xs font-semibold'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]'
+              }`}
+              title="AI Marquee Box-Crop Tool (B)"
+            >
+              <span>⬚ Box-Crop</span>
+              <kbd className="text-[9px] font-mono opacity-80">B</kbd>
+            </button>
+
+            <div className="w-[1px] h-3.5 bg-[var(--border-hairline)] mx-0.5" />
+
+            {/* Fit Sheet */}
+            <button
+              type="button"
+              onClick={handleFitSheet}
+              className="px-2 py-1 rounded-full flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
+              title="Fit Sheet to Viewport (F)"
+            >
+              <span>🔍 Fit</span>
+              <kbd className="text-[9px] font-mono opacity-80">F</kbd>
+            </button>
+
+            <div className="w-[1px] h-3.5 bg-[var(--border-hairline)] mx-0.5" />
+
+            {/* Zoom controls */}
+            <button
+              type="button"
+              onClick={() => setZoom(Math.max(0.35, Number((zoom - 0.15).toFixed(2))))}
+              className="w-5 h-5 rounded-full flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] font-bold cursor-pointer"
+              title="Zoom Out"
+            >
+              -
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(1.0)}
+              className="px-1 text-[11px] font-mono text-[var(--text-primary)] font-semibold hover:text-[var(--accent)] cursor-pointer"
+              title="Reset Zoom to 100%"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(Math.min(3.0, Number((zoom + 0.15).toFixed(2))))}
+              className="w-5 h-5 rounded-full flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] font-bold cursor-pointer"
+              title="Zoom In"
+            >
+              +
+            </button>
           </div>
 
           {/* Drag & Drop Overlay */}

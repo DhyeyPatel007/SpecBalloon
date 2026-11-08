@@ -134,7 +134,10 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
     });
   };
 
+  const [tableFilter, setTableFilter] = useState<'all' | 'in_spec' | 'needs_review' | 'out_of_spec'>('all');
+
   const filtered = characteristics.filter((c) => {
+    if (tableFilter !== 'all' && c.status !== tableFilter) return false;
     const matchesSearch =
       c.rawCallout.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.zone.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -146,6 +149,8 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
   });
 
   const inSpecCount = characteristics.filter((c) => c.status === 'in_spec').length;
+  const needsReviewCount = characteristics.filter((c) => c.status === 'needs_review').length;
+  const outOfSpecCount = characteristics.filter((c) => c.status === 'out_of_spec').length;
   const passRate = characteristics.length > 0 ? (inSpecCount / characteristics.length) * 100 : 100;
 
   // AQL sampling calculation result
@@ -217,74 +222,71 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
           </div>
         </div>
 
-        {/* Right: Search + Export Actions */}
+        {/* Right: Status Filter Pills + Search + Collapse Button (Zero duplicate export/CMM buttons here) */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Status Filter Pills */}
+          <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-hairline)] text-[10.5px] font-mono">
+            <button
+              onClick={() => setTableFilter('all')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                tableFilter === 'all'
+                  ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] font-semibold shadow-2xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              All ({characteristics.length})
+            </button>
+            <button
+              onClick={() => setTableFilter('in_spec')}
+              className={`px-2 py-0.5 rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+                tableFilter === 'in_spec'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-semibold shadow-2xs'
+                  : 'text-[var(--text-muted)] hover:text-emerald-500'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span>Pass ({inSpecCount})</span>
+            </button>
+            <button
+              onClick={() => setTableFilter('needs_review')}
+              className={`px-2 py-0.5 rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+                tableFilter === 'needs_review'
+                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 font-semibold shadow-2xs'
+                  : 'text-[var(--text-muted)] hover:text-amber-500'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <span>Review ({needsReviewCount})</span>
+            </button>
+            <button
+              onClick={() => setTableFilter('out_of_spec')}
+              className={`px-2 py-0.5 rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+                tableFilter === 'out_of_spec'
+                  ? 'bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 font-semibold shadow-2xs'
+                  : 'text-[var(--text-muted)] hover:text-red-500'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+              <span>Fail ({outOfSpecCount})</span>
+            </button>
+          </div>
+
           {/* Search Input */}
-          <div className="flex items-center border border-border-hairline rounded-md bg-subtle/50 px-2 py-1 w-32 sm:w-44 text-xs">
-            <Search className="w-3.5 h-3.5 text-text-muted mr-1.5 flex-shrink-0" />
+          <div className="flex items-center border border-[var(--border-hairline)] rounded-md bg-[var(--bg-subtle)] px-2 py-1 w-32 sm:w-44 text-xs">
+            <Search className="w-3.5 h-3.5 text-[var(--text-muted)] mr-1.5 flex-shrink-0" />
             <input
               type="text"
               placeholder="Search characteristics..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-transparent border-none outline-none text-text-primary text-xs placeholder:text-text-muted"
+              className="w-full bg-transparent border-none outline-none text-[var(--text-primary)] text-xs placeholder:text-[var(--text-muted)]"
             />
           </div>
-
-          {onApproveAll && (
-            <button
-              onClick={onApproveAll}
-              className="px-2 py-1 rounded-md border border-border-hairline bg-surface hover:bg-subtle text-text-secondary hover:text-text-primary font-medium text-[11px] flex items-center gap-1 transition-all"
-              title="Approve All Characteristics"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 text-status-pass" />
-              <span className="hidden md:inline">Approve All</span>
-            </button>
-          )}
-
-          <button
-            onClick={onAutoCalculateFits}
-            className="px-2 py-1 rounded-md border border-border-hairline bg-surface hover:bg-subtle text-text-secondary hover:text-text-primary font-medium text-[11px] flex items-center gap-1 transition-all cursor-pointer"
-            title="Auto-Calculate Limits (ISO 286 / ISO 2768)"
-          >
-            <Calculator className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="hidden md:inline">ISO Fits</span>
-          </button>
-
-          {onOpenCmmImport && (
-            <button
-              type="button"
-              onClick={onOpenCmmImport}
-              className="px-2 py-1 rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 text-accent-primary hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-semibold text-[11px] flex items-center gap-1 transition-all cursor-pointer"
-              title="Import CMM coordinate run (ZEISS Calypso / Hexagon PC-DMIS) and calculate true position error"
-            >
-              <Cpu className="w-3.5 h-3.5 text-accent-primary" />
-              <span className="hidden md:inline">Import CMM</span>
-            </button>
-          )}
-
-          <button
-            onClick={onExportExcel}
-            className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-[11px] flex items-center gap-1.5 transition-all shadow-xs"
-            title="Export 4-Sheet AS9102 Rev C Package (.xlsx)"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Excel (4 Sheets)</span>
-          </button>
-
-          <button
-            onClick={onExportCSV}
-            className="px-2 py-1 rounded-md border border-border-hairline bg-surface hover:bg-subtle text-text-secondary hover:text-text-primary font-medium text-[11px] flex items-center gap-1 transition-all"
-            title="Export CSV"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>CSV</span>
-          </button>
 
           {onToggleHeight && (
             <button
               onClick={onToggleHeight}
-              className="p-1 rounded hover:bg-subtle text-text-muted hover:text-text-primary"
+              className="p-1 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
               title={isExpanded ? 'Minimize Sheet' : 'Restore Sheet'}
             >
               {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
@@ -342,15 +344,15 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
                 // Parse GD&T frame preview if available
                 const isGDT = char.toleranceType === 'GD&T' || char.rawCallout.includes('|');
                 const gdtBox = isGDT ? (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-border-strong bg-subtle text-[10px] font-mono font-bold tracking-tight text-accent-primary">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-subtle)] text-[10px] font-mono font-bold tracking-tight syntax-gdt">
                     {char.rawCallout}
                   </span>
                 ) : char.toleranceType === 'Thread' ? (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/40 text-[10px] font-mono font-bold text-purple-700 dark:text-purple-300">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-[10px] font-mono font-bold syntax-fit">
                     ISO 965: D2={char.threadData?.pitchDiameterD2 || '9.026'}
                   </span>
                 ) : (
-                  <span className="text-text-muted text-[10px]">—</span>
+                  <span className="text-[var(--text-muted)] text-[10px]">—</span>
                 );
 
                 return (
@@ -444,13 +446,13 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
                         </div>
                       </td>
 
-                      <td className="p-2 font-semibold text-text-primary truncate max-w-[120px]">
+                      <td className="p-2 font-bold syntax-nominal truncate max-w-[120px]">
                         {char.nominal_text || fmt3(char.nominal_value ?? char.nominal)}
                       </td>
-                      <td className="p-2 text-text-muted">+{fmt3(char.plusTolerance)}</td>
-                      <td className="p-2 text-text-muted">-{fmt3(char.minusTolerance)}</td>
-                      <td className="p-2 text-text-secondary font-mono">{fmt3(lsl)}</td>
-                      <td className="p-2 text-text-secondary font-mono">
+                      <td className="p-2 syntax-tolerance">+{fmt3(char.plusTolerance)}</td>
+                      <td className="p-2 syntax-tolerance">-{fmt3(char.minusTolerance)}</td>
+                      <td className="p-2 syntax-tolerance font-mono">{fmt3(lsl)}</td>
+                      <td className="p-2 syntax-tolerance font-mono">
                         {fmt3(usl)}
                         {mmcCalc && (
                           <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold" title="Effective USL with MMC Bonus">

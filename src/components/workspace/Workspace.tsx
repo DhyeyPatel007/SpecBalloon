@@ -28,7 +28,7 @@ import {
   exportExcelApi,
   exportBalloonedPdfApi
 } from '../../api';
-import { WorkspaceHeader } from './WorkspaceHeader';
+import { WorkspaceHeader, IdeThemeId } from './WorkspaceHeader';
 import { ModelSheetTree } from './ModelSheetTree';
 import { CadCanvasViewport } from './CadCanvasViewport';
 import { BillOfCharacteristics } from './BillOfCharacteristics';
@@ -39,6 +39,7 @@ import { GeminiVisionModal } from './GeminiVisionModal';
 import { AuditLogDrawer } from './AuditLogDrawer';
 import { CmmImportModal } from './CmmImportModal';
 import { InteractiveTourModal } from './InteractiveTourModal';
+import { HelpCenterModal } from './HelpCenterModal';
 import { useUsbCaliperListener } from '../../hooks/useUsbCaliperListener';
 import { exportMultiPagePdfDeck } from '../../utils/pdfDeckExporter';
 import { Zap } from 'lucide-react';
@@ -115,6 +116,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [selectedDatumHighlight, setSelectedDatumHighlight] = useState<'A' | 'B' | 'C' | null>(null);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
   const [auditLogEntries, setAuditLogEntries] = useState<AuditLogEntry[]>(DEFAULT_AUDIT_LOG_ENTRIES);
+
+  // IDE Theme & Ruler & Help State
+  const [ideTheme, setIdeTheme] = useState<IdeThemeId>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('specballoon_ide_theme');
+      if (stored === 'light-studio' || stored === 'dark-carbon' || stored === 'vscode-dark' || stored === 'darcula') {
+        return stored;
+      }
+    }
+    return 'dark-carbon';
+  });
+  const [rulerUnit, setRulerUnit] = useState<'mm' | 'in' | 'pt'>('mm');
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [helpInitialTab, setHelpInitialTab] = useState<'quickstart' | 'dictionary' | 'shortcuts' | 'faq'>('quickstart');
+
+  const handleCycleRulerUnit = () => {
+    setRulerUnit((prev) => (prev === 'mm' ? 'in' : prev === 'in' ? 'pt' : 'mm'));
+  };
 
   // Workflow Connectors State: CMM Modal, Interactive Tour, USB Caliper, Active SubTab
   const [isCmmModalOpen, setIsCmmModalOpen] = useState(false);
@@ -672,6 +691,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         setToolMode('box_balloon');
       } else if (e.key.toLowerCase() === 'f') {
         setZoom(1.0);
+      } else if (e.key === '?' || (isCtrlOrMeta && e.key === '/')) {
+        e.preventDefault();
+        setIsHelpOpen((prev) => !prev);
       }
     };
 
@@ -713,10 +735,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   };
 
   const activeChar = characteristics.find((c) => c.id === activeBalloonId) || characteristics[0] || null;
+  const firstFlaggedChar = characteristics.find((c) => c.status === 'needs_review' || c.status === 'out_of_spec') || null;
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-app text-text-primary selection:bg-accent-primary selection:text-white font-sans select-none">
-      {/* 1. Top Ribbon */}
+    <div
+      data-ide-theme={ideTheme}
+      className="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg-app)] text-[var(--text-primary)] selection:bg-[var(--accent)] selection:text-white font-sans select-none"
+    >
+      {/* 1. Top Workbench Bar (Single Consolidated 48px Row) */}
       <WorkspaceHeader
         currentDrawing={currentDrawing}
         drawingsList={SAMPLE_DRAWINGS}
@@ -730,11 +756,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         onToggleViewMode={() => setViewMode(viewMode === 'split' ? 'sheet' : 'split')}
         caliperMode={caliperMode}
         onToggleCaliperMode={() => setCaliperMode(!caliperMode)}
-        darkMode={darkMode}
-        onToggleTheme={onToggleTheme}
+        ideTheme={ideTheme}
+        onChangeIdeTheme={(t) => {
+          setIdeTheme(t);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('specballoon_ide_theme', t);
+          }
+        }}
         onExportCSV={() => handleRequestExport('csv')}
         onExportExcel={() => handleRequestExport('excel')}
         onExportBalloonedPdf={() => handleRequestExport('pdf')}
+        onExportPdfDeck={handleExportPdfDeck}
         onExitToLanding={onExitToLanding}
         statusCounts={statusCounts}
         toolMode={toolMode}
@@ -759,8 +791,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         onToggleRevisionDiff={() => setIsRevisionDiffMode(prev => !prev)}
         onOpenCmmImport={() => setIsCmmModalOpen(true)}
         onStartTour={() => setIsTourOpen(true)}
-        onExportPdfDeck={handleExportPdfDeck}
-        onSimulateCaliperBurst={() => simulateCaliperBurst(30.012)}
+        onOpenHelpModal={(tab) => {
+          setHelpInitialTab(tab || 'quickstart');
+          setIsHelpOpen(true);
+        }}
+        rulerUnit={rulerUnit}
+        onCycleRulerUnit={handleCycleRulerUnit}
+        onToggleTree={() => setIsTreeCollapsed(prev => !prev)}
+        firstFlaggedChar={firstFlaggedChar}
+        onJumpToFlagged={(char) => {
+          setActiveBalloonId(char.id);
+          soundEngine.playKeyClick();
+        }}
         onOpenAuditLog={() => setIsAuditLogOpen(true)}
       />
 
@@ -843,6 +885,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 isRevisionDiffMode={isRevisionDiffMode}
                 onAcceptRevisionDeltas={handleAcceptRevisionDeltas}
                 selectedDatumHighlight={selectedDatumHighlight}
+                rulerUnit={rulerUnit}
+                onCycleRulerUnit={handleCycleRulerUnit}
               />
             </div>
 
@@ -1000,6 +1044,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         isOpen={isTourOpen}
         onClose={() => setIsTourOpen(false)}
         onStepChange={handleTourStepChange}
+      />
+
+      {/* Interactive 4-Tab Help Center & Dictionary */}
+      <HelpCenterModal
+        isOpen={isHelpOpen}
+        onClose={() => setIsHelpOpen(false)}
+        initialTab={helpInitialTab}
       />
     </div>
   );
