@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowRight, ShieldCheck, Terminal, Heart } from 'lucide-react';
 import { AppPage } from './GlobalNavbar';
+import { SpecBalloonLogo } from '../brand/SpecBalloonLogo';
 
 interface GlobalFooterProps {
   onNavigate: (page: AppPage) => void;
@@ -17,8 +18,8 @@ export const GlobalFooter: React.FC<GlobalFooterProps> = ({ onNavigate }) => {
               onClick={() => onNavigate('overview')}
               className="flex items-center gap-2.5 cursor-pointer group"
             >
-              <div className="w-6 h-6 rounded-full border-[1.5px] border-text-primary flex items-center justify-center relative">
-                <div className="w-2 h-2 rounded-full bg-text-primary" />
+              <div className="text-text-primary transition-transform group-hover:scale-105">
+                <SpecBalloonLogo size={24} />
               </div>
               <span className="font-display font-semibold text-base text-text-primary tracking-tight">
                 SpecBalloon

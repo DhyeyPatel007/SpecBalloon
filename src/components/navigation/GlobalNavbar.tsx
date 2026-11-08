@@ -1,5 +1,6 @@
 import React from 'react';
-import { Sun, Moon, ArrowRight, Search, Terminal } from 'lucide-react';
+import { Sun, Moon, ArrowRight, Search } from 'lucide-react';
+import { SpecBalloonLogo } from '../brand/SpecBalloonLogo';
 
 export type AppPage = 'overview' | 'product' | 'engine' | 'customers' | 'security' | 'pricing' | 'docs' | 'studio';
 
@@ -36,9 +37,8 @@ export const GlobalNavbar: React.FC<GlobalNavbarProps> = ({
           onClick={() => onNavigate('overview')}
           className="flex items-center gap-2.5 cursor-pointer group"
         >
-          <div className="w-6 h-6 rounded-full border-[1.5px] border-text-primary flex items-center justify-center relative transition-transform group-hover:scale-105">
-            <div className="w-2 h-2 rounded-full bg-text-primary" />
-            <div className="absolute inset-0 rounded-full border border-text-primary/30 animate-ping opacity-20" />
+          <div className="text-text-primary transition-transform group-hover:scale-105">
+            <SpecBalloonLogo size={24} />
           </div>
           <span className="font-display font-semibold text-base text-text-primary tracking-tight">
             SpecBalloon
