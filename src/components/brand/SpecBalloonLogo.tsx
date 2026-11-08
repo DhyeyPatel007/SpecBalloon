@@ -3,108 +3,78 @@ import React from 'react';
 export interface SpecBalloonLogoProps extends React.SVGProps<SVGSVGElement> {
   size?: number;
   className?: string;
+  dotPulse?: boolean;
   animateRuby?: boolean;
 }
 
 export const SpecBalloonLogo: React.FC<SpecBalloonLogoProps> = ({
-  size = 24,
+  size = 28,
   className = '',
-  animateRuby = true,
+  dotPulse = true,
+  animateRuby,
   ...props
 }) => {
+  const showPulse = animateRuby !== undefined ? animateRuby : dotPulse;
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="0 0 28 28"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={`specballoon-logo ${className}`}
+      className={`specballoon-monogram select-none flex-shrink-0 ${className}`}
       {...props}
     >
-      {/* 4 Cardinal Crosshair Ticks (0°, 90°, 180°, 270°) */}
-      {/* Top 0° */}
-      <line x1="12" y1="1" x2="12" y2="3.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-      {/* Bottom 180° */}
-      <line x1="12" y1="20.5" x2="12" y2="23" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-      {/* Left 270° */}
-      <line x1="1" y1="12" x2="3.5" y2="12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-      {/* Right 90° */}
-      <line x1="20.5" y1="12" x2="23" y2="12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      {/* 28x28 Squircle (rx=6, #09090B solid or var(--text-primary)) */}
+      <rect
+        width="28"
+        height="28"
+        rx="6"
+        fill="#09090B"
+        className="dark:fill-[#FAFAFA]"
+      />
 
-      {/* Sub-Vernier Angular Graduation Ticks (45°, 135°, 225°, 315°) */}
-      <line x1="18.2" y1="5.8" x2="17.2" y2="6.8" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.5" strokeLinecap="round" />
-      <line x1="18.2" y1="18.2" x2="17.2" y2="17.2" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.5" strokeLinecap="round" />
-      <line x1="5.8" y1="18.2" x2="6.8" y2="17.2" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.5" strokeLinecap="round" />
-      <line x1="5.8" y1="5.8" x2="6.8" y2="6.8" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.5" strokeLinecap="round" />
+      {/* Subtle Inner Micro-Hairline Border */}
+      <rect
+        x="0.75"
+        y="0.75"
+        width="26.5"
+        height="26.5"
+        rx="5.25"
+        stroke="rgba(255,255,255,0.15)"
+        strokeWidth="0.75"
+        className="dark:stroke-black/15"
+      />
 
-      {/* Outer Precision Vernier Ring */}
-      <circle
-        cx="12"
-        cy="12"
-        r="8.5"
-        stroke="currentColor"
-        strokeWidth="1.75"
+      {/* Geometric Engineered Uppercase "S" */}
+      <path
+        d="M17.5 9.5H12C10.6193 9.5 9.5 10.6193 9.5 12C9.5 13.3807 10.6193 14.5 12 14.5H16C17.3807 14.5 18.5 15.6193 18.5 17C18.5 18.3807 17.3807 19.5 16 19.5H10.5"
+        stroke="#FFFFFF"
+        strokeWidth="2.4"
         strokeLinecap="round"
+        strokeLinejoin="round"
+        className="dark:stroke-[#09090B]"
       />
 
-      {/* Inner Offset Inspection Reticle Circle */}
+      {/* 4px Crimson CMM Inspection Probe Ruby Dot in Top-Right Corner (#E11D48) */}
       <circle
-        cx="12"
-        cy="12"
-        r="4.25"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeDasharray="2 1.5"
-        strokeOpacity="0.75"
-      />
-
-      {/* Center Micro-Reticle Pivot */}
-      <circle
-        cx="12"
-        cy="12"
-        r="1.2"
-        fill="currentColor"
-      />
-
-      {/* 45° Metrology Leader Stalk extending to upper-right */}
-      <line
-        x1="14.8"
-        y1="9.2"
-        x2="19.2"
-        y2="4.8"
-        stroke="#E11D48"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-
-      {/* 3mm Industrial Synthetic Ruby CMM Probe Dot (#E11D48) at upper-right 45° leader node */}
-      <circle
-        cx="19.2"
-        cy="4.8"
-        r="2.2"
+        cx="21.5"
+        cy="6.5"
+        r="2"
         fill="#E11D48"
       />
-      {/* Ruby Specular Highlight */}
-      <circle
-        cx="18.6"
-        cy="4.2"
-        r="0.7"
-        fill="#FFFFFF"
-        opacity="0.85"
-      />
 
-      {/* Optional Pulse Wave around ruby */}
-      {animateRuby && (
+      {/* Optional Soft Specular / Pulse */}
+      {showPulse && (
         <circle
-          cx="19.2"
-          cy="4.8"
+          cx="21.5"
+          cy="6.5"
           r="3.5"
           stroke="#E11D48"
           strokeWidth="0.75"
-          opacity="0.4"
+          opacity="0.45"
           className="animate-ping"
-          style={{ transformOrigin: '19.2px 4.8px' }}
+          style={{ transformOrigin: '21.5px 6.5px' }}
         />
       )}
     </svg>

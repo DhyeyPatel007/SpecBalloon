@@ -37,8 +37,8 @@ export const GlobalNavbar: React.FC<GlobalNavbarProps> = ({
           onClick={() => onNavigate('overview')}
           className="flex items-center gap-2.5 cursor-pointer group"
         >
-          <div className="text-text-primary transition-transform group-hover:scale-105">
-            <SpecBalloonLogo size={24} />
+          <div className="transition-transform group-hover:scale-105">
+            <SpecBalloonLogo size={28} />
           </div>
           <span className="font-display font-semibold text-base text-text-primary tracking-tight">
             SpecBalloon
