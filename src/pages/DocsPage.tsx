@@ -361,3 +361,4 @@ export const DocsPage: React.FC<DocsPageProps> = ({ onNavigate }) => {
     </div>
   );
 };
+

@@ -409,3 +409,4 @@ export const ProductPage: React.FC<ProductPageProps> = ({ onNavigate }) => {
     </div>
   );
 };
+

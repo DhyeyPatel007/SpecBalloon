@@ -335,3 +335,4 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ onNavigate }) => {
     </div>
   );
 };
+

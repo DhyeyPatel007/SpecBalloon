@@ -482,3 +482,4 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
     </div>
   );
 };
+

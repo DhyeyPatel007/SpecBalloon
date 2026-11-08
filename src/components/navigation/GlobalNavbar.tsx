@@ -109,3 +109,4 @@ export const GlobalNavbar: React.FC<GlobalNavbarProps> = ({
     </header>
   );
 };
+

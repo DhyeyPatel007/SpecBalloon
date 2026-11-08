@@ -221,3 +221,4 @@ export const GlobalFooter: React.FC<GlobalFooterProps> = ({ onNavigate }) => {
     </footer>
   );
 };
+
