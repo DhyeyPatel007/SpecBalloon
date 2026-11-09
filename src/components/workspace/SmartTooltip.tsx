@@ -125,3 +125,4 @@ export const SmartTooltip: React.FC<SmartTooltipProps> = ({
     </div>
   );
 };
+
