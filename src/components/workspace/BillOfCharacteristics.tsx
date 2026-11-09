@@ -362,7 +362,9 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
                   </span>
                 ) : char.toleranceType === 'Thread' ? (
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-[10px] font-mono font-bold syntax-fit">
-                    ISO 965: D2={char.threadData?.pitchDiameterD2 || '9.026'}
+                    {char.threadData?.pitchD2Lsl !== undefined && char.threadData?.pitchD2Usl !== undefined
+                      ? `ISO 965: D2 ${char.threadData.pitchD2Lsl.toFixed(3)}–${char.threadData.pitchD2Usl.toFixed(3)}`
+                      : `ISO 965: D2=${char.threadData?.pitchDiameterD2 || '—'}`}
                   </span>
                 ) : (
                   <span className="text-[var(--text-muted)] text-[10px]">—</span>

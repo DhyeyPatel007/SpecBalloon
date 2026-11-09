@@ -50,7 +50,34 @@ export function calculateISOThread(
   const H = Number((0.866025 * pitch).toFixed(3));
   const D2 = Number((nominalDiameter - 0.649519 * pitch).toFixed(3));
   const D1 = Number((nominalDiameter - 1.082532 * pitch).toFixed(3));
-  
+
+  // ISO 965 pitch-diameter limits (TD2 = pitch-diameter tolerance, es = fundamental deviation).
+  // Only the pitch/class combos actually used in the sample data are listed; anything else
+  // gets no D2 limits rather than invented ones.
+  //   M10x1.5 6H internal: D2 9.026-9.206 (TD2 0.180, es 0)
+  //   M10x1.25 6H internal: D2 9.188-9.348 (TD2 0.160, es 0)
+  //   M24x1.5 6g external: D2 22.814-22.994 (TD2 0.180, es -0.032)
+  const ISO965_D2: Record<string, { td2: number; es: number }> = {
+    '1.5|6H|internal': { td2: 0.18, es: 0 },
+    '1.25|6H|internal': { td2: 0.16, es: 0 },
+    '1.5|6g|external': { td2: 0.18, es: -0.032 },
+  };
+  const d2Entry = ISO965_D2[`${pitch}|${threadClass}|${isInternal ? 'internal' : 'external'}`];
+  // Internal (6H): the basic pitch diameter is the MINIMUM (es = 0 at the bottom),
+  // tolerance goes up: LSL = D2 + es, USL = LSL + TD2.
+  // External (6g): the fundamental deviation sits at the TOP: USL = D2 + es, LSL = USL - TD2.
+  let pitchD2Lsl: number | undefined;
+  let pitchD2Usl: number | undefined;
+  if (d2Entry) {
+    if (isInternal) {
+      pitchD2Lsl = Number((D2 + d2Entry.es).toFixed(3));
+      pitchD2Usl = Number((pitchD2Lsl + d2Entry.td2).toFixed(3));
+    } else {
+      pitchD2Usl = Number((D2 + d2Entry.es).toFixed(3));
+      pitchD2Lsl = Number((pitchD2Usl - d2Entry.td2).toFixed(3));
+    }
+  }
+
   // 6H minor diameter tolerance (typically +0.20 to +0.30 mm on D1)
   const minorD1Lsl = D1;
   const minorD1Usl = Number((D1 + 0.25 * Math.sqrt(pitch)).toFixed(3));
@@ -60,6 +87,8 @@ export function calculateISOThread(
     nominalDiameter,
     fundamentalHeight: H,
     pitchDiameterD2: D2,
+    pitchD2Lsl,
+    pitchD2Usl,
     minorDiameterD1: D1,
     minorD1Lsl,
     minorD1Usl,

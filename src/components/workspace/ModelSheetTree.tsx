@@ -68,6 +68,17 @@ export const ModelSheetTree: React.FC<ModelSheetTreeProps> = ({
     outOfSpec: characteristics.filter((c) => c.status === 'out_of_spec').length,
   };
 
+  // Datum buttons are data-driven: the label and tag number come from the
+  // characteristic they jump to, so switching samples never shows the
+  // previous drawing's datum names (e.g. "Mounting Face" on PPAP-8810-A).
+  const datumChars = {
+    A: characteristics.find((c) => c.balloonNumber === 7 || c.datumFeature === 'A'),
+    B: characteristics.find((c) => c.balloonNumber === 1 || c.datumFeature === 'B'),
+    C: characteristics.find((c) => c.balloonNumber === 3 || c.datumFeature === 'C'),
+  };
+  const datumLabel = (c?: Characteristic) =>
+    `#${c && c.balloonNumber < 10 ? `0${c.balloonNumber}` : c?.balloonNumber ?? '—'}`;
+
   const handleViewClick = (viewKey: string, targetTagNumber?: number) => {
     setActiveViewName(viewKey);
     if (onSelectView) onSelectView(viewKey);
@@ -213,7 +224,8 @@ export const ModelSheetTree: React.FC<ModelSheetTreeProps> = ({
 
           {expandedSections.datums && (
             <div className="pl-3 pr-1 py-0.5 space-y-0.5 text-[11px] font-mono">
-              {/* Datum A -> Tag #07 */}
+              {/* Datum A -> first datum feature of the current drawing */}
+              {datumChars.A && (
               <button
                 type="button"
                 onClick={() => {
@@ -226,16 +238,18 @@ export const ModelSheetTree: React.FC<ModelSheetTreeProps> = ({
                     ? 'bg-[var(--text-primary)] text-[var(--bg-page)] font-semibold'
                     : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
                 }`}
-                title="Click to jump to Datum A (Tag #07: Mounting Face Flatness)"
+                title={`Click to jump to Datum A (Tag ${datumLabel(datumChars.A)}: ${datumChars.A.featureDescription})`}
               >
                 <span className="flex items-center gap-1.5 truncate">
                   <span className="px-1 py-0.2 rounded border border-[var(--border-hairline)] font-bold text-[10px]">[A]</span>
-                  <span className="truncate">Mounting Face</span>
+                  <span className="truncate">{datumChars.A.featureDescription}</span>
                 </span>
-                <span className="text-[9px] opacity-70">#07</span>
+                <span className="text-[9px] opacity-70">{datumLabel(datumChars.A)}</span>
               </button>
+              )}
 
               {/* Datum B -> Tag #01 */}
+              {datumChars.B && (
               <button
                 type="button"
                 onClick={() => {
@@ -248,16 +262,18 @@ export const ModelSheetTree: React.FC<ModelSheetTreeProps> = ({
                     ? 'bg-[var(--text-primary)] text-[var(--bg-page)] font-semibold'
                     : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
                 }`}
-                title="Click to jump to Datum B (Tag #01: Main Bore Ø30.00 H7)"
+                title={`Click to jump to Datum B (Tag ${datumLabel(datumChars.B)}: ${datumChars.B.featureDescription})`}
               >
                 <span className="flex items-center gap-1.5 truncate">
                   <span className="px-1 py-0.2 rounded border border-[var(--border-hairline)] font-bold text-[10px]">[B]</span>
-                  <span className="truncate">Center Bore</span>
+                  <span className="truncate">{datumChars.B.featureDescription}</span>
                 </span>
-                <span className="text-[9px] opacity-70">#01</span>
+                <span className="text-[9px] opacity-70">{datumLabel(datumChars.B)}</span>
               </button>
+              )}
 
               {/* Datum C -> Tag #03 */}
+              {datumChars.C && (
               <button
                 type="button"
                 onClick={() => {
@@ -270,14 +286,15 @@ export const ModelSheetTree: React.FC<ModelSheetTreeProps> = ({
                     ? 'bg-[var(--text-primary)] text-[var(--bg-page)] font-semibold'
                     : 'hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
                 }`}
-                title="Click to jump to Datum C (Tag #03: Flange Outer Dia Ø120.0)"
+                title={`Click to jump to Datum C (Tag ${datumLabel(datumChars.C)}: ${datumChars.C.featureDescription})`}
               >
                 <span className="flex items-center gap-1.5 truncate">
                   <span className="px-1 py-0.2 rounded border border-[var(--border-hairline)] font-bold text-[10px]">[C]</span>
-                  <span className="truncate">Flange OD</span>
+                  <span className="truncate">{datumChars.C.featureDescription}</span>
                 </span>
-                <span className="text-[9px] opacity-70">#03</span>
+                <span className="text-[9px] opacity-70">{datumLabel(datumChars.C)}</span>
               </button>
+              )}
             </div>
           )}
         </div>

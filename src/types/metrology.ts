@@ -43,6 +43,10 @@ export interface ThreadMetrologyData {
   nominalDiameter: number;
   fundamentalHeight: number;
   pitchDiameterD2: number;
+  /** ISO 965 pitch-diameter limits (the dimension a thread plug/ring gauge actually checks).
+   *  Undefined for pitch/class combos not in the table below: never invent limits. */
+  pitchD2Lsl?: number;
+  pitchD2Usl?: number;
   minorDiameterD1: number;
   minorD1Lsl: number;
   minorD1Usl: number;
