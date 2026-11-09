@@ -105,11 +105,15 @@ export async function extractDrawingApi(drawingId: string): Promise<Characterist
     // Graceful fallback to synchronized local Metrology Core
   }
 
-  // Local Metrology Core mirror
+  // Local Metrology Core mirror - ONLY return sample data if this is an explicit sample drawing ID!
   const { SAMPLE_DRAWINGS } = await import('./data/sampleDrawings');
-  const found = SAMPLE_DRAWINGS.find(d => d.id === drawingId) || SAMPLE_DRAWINGS[0];
-  const { generateCropsFromSpec } = await import('./utils/cadRenderer');
-  return generateCropsFromSpec(found);
+  const found = SAMPLE_DRAWINGS.find(d => d.id === drawingId);
+  if (found) {
+    const { generateCropsFromSpec } = await import('./utils/cadRenderer');
+    return generateCropsFromSpec(found);
+  }
+  // For custom uploaded drawings without a connected backend, return empty list honestly
+  return [];
 }
 
 /**

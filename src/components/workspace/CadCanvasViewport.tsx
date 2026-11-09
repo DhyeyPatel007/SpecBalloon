@@ -72,6 +72,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   onUpdateCharacteristicPosition,
   onDeleteCharacteristic,
   inverted,
+  onToggleInvert,
   customImage,
   onDropPdfFile,
   toolMode = 'pan',
@@ -634,6 +635,22 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         ctx.stroke();
       }
 
+      // Amber attention ring for unreviewed / low-confidence callouts
+      const isNeedsReview = char.status === 'needs_review' || (!char.reviewed && (char.confidence ?? 100) < 85);
+      if (isNeedsReview && !isSelected && !isDatumMatch) {
+        ctx.strokeStyle = 'rgba(217, 119, 6, 0.65)';
+        ctx.lineWidth = 1.75;
+        ctx.beginPath();
+        ctx.arc(bX, bY, 19, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(217, 119, 6, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(bX, bY, 26, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
       ctx.fillStyle = balloonColor;
       ctx.beginPath();
       ctx.arc(bX, bY, 12, 0, Math.PI * 2);
@@ -1050,8 +1067,8 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
             )}
           </div>
 
-          {/* Minimalist Floating Canvas Pill (Bottom-Center) */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 bg-[var(--bg-surface)]/95 backdrop-blur-md border border-[var(--border-strong)] rounded-full px-2 py-1 shadow-2xl flex items-center gap-1 text-xs">
+          {/* Consolidated Floating Canvas Pill (Bottom-Left) */}
+          <div className="absolute bottom-4 left-4 z-30 bg-[var(--bg-surface)]/95 backdrop-blur-md border border-[var(--border-strong)] rounded-full px-2 py-1 shadow-2xl flex items-center gap-1 text-xs select-none">
             {/* Pan Tool */}
             <button
               type="button"
@@ -1078,21 +1095,8 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
               }`}
               title="AI Marquee Box-Crop Tool (B)"
             >
-              <span>⬚ Box-Crop</span>
+              <span>⬚ Add Balloon</span>
               <kbd className="text-[9px] font-mono opacity-80">B</kbd>
-            </button>
-
-            <div className="w-[1px] h-3.5 bg-[var(--border-hairline)] mx-0.5" />
-
-            {/* Fit Sheet */}
-            <button
-              type="button"
-              onClick={handleFitSheet}
-              className="px-2 py-1 rounded-full flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
-              title="Fit Sheet to Viewport (F)"
-            >
-              <span>🔍 Fit</span>
-              <kbd className="text-[9px] font-mono opacity-80">F</kbd>
             </button>
 
             <div className="w-[1px] h-3.5 bg-[var(--border-hairline)] mx-0.5" />
@@ -1121,6 +1125,55 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
               title="Zoom In"
             >
               +
+            </button>
+
+            <div className="w-[1px] h-3.5 bg-[var(--border-hairline)] mx-0.5" />
+
+            {/* Fit Sheet */}
+            <button
+              type="button"
+              onClick={handleFitSheet}
+              className="px-2 py-1 rounded-full flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
+              title="Fit Sheet to Viewport (F)"
+            >
+              <span>Fit</span>
+              <kbd className="text-[9px] font-mono opacity-80">F</kbd>
+            </button>
+
+            <div className="w-[1px] h-3.5 bg-[var(--border-hairline)] mx-0.5" />
+
+            {/* Cycle Ruler Units */}
+            <button
+              type="button"
+              onClick={handleUnitCycle}
+              className="px-2 py-1 rounded-full flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] font-mono text-[11px] transition-colors cursor-pointer"
+              title={`Active Ruler: ${activeRulerUnit.toUpperCase()}`}
+            >
+              <span>📏 {activeRulerUnit}</span>
+            </button>
+
+            {/* Minimap Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowMinimap((prev) => !prev)}
+              className={`px-2 py-1 rounded-full flex items-center gap-1 transition-colors cursor-pointer ${
+                showMinimap
+                  ? 'text-[var(--accent)] font-semibold bg-[var(--bg-subtle)]'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Toggle Minimap Radar"
+            >
+              <span>🗺</span>
+            </button>
+
+            {/* Invert Blueprint */}
+            <button
+              type="button"
+              onClick={onToggleInvert}
+              className="px-2 py-1 rounded-full flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
+              title="Toggle Inverted Blueprint (K)"
+            >
+              <span>🌓</span>
             </button>
           </div>
 

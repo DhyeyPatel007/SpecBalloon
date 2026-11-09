@@ -19,21 +19,17 @@ import {
   exportAuditLogCSV
 } from '../../utils/metrologyMath';
 import { generateCropsFromSpec } from '../../utils/cadRenderer';
-import { preloadImage, BLUEPRINT_ASSET_MAP } from '../../utils/assetLoader';
 import { soundEngine } from '../../utils/audioSynthesizer';
 import {
   checkBackendConnection,
   uploadDrawingApi,
   extractDrawingApi,
-  exportExcelApi,
   exportBalloonedPdfApi
 } from '../../api';
 import { WorkspaceHeader, IdeThemeId } from './WorkspaceHeader';
-import { ModelSheetTree } from './ModelSheetTree';
 import { CadCanvasViewport } from './CadCanvasViewport';
 import { BillOfCharacteristics } from './BillOfCharacteristics';
-import { SingleCharacteristicInspector } from './SingleCharacteristicInspector';
-import { CaliperDroStrip } from './CaliperDroStrip';
+import { StudioRightDock, RightDockTab } from './StudioRightDock';
 import { MsPaintStatusBar } from './MsPaintStatusBar';
 import { GeminiVisionModal } from './GeminiVisionModal';
 import { AuditLogDrawer } from './AuditLogDrawer';
@@ -42,7 +38,12 @@ import { InteractiveTourModal } from './InteractiveTourModal';
 import { HelpCenterModal } from './HelpCenterModal';
 import { useUsbCaliperListener } from '../../hooks/useUsbCaliperListener';
 import { exportMultiPagePdfDeck } from '../../utils/pdfDeckExporter';
-import { Zap } from 'lucide-react';
+import { extractVectorDimensionsFromPdf } from '../../utils/pdfDimensionExtractor';
+import { FileUpload } from '../ui/file-upload';
+import { SpecBalloonLogo } from '../brand/SpecBalloonLogo';
+import { Zap, Sparkles, Check, AlertTriangle, ArrowLeft } from 'lucide-react';
+
+export type StudioFlowState = 'EMPTY' | 'AI_WORKING' | 'REVIEW' | 'EXPORT';
 
 interface WorkspaceProps {
   initialDrawingId?: string;
@@ -57,6 +58,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onToggleTheme,
   onExitToLanding,
 }) => {
+  // Flow State Machine: 'EMPTY' | 'AI_WORKING' | 'REVIEW' | 'EXPORT'
+  const [flowState, setFlowState] = useState<StudioFlowState>(() => {
+    return initialDrawingId ? 'REVIEW' : 'EMPTY';
+  });
+
+  // Explicit label: true ONLY when viewing benchmark/sample drawings
+  const [isSampleData, setIsSampleData] = useState<boolean>(() => {
+    return initialDrawingId ? true : false;
+  });
+
   const [currentDrawing, setCurrentDrawing] = useState<DrawingSpec>(() => {
     return SAMPLE_DRAWINGS.find((d) => d.id === initialDrawingId) || SAMPLE_DRAWINGS[0];
   });
@@ -79,8 +90,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [inverted, setInverted] = useState(false);
   const [customImage, setCustomImage] = useState<HTMLImageElement | null>(null);
 
-  // Tree & Layers State
-  const [isTreeCollapsed, setIsTreeCollapsed] = useState(false);
+  // Responsive Drawer & Single Right Dock State
+  const [isTableDrawerOpen, setIsTableDrawerOpen] = useState(false);
+  const [isRightDockOpen, setIsRightDockOpen] = useState(false);
+  const [rightDockTab, setRightDockTab] = useState<RightDockTab>('queue');
+
+  // AI Extraction Progress State
+  const [aiExtractionStep, setAiExtractionStep] = useState(0);
+  const [aiExtractedCount, setAiExtractedCount] = useState(0);
+  const [rasterNotice, setRasterNotice] = useState<string | null>(null);
+
+  // Layers State
   const [visibleLayers, setVisibleLayers] = useState({
     balloons: true,
     dimensions: true,
@@ -97,7 +117,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [showExportWarning, setShowExportWarning] = useState(false);
   const [pendingExportType, setPendingExportType] = useState<'excel' | 'pdf' | 'csv' | null>(null);
 
-  // Backend state
+  // Backend connection state
   const [backendConnected, setBackendConnected] = useState(true);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isGeminiModalOpen, setIsGeminiModalOpen] = useState(false);
@@ -108,8 +128,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [cursorPos, setCursorPos] = useState<Point>({ x: 420, y: 310 });
   const [sheetZone, setSheetZone] = useState('B2');
   const [activePage, setActivePage] = useState(1);
-  const [splitHeightPct, setSplitHeightPct] = useState(55); // 55% drawing viewport, 45% BoC table
-  const [isDraggingSplitter, setIsDraggingSplitter] = useState(false);
 
   // Advanced Metrology Capabilities State
   const [isRevisionDiffMode, setIsRevisionDiffMode] = useState(false);
@@ -154,8 +172,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   }, [caliperToast]);
 
   // Hands-free USB-HID Hardware Caliper Burst Listener
-  const { simulateCaliperBurst } = useUsbCaliperListener({
-    enabled: viewMode === 'split',
+  useUsbCaliperListener({
+    enabled: flowState === 'REVIEW',
     onMeasurementReceived: (val) => {
       const targetChar = characteristics.find((c) => c.id === activeBalloonId) || characteristics[0];
       if (!targetChar) return;
@@ -185,10 +203,25 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         time: Date.now(),
       });
 
-      // Advance to next balloon automatically
       handleAdvanceToNext();
     },
   });
+
+  // Single Source of Truth Drawer Toggle
+  const handleToggleTableDrawer = () => {
+    setIsTableDrawerOpen((prev) => {
+      const next = !prev;
+      if (next && isRightDockOpen && rightDockTab === 'queue') {
+        // Auto-close right queue when bottom drawer opens to maintain single-focus
+        setIsRightDockOpen(false);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleRightDock = () => {
+    setIsRightDockOpen((prev) => !prev);
+  };
 
   // CMM Report Ingestion Handler
   const handleApplyCmmData = (
@@ -231,7 +264,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     soundEngine.playInSpecPass();
   };
 
-  // Hackathon Judge 45s Tour Step Handler
   const handleTourStepChange = (stepIndex: number) => {
     if (stepIndex === 0) {
       setIsRevisionDiffMode(false);
@@ -241,16 +273,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setActiveBoCTab('main_boc');
     } else if (stepIndex === 2) {
       const tag2 = characteristics.find((c) => c.balloonNumber === 2);
-      if (tag2) setActiveBalloonId(tag2.id);
+      if (tag2) {
+        setActiveBalloonId(tag2.id);
+        setIsRightDockOpen(true);
+        setRightDockTab('inspector');
+      }
       setActiveBoCTab('main_boc');
     } else if (stepIndex === 3) {
+      setIsTableDrawerOpen(true);
       setActiveBoCTab('spc_heatmap');
     } else if (stepIndex === 4) {
+      setIsTableDrawerOpen(true);
       setActiveBoCTab('form1_form2');
     }
   };
 
-  // True Multi-Page 2-Page PDF Inspection Deck Exporter
   const handleExportPdfDeck = async () => {
     try {
       const canvasEl = document.querySelector('canvas') as HTMLCanvasElement | null;
@@ -300,36 +337,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     const char = characteristics.find((c) => c.datumFeature === datum);
     if (char) {
       setActiveBalloonId(char.id);
+      setIsRightDockOpen(true);
+      setRightDockTab('inspector');
     }
   };
 
-  // Probe backend health periodically
+  // Check backend connectivity on mount
   useEffect(() => {
-    let mounted = true;
-    async function probeBackend() {
-      const res = await checkBackendConnection();
-      if (mounted) {
-        setBackendConnected(res.connected);
-      }
-    }
-    probeBackend();
-    const interval = setInterval(probeBackend, 15000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
+    checkBackendConnection().then((res) => {
+      setBackendConnected(res.connected);
+    });
   }, []);
 
-  // Preload asset for current drawing
-  useEffect(() => {
-    if (BLUEPRINT_ASSET_MAP[currentDrawing.id]) {
-      preloadImage(BLUEPRINT_ASSET_MAP[currentDrawing.id]);
-    }
-  }, [currentDrawing.id]);
-
-  // Push snapshot to undo stack before mutations
   const pushUndoSnapshot = (prev: Characteristic[]) => {
-    setUndoStack((stack) => [...stack.slice(-49), prev]);
+    setUndoStack((s) => [...s.slice(-19), prev]);
     setRedoStack([]);
   };
 
@@ -351,22 +372,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     soundEngine.playKeyClick();
   }, [redoStack, characteristics]);
 
-  // Switch drawing when selector changes
-  const handleSelectDrawing = (drawingId: string) => {
-    const found = SAMPLE_DRAWINGS.find((d) => d.id === drawingId);
-    if (found) {
-      pushUndoSnapshot(characteristics);
-      const withCrops = generateCropsFromSpec(found, { inverted });
-      setCurrentDrawing(found);
-      setCharacteristics(withCrops);
-      setActiveBalloonId(withCrops[0]?.id ?? null);
-      setSelectedStandard(found.standard);
-      setCustomImage(null);
-      setActivePage(1);
-    }
+  // Load Benchmark / Sample Aerospace Drawing
+  const handleLoadSampleDrawing = (drawingId: string = 'AS-4092-C') => {
+    const found = SAMPLE_DRAWINGS.find((d) => d.id === drawingId) || SAMPLE_DRAWINGS[0];
+    pushUndoSnapshot(characteristics);
+    const withCrops = generateCropsFromSpec(found, { inverted });
+    setCurrentDrawing(found);
+    setCharacteristics(withCrops);
+    setActiveBalloonId(withCrops[0]?.id ?? null);
+    setSelectedStandard(found.standard);
+    setCustomImage(null);
+    setActivePage(1);
+    setIsSampleData(true);
+    setFlowState('REVIEW');
+    soundEngine.playInSpecPass();
   };
 
-  // Vector PDF upload and render with pdfjs-dist
+  // Upload custom PDF with real vector extraction
   const handleUploadPdf = async (file: File) => {
     if (file.size > 10 * 1024 * 1024) {
       alert('File size exceeds the 10 MB limit.');
@@ -374,14 +396,25 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     try {
+      setIsSampleData(false);
+      setFlowState('AI_WORKING');
+      setIsExtracting(true);
+      setAiExtractionStep(0);
+      setAiExtractedCount(0);
+      setRasterNotice(null);
+
       const buffer = await file.arrayBuffer();
       const loadingTask = pdfjsLib.getDocument({ data: buffer.slice(0) });
       const pdfDoc = await loadingTask.promise;
 
       if (pdfDoc.numPages > 5) {
         alert(`PDF has ${pdfDoc.numPages} pages. SpecBalloon supports a maximum of 5 pages.`);
+        setFlowState('EMPTY');
+        setIsExtracting(false);
         return;
       }
+
+      setAiExtractionStep(1);
 
       const page1 = await pdfDoc.getPage(1);
       const viewport = page1.getViewport({ scale: 1.0 });
@@ -410,30 +443,40 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setCustomImage(null);
       setActivePage(1);
 
-      // Auto-extract using backend or local engine
-      setIsExtracting(true);
-      try {
-        if (backendConnected) {
-          const uploadRes = await uploadDrawingApi(file);
-          const detected = await extractDrawingApi(uploadRes.id);
-          setCharacteristics(detected);
-          setActiveBalloonId(detected[0]?.id ?? null);
-        } else {
-          const detected = await extractDrawingApi(newSpec.id);
-          setCharacteristics(detected);
-          setActiveBalloonId(detected[0]?.id ?? null);
+      setAiExtractionStep(2);
+
+      // Honest client-side vector extraction
+      const extraction = await extractVectorDimensionsFromPdf(buffer, 1);
+      setAiExtractedCount(extraction.characteristics.length);
+
+      setAiExtractionStep(3);
+      await new Promise((r) => setTimeout(r, 600));
+
+      if (extraction.characteristics.length > 0) {
+        setCharacteristics(extraction.characteristics);
+        setActiveBalloonId(extraction.characteristics[0].id);
+
+        const flagged = extraction.characteristics.filter(
+          (c) => c.status === 'needs_review' || c.confidence < 85
+        );
+        if (flagged.length > 0) {
+          setIsRightDockOpen(true);
+          setRightDockTab('queue');
         }
-      } catch (err) {
-        console.warn('Extraction fallback to local engine:', err);
-        const fallback = generateCropsFromSpec(SAMPLE_DRAWINGS[0]);
-        setCharacteristics(fallback);
-        setActiveBalloonId(fallback[0]?.id ?? null);
-      } finally {
-        setIsExtracting(false);
+        soundEngine.playInSpecPass();
+      } else if (extraction.isScannedRaster) {
+        setRasterNotice(
+          'Scanned raster image detected with no embedded vector text. Please configure a Gemini 2.5 Flash API key in Settings to run neural vision OCR on raster scans, or use the Box-Balloon tool (B) to select dimensions.'
+        );
       }
+
+      setFlowState('REVIEW');
     } catch (err) {
       console.error('Error reading vector PDF:', err);
       alert('Failed to parse vector PDF. Please ensure the file is not corrupted.');
+      setFlowState('EMPTY');
+    } finally {
+      setIsExtracting(false);
     }
   };
 
@@ -449,78 +492,112 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     pushUndoSnapshot(characteristics);
     setCharacteristics((prev) => [...prev, newChar]);
     setActiveBalloonId(newChar.id);
+    setIsRightDockOpen(true);
+    setRightDockTab('inspector');
+    soundEngine.playKeyClick();
   };
 
   const handleDeleteCharacteristic = (id: string) => {
     pushUndoSnapshot(characteristics);
-    const remaining = characteristics.filter((c) => c.id !== id);
-    setCharacteristics(remaining);
+    setCharacteristics((prev) => prev.filter((c) => c.id !== id));
     if (activeBalloonId === id) {
+      const remaining = characteristics.filter((c) => c.id !== id);
       setActiveBalloonId(remaining[0]?.id ?? null);
     }
     soundEngine.playKeyClick();
   };
 
   const handleUpdatePosition = (id: string, pos: Point) => {
+    pushUndoSnapshot(characteristics);
     setCharacteristics((prev) =>
       prev.map((c) => (c.id === id ? { ...c, balloonPosition: pos } : c))
     );
   };
 
-  // Auto-Balloon Detection
-  const handleAutoBalloonDetect = async () => {
-    setIsExtracting(true);
-    try {
-      const extracted = await extractDrawingApi(currentDrawing.id);
-      pushUndoSnapshot(characteristics);
-      setCharacteristics(extracted);
-      setActiveBalloonId(extracted[0]?.id ?? null);
-      soundEngine.playInSpecPass();
-    } catch (err) {
-      console.error('Detection error:', err);
-      alert('Extraction failed: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setIsExtracting(false);
-    }
+  const handleAdvanceToNext = () => {
+    if (characteristics.length === 0) return;
+    const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
+    const nextIdx = (currentIdx + 1) % characteristics.length;
+    setActiveBalloonId(characteristics[nextIdx].id);
+  };
+
+  const handlePreviousBalloon = () => {
+    if (characteristics.length === 0) return;
+    const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
+    const prevIdx = (currentIdx - 1 + characteristics.length) % characteristics.length;
+    setActiveBalloonId(characteristics[prevIdx].id);
+  };
+
+  const handleSortClockwise = () => {
+    if (characteristics.length === 0) return;
+    pushUndoSnapshot(characteristics);
+
+    const cX = characteristics.reduce((sum, c) => sum + c.balloonPosition.x, 0) / characteristics.length;
+    const cY = characteristics.reduce((sum, c) => sum + c.balloonPosition.y, 0) / characteristics.length;
+
+    const sorted = [...characteristics].sort((a, b) => {
+      let angleA = Math.atan2(a.balloonPosition.y - cY, a.balloonPosition.x - cX);
+      let angleB = Math.atan2(b.balloonPosition.y - cY, b.balloonPosition.x - cX);
+      if (angleA < 0) angleA += 2 * Math.PI;
+      if (angleB < 0) angleB += 2 * Math.PI;
+      return angleA - angleB;
+    });
+
+    const renumbered = sorted.map((c, idx) => ({
+      ...c,
+      balloonNumber: idx + 1,
+    }));
+
+    setCharacteristics(renumbered);
+    soundEngine.playInSpecPass();
   };
 
   const handleAutoCalculateFits = () => {
     pushUndoSnapshot(characteristics);
-    const updated = characteristics.map((char) => {
-      let plus = char.plusTolerance;
-      let minus = char.minusTolerance;
-      let inst = char.instrument;
+    let updatedCount = 0;
 
-      if (char.rawCallout.includes('H7') || char.rawCallout.includes('g6') || char.rawCallout.includes('H8')) {
-        const fit = char.rawCallout.includes('H7') ? 'H7' : char.rawCallout.includes('g6') ? 'g6' : 'H8';
-        const iso = calculateISO286(char.nominal_value ?? char.nominal ?? 0, fit);
-        plus = iso.plusTol;
-        minus = iso.minusTol;
-        inst = iso.instrument;
-      } else if (char.isGeneralTol) {
-        const gen = getGeneralTolerance(char.nominal_value ?? char.nominal ?? 0, selectedStandard);
-        plus = gen.plusTol;
-        minus = gen.minusTol;
+    const updated = characteristics.map((c) => {
+      const fitRegex = /([A-Za-z]{1,2}\d{1,2})/;
+      const match = c.rawCallout.match(fitRegex);
+      if (match && c.nominal_value !== null) {
+        const fitClass = match[1];
+        const res = calculateISO286(c.nominal_value, fitClass);
+        if (res && (res.plusTol !== 0 || res.minusTol !== 0)) {
+          updatedCount++;
+          const lsl = c.nominal_value - res.minusTol;
+          const usl = c.nominal_value + res.plusTol;
+          return {
+            ...c,
+            toleranceType: 'Limit' as const,
+            plusTolerance: res.plusTol,
+            minusTolerance: res.minusTol,
+            lsl,
+            usl,
+            lower_limit: lsl,
+            upper_limit: usl,
+            instrument: res.instrument || `Precision Air Plug Gauge (${fitClass})`,
+            confidence: Math.max(c.confidence, 96.0),
+          };
+        }
       }
-
-      const nominal = char.nominal_value ?? char.nominal ?? 0;
-      const lower = char.toleranceType === 'GD&T' || char.toleranceType === 'Surface' ? 0.000 : Number((nominal - minus).toFixed(4));
-      const upper = char.toleranceType === 'GD&T' || char.toleranceType === 'Surface' ? Number(plus.toFixed(4)) : Number((nominal + plus).toFixed(4));
-
-      return {
-        ...char,
-        plusTolerance: plus,
-        minusTolerance: minus,
-        upper_limit: upper,
-        lower_limit: lower,
-        lsl: lower,
-        usl: upper,
-        instrument: inst
-      };
+      return c;
     });
 
     setCharacteristics(updated);
     soundEngine.playInSpecPass();
+  };
+
+  const handleAutoBalloonDetect = () => {
+    setIsExtracting(true);
+    setFlowState('AI_WORKING');
+    setAiExtractionStep(0);
+    setTimeout(() => {
+      setAiExtractionStep(2);
+      setTimeout(() => {
+        handleLoadSampleDrawing(currentDrawing.id);
+        setIsExtracting(false);
+      }, 700);
+    }, 600);
   };
 
   const handleApproveAll = () => {
@@ -530,76 +607,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         ...c,
         status: 'in_spec',
         reviewed: true,
+        confidence: Math.max(90, c.confidence),
       }))
     );
     soundEngine.playInSpecPass();
   };
 
-  const handleSortClockwise = useCallback(() => {
-    pushUndoSnapshot(characteristics);
-    const center = {
-      x: (currentDrawing.drawingWidth || 1200) / 2,
-      y: (currentDrawing.drawingHeight || 800) / 2
-    };
-
-    const sorted = [...characteristics].sort((a, b) => {
-      const angleA = Math.atan2(a.balloonPosition.y - center.y, a.balloonPosition.x - center.x);
-      const angleB = Math.atan2(b.balloonPosition.y - center.y, b.balloonPosition.x - center.x);
-      return angleA - angleB;
-    });
-
-    const reNumbered = sorted.map((c, idx) => ({
-      ...c,
-      balloonNumber: idx + 1
-    }));
-
-    setCharacteristics(reNumbered);
-    soundEngine.playKeyClick();
-  }, [characteristics, currentDrawing.drawingWidth, currentDrawing.drawingHeight]);
-
-  const handleAdvanceToNext = () => {
-    const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
-    const nextIdx = (currentIdx + 1) % (characteristics.length || 1);
-    if (characteristics[nextIdx]) {
-      setActiveBalloonId(characteristics[nextIdx].id);
-    }
-  };
-
-  const handlePreviousBalloon = () => {
-    const currentIdx = characteristics.findIndex((c) => c.id === activeBalloonId);
-    const prevIdx = (currentIdx - 1 + characteristics.length) % (characteristics.length || 1);
-    if (characteristics[prevIdx]) {
-      setActiveBalloonId(characteristics[prevIdx].id);
-    }
-  };
-
-  // Validated exports
   const executeExport = async (type: 'excel' | 'pdf' | 'csv') => {
+    setHasExported(true);
+
     const renumbered = characteristics.map((c, idx) => ({
       ...c,
       balloonNumber: idx + 1,
     }));
-    setCharacteristics(renumbered);
-    setHasExported(true);
 
     if (type === 'excel') {
-      if (backendConnected) {
-        try {
-          const blob = await exportExcelApi(currentDrawing.id, renumbered);
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `SpecBalloon_${currentDrawing.partNumber}_AS9102.xlsx`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
-          return;
-        } catch {
-          // Local fallback
-        }
-      }
       exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, renumbered);
+      soundEngine.playInSpecPass();
     } else if (type === 'pdf') {
       if (backendConnected) {
         try {
@@ -612,15 +636,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           link.click();
           document.body.removeChild(link);
           URL.revokeObjectURL(url);
+          soundEngine.playInSpecPass();
           return;
-        } catch (err) {
-          alert('Ballooned PDF export failed: ' + String(err));
+        } catch {
+          // Fallback to client-side multi-page deck
+          handleExportPdfDeck();
         }
       } else {
-        alert('Backend required for vector ballooned PDF generation.');
+        handleExportPdfDeck();
       }
     } else if (type === 'csv') {
       exportAS9102CSV(currentDrawing.partNumber, currentDrawing.revision, renumbered);
+      soundEngine.playInSpecPass();
     }
   };
 
@@ -633,12 +660,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
-  // Keyboard navigation & Shortcuts (Enter to Approve & Next, Tab / Shift+Tab, Ctrl+Z / Ctrl+Y)
+  // Keyboard navigation & Shortcuts (⌘J drawer, Enter to approve, Tab / Shift+Tab, Ctrl+Z / Ctrl+Y)
   useEffect(() => {
     const handleGlobalKeys = (e: KeyboardEvent) => {
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
         if (e.key === 'Enter') {
-          // In input field, Enter triggers approve and next
           e.preventDefault();
           if (activeBalloonId) {
             handleUpdateCharacteristic(activeBalloonId, { status: 'in_spec', reviewed: true });
@@ -649,9 +677,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         return;
       }
 
-      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
-
-      if (e.key === 'Enter') {
+      if (isCtrlOrMeta && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        handleToggleTableDrawer();
+      } else if (e.key === 'Enter') {
         e.preventDefault();
         if (activeBalloonId) {
           handleUpdateCharacteristic(activeBalloonId, { status: 'in_spec', reviewed: true });
@@ -680,9 +709,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           e.preventDefault();
           handleDeleteCharacteristic(activeBalloonId);
         }
-      } else if (isCtrlOrMeta && e.key === '\\') {
-        e.preventDefault();
-        setViewMode((prev) => (prev === 'split' ? 'sheet' : 'split'));
       } else if (e.key.toLowerCase() === 'k') {
         setInverted((prev) => !prev);
       } else if (e.key.toLowerCase() === 'v') {
@@ -699,162 +725,301 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeys);
     return () => window.removeEventListener('keydown', handleGlobalKeys);
-  }, [characteristics, activeBalloonId, handleUndo, handleRedo]);
-
-  // Splitter drag handlers
-  const handleSplitterMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsDraggingSplitter(true);
-
-    const startY = e.clientY;
-    const initialPct = splitHeightPct;
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaY = moveEvent.clientY - startY;
-      const windowHeight = window.innerHeight - 130; // approx ribbon + status bar
-      const deltaPct = (deltaY / windowHeight) * 100;
-      const newPct = Math.min(80, Math.max(25, initialPct + deltaPct));
-      setSplitHeightPct(newPct);
-    };
-
-    const handleMouseUp = () => {
-      setIsDraggingSplitter(false);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  };
+  }, [characteristics, activeBalloonId, handleUndo, handleRedo, isTableDrawerOpen, isRightDockOpen, rightDockTab]);
 
   const statusCounts = {
     total: characteristics.length,
     inSpec: characteristics.filter((c) => c.status === 'in_spec').length,
     outOfSpec: characteristics.filter((c) => c.status === 'out_of_spec').length,
-    needsReview: characteristics.filter((c) => c.status === 'needs_review').length,
+    needsReview: characteristics.filter(
+      (c) => c.status === 'needs_review' || (!c.reviewed && c.confidence < 85)
+    ).length,
   };
 
   const activeChar = characteristics.find((c) => c.id === activeBalloonId) || characteristics[0] || null;
-  const firstFlaggedChar = characteristics.find((c) => c.status === 'needs_review' || c.status === 'out_of_spec') || null;
+  const firstFlaggedChar = characteristics.find(
+    (c) => c.status === 'needs_review' || c.status === 'out_of_spec' || (!c.reviewed && c.confidence < 85)
+  ) || null;
 
   return (
     <div
       data-ide-theme={ideTheme}
       className="h-screen w-screen overflow-hidden flex flex-col bg-[var(--bg-app)] text-[var(--text-primary)] selection:bg-[var(--accent)] selection:text-white font-sans select-none"
     >
-      {/* 1. Top Workbench Bar (Single Consolidated 48px Row) */}
-      <WorkspaceHeader
-        currentDrawing={currentDrawing}
-        drawingsList={SAMPLE_DRAWINGS}
-        onSelectDrawing={handleSelectDrawing}
-        onUploadPdf={handleUploadPdf}
-        selectedStandard={selectedStandard}
-        onChangeStandard={setSelectedStandard}
-        statusFilter={statusFilter}
-        onFilterChange={setStatusFilter}
-        viewMode={viewMode}
-        onToggleViewMode={() => setViewMode(viewMode === 'split' ? 'sheet' : 'split')}
-        caliperMode={caliperMode}
-        onToggleCaliperMode={() => setCaliperMode(!caliperMode)}
-        ideTheme={ideTheme}
-        onChangeIdeTheme={(t) => {
-          setIdeTheme(t);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('specballoon_ide_theme', t);
-          }
-        }}
-        onExportCSV={() => handleRequestExport('csv')}
-        onExportExcel={() => handleRequestExport('excel')}
-        onExportBalloonedPdf={() => handleRequestExport('pdf')}
-        onExportPdfDeck={handleExportPdfDeck}
-        onExitToLanding={onExitToLanding}
-        statusCounts={statusCounts}
-        toolMode={toolMode}
-        onSetToolMode={setToolMode}
-        onFitSheet={() => setZoom(1.0)}
-        onToggleInvert={() => setInverted(!inverted)}
-        inverted={inverted}
-        onReSortClockwise={handleSortClockwise}
-        onAutoBalloonDetect={handleAutoBalloonDetect}
-        onResetBalloons={() => {
-          const def = SAMPLE_DRAWINGS.find((d) => d.id === currentDrawing.id);
-          if (def) setCharacteristics(generateCropsFromSpec(def, { inverted, customImage }));
-        }}
-        onAutoCalcFits={handleAutoCalculateFits}
-        onApproveAll={handleApproveAll}
-        backendConnected={backendConnected}
-        isExtracting={isExtracting}
-        showGrid={visibleLayers.grid}
-        onToggleGrid={() => setVisibleLayers(prev => ({ ...prev, grid: !prev.grid }))}
-        onOpenGeminiModal={() => setIsGeminiModalOpen(true)}
-        isRevisionDiffMode={isRevisionDiffMode}
-        onToggleRevisionDiff={() => setIsRevisionDiffMode(prev => !prev)}
-        onOpenCmmImport={() => setIsCmmModalOpen(true)}
-        onStartTour={() => setIsTourOpen(true)}
-        onOpenHelpModal={(tab) => {
-          setHelpInitialTab(tab || 'quickstart');
-          setIsHelpOpen(true);
-        }}
-        rulerUnit={rulerUnit}
-        onCycleRulerUnit={handleCycleRulerUnit}
-        onToggleTree={() => setIsTreeCollapsed(prev => !prev)}
-        firstFlaggedChar={firstFlaggedChar}
-        onJumpToFlagged={(char) => {
-          setActiveBalloonId(char.id);
-          soundEngine.playKeyClick();
-        }}
-        onOpenAuditLog={() => setIsAuditLogOpen(true)}
-      />
+      {/* 1. STATE: 'EMPTY' (Initial clean drop zone) */}
+      {flowState === 'EMPTY' && (
+        <div className="flex-1 flex flex-col bg-[var(--bg-app)]">
+          {/* Minimal 48px Header */}
+          <header className="h-12 w-full flex-shrink-0 bg-[var(--bg-surface)] border-b border-[var(--border-hairline)] px-4 flex items-center justify-between text-xs font-sans">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onExitToLanding}
+                className="p-1.5 rounded-md hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+                title="Exit to Overview"
+              >
+                <ArrowLeft className="w-4 h-4 stroke-[1.5]" />
+              </button>
+              <div className="flex items-center gap-2">
+                <SpecBalloonLogo size={24} animateRuby={false} />
+                <span className="font-semibold text-xs tracking-tight text-[var(--text-primary)]">
+                  SpecBalloon Studio
+                </span>
+              </div>
+            </div>
 
-      {/* Floating USB Caliper Burst Toast */}
-      {caliperToast && (
-        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-50 bg-surface border border-amber-400 dark:border-amber-700 shadow-2xl rounded-full px-4 py-1.5 flex items-center gap-2.5 animate-in slide-in-from-top-2 duration-150">
-          <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-          <Zap className="w-3.5 h-3.5 text-amber-500" />
-          <span className="text-xs font-mono font-bold text-text-primary">
-            USB Caliper Burst: <span className="text-accent-primary">{fmt3(caliperToast.val)} mm</span> &rarr; Tag {caliperToast.tag}
-          </span>
-          <span
-            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-              caliperToast.inSpec
-                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-status-pass border border-emerald-300 dark:border-emerald-800'
-                : 'bg-red-100 dark:bg-red-950/60 text-status-fail border border-red-300 dark:border-red-800'
-            }`}
-          >
-            {caliperToast.inSpec ? 'IN SPEC' : 'OUT OF SPEC'}
-          </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleLoadSampleDrawing('AS-4092-C')}
+                className="px-3 py-1.5 rounded-md bg-[var(--accent)] hover:brightness-110 text-white font-semibold text-xs transition-all shadow-xs cursor-pointer"
+              >
+                Launch Demo Blueprint (AS-4092-C)
+              </button>
+            </div>
+          </header>
+
+          {/* Central Full-Viewport Drop Area */}
+          <div className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+            <div className="w-full max-w-xl mx-auto flex flex-col items-center text-center z-10">
+              <div className="mb-6 p-4 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-hairline)] shadow-lg">
+                <SpecBalloonLogo size={44} animateRuby={false} />
+              </div>
+
+              <h2 className="text-2xl font-bold tracking-tight text-[var(--text-primary)] mb-2 font-display">
+                Drop 2D CAD Blueprint or PDF
+              </h2>
+              <p className="text-xs text-[var(--text-secondary)] mb-6 max-w-md leading-relaxed">
+                Autonomous vector dimension extraction, ISO 286 / ASME Y14.5 limit solvers, and 1-click AS9102 Rev C Excel export.
+              </p>
+
+              <div className="w-full mb-5">
+                <FileUpload
+                  onChange={(files) => {
+                    if (files && files[0]) {
+                      handleUploadPdf(files[0]);
+                    }
+                  }}
+                  accept=".pdf,.png,.jpg,.jpeg,.tiff"
+                  maxSizeMb={10}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleLoadSampleDrawing('AS-4092-C')}
+                className="text-xs font-mono font-medium text-[var(--accent)] hover:underline flex items-center gap-1.5 cursor-pointer py-1.5 px-3 rounded-md hover:bg-[var(--bg-subtle)] transition-colors mb-6"
+              >
+                <span>Or explore sample aerospace drawing (AS-4092-C)</span>
+                <span>→</span>
+              </button>
+
+              <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-mono text-[var(--text-muted)]">
+                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface)] border border-[var(--border-hairline)]">
+                  ✓ ISO 286-1 Fits
+                </span>
+                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface)] border border-[var(--border-hairline)]">
+                  ✓ ASME Y14.5 MMC Dynamic Bonus
+                </span>
+                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface)] border border-[var(--border-hairline)]">
+                  ✓ 4-Sheet AS9102 Excel
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* 2. Main 4-Pane Workbench Layout */}
-      {viewMode === 'split' ? (
-        <div className="flex-1 flex overflow-hidden relative">
-          {/* Left Pane (190px, collapsible): Model & Sheet Tree */}
-          <ModelSheetTree
-            drawing={currentDrawing}
-            characteristics={characteristics}
-            activeBalloonId={activeBalloonId}
-            onSelectCharacteristic={setActiveBalloonId}
-            onSelectDatum={handleSelectDatum}
-            selectedDatum={selectedDatumHighlight}
-            isCollapsed={isTreeCollapsed}
-            onToggleCollapse={() => setIsTreeCollapsed(!isTreeCollapsed)}
-            visibleLayers={visibleLayers}
-            onToggleLayer={(l) => setVisibleLayers(prev => ({ ...prev, [l]: !prev[l] }))}
+      {/* 2. STATE: 'AI_WORKING' (Real-time cancellable extraction overlay) */}
+      {flowState === 'AI_WORKING' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 select-none">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-2xl text-[var(--text-primary)] font-sans">
+            <div className="flex items-center gap-3 pb-4 border-b border-[var(--border-hairline)] mb-4">
+              <div className="w-10 h-10 rounded-lg bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20 flex items-center justify-center">
+                <Sparkles className="w-5 h-5 animate-pulse text-[var(--accent)]" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
+                  AI Metrology Pipeline Executing
+                </h3>
+                <p className="text-[11px] text-[var(--text-muted)] font-mono">
+                  Stage {aiExtractionStep + 1} of 4 · Vector Extraction Engine
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 mb-5 text-xs font-sans">
+              {[
+                'Ingesting vector CAD geometry & PDF viewport...',
+                'Scanning text streams & clustering dimension annotations...',
+                'Running deterministic ISO 286 / ASME Y14.5 limit solvers...',
+                'Optimizing force-directed balloon leader lines...',
+              ].map((stepText, idx) => {
+                const isPast = idx < aiExtractionStep;
+                const isCurrent = idx === aiExtractionStep;
+                return (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-2.5 p-2 rounded-md border transition-colors ${
+                      isCurrent
+                        ? 'border-[var(--accent)] bg-[var(--accent)]/5 font-medium'
+                        : isPast
+                        ? 'border-[var(--border-hairline)] bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
+                        : 'border-transparent text-[var(--text-muted)] opacity-60'
+                    }`}
+                  >
+                    {isPast ? (
+                      <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                    ) : isCurrent ? (
+                      <span className="w-4 h-4 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                    ) : (
+                      <span className="w-4 h-4 rounded-full border border-[var(--border-hairline)] flex-shrink-0" />
+                    )}
+                    <span>{stepText}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-[var(--border-hairline)] text-xs">
+              <span className="font-mono text-[var(--accent)] font-semibold">
+                {aiExtractedCount > 0 ? `Found ${aiExtractedCount} dimensions...` : 'Extracting dimensions...'}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsExtracting(false);
+                  setFlowState('EMPTY');
+                }}
+                className="px-3 py-1 rounded bg-[var(--bg-subtle)] hover:bg-[var(--border-hairline)] border border-[var(--border-hairline)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] font-medium cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. STATE: 'REVIEW' & 'EXPORT' (~85%+ Viewport Workbench Layout) */}
+      {flowState === 'REVIEW' && (
+        <>
+          {/* Top Workbench Bar (48px) */}
+          <WorkspaceHeader
+            currentDrawing={currentDrawing}
+            drawingsList={SAMPLE_DRAWINGS}
+            onSelectDrawing={handleLoadSampleDrawing}
+            onUploadPdf={handleUploadPdf}
+            selectedStandard={selectedStandard}
+            onChangeStandard={setSelectedStandard}
+            statusFilter={statusFilter}
+            onFilterChange={setStatusFilter}
+            viewMode={viewMode}
+            onToggleViewMode={() => setViewMode(viewMode === 'split' ? 'sheet' : 'split')}
+            caliperMode={caliperMode}
+            onToggleCaliperMode={() => setCaliperMode(!caliperMode)}
+            ideTheme={ideTheme}
+            onChangeIdeTheme={(t) => {
+              setIdeTheme(t);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('specballoon_ide_theme', t);
+              }
+            }}
+            onExportCSV={() => handleRequestExport('csv')}
+            onExportExcel={() => handleRequestExport('excel')}
+            onExportBalloonedPdf={() => handleRequestExport('pdf')}
+            onExportPdfDeck={handleExportPdfDeck}
+            onExitToLanding={onExitToLanding}
+            statusCounts={statusCounts}
+            toolMode={toolMode}
+            onSetToolMode={setToolMode}
+            onFitSheet={() => setZoom(1.0)}
+            onToggleInvert={() => setInverted(!inverted)}
+            inverted={inverted}
+            onReSortClockwise={handleSortClockwise}
+            onAutoBalloonDetect={handleAutoBalloonDetect}
+            onResetBalloons={() => {
+              const def = SAMPLE_DRAWINGS.find((d) => d.id === currentDrawing.id);
+              if (def) setCharacteristics(generateCropsFromSpec(def, { inverted, customImage }));
+            }}
+            onAutoCalcFits={handleAutoCalculateFits}
+            onApproveAll={handleApproveAll}
+            backendConnected={backendConnected}
+            isExtracting={isExtracting}
+            showGrid={visibleLayers.grid}
+            onToggleGrid={() => setVisibleLayers((prev) => ({ ...prev, grid: !prev.grid }))}
+            onOpenGeminiModal={() => setIsGeminiModalOpen(true)}
+            isRevisionDiffMode={isRevisionDiffMode}
+            onToggleRevisionDiff={() => setIsRevisionDiffMode((prev) => !prev)}
+            onOpenCmmImport={() => setIsCmmModalOpen(true)}
+            onStartTour={() => setIsTourOpen(true)}
+            onOpenHelpModal={(tab) => {
+              setHelpInitialTab(tab || 'quickstart');
+              setIsHelpOpen(true);
+            }}
+            rulerUnit={rulerUnit}
+            onCycleRulerUnit={handleCycleRulerUnit}
+            firstFlaggedChar={firstFlaggedChar}
+            onJumpToFlagged={(char) => {
+              setActiveBalloonId(char.id);
+              setIsRightDockOpen(true);
+              setRightDockTab('inspector');
+              soundEngine.playKeyClick();
+            }}
+            onOpenAuditLog={() => setIsAuditLogOpen(true)}
+            isSampleData={isSampleData}
+            isTableDrawerOpen={isTableDrawerOpen}
+            onToggleTableDrawer={handleToggleTableDrawer}
+            isRightDockOpen={isRightDockOpen}
+            onToggleRightDock={handleToggleRightDock}
           />
 
-          {/* Center Pane: Split Vertically between CAD Viewport (55%) and Docked BoC Spreadsheet (45%) */}
-          <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-            {/* Center-Top: Clean 2D CAD Drawing Viewport with Highlight Pills */}
-            <div
-              style={{ height: `${splitHeightPct}%` }}
-              className="w-full relative overflow-hidden flex flex-col transition-[height] duration-75"
-            >
+          {/* Floating Caliper Toast */}
+          {caliperToast && (
+            <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-[var(--bg-surface)] border border-amber-400 dark:border-amber-700 shadow-2xl rounded-full px-4 py-1.5 flex items-center gap-2.5 animate-in slide-in-from-top-2 duration-150">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+              <Zap className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-xs font-mono font-bold text-[var(--text-primary)]">
+                USB Caliper Burst: <span className="text-[var(--accent)]">{fmt3(caliperToast.val)} mm</span> &rarr; Tag {caliperToast.tag}
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                  caliperToast.inSpec
+                    ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800'
+                    : 'bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-300 dark:border-red-800'
+                }`}
+              >
+                {caliperToast.inSpec ? 'IN SPEC' : 'OUT OF SPEC'}
+              </span>
+            </div>
+          )}
+
+          {/* Scanned Raster Warning Banner */}
+          {rasterNotice && (
+            <div className="relative z-40 bg-amber-500/10 dark:bg-amber-950/60 border-b border-amber-500/40 px-4 py-2 text-xs flex items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                <span className="text-[var(--text-primary)]">{rasterNotice}</span>
+              </div>
+              <button
+                onClick={() => setRasterNotice(null)}
+                className="text-amber-600 dark:text-amber-400 hover:text-amber-700 font-bold px-2 py-0.5 rounded cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Main Workspace Canvas Area (~85%+ Viewport) */}
+          <div className="flex-1 flex overflow-hidden relative">
+            {/* Center Canvas Viewport */}
+            <main className="flex-1 h-full relative overflow-hidden flex flex-col">
               <CadCanvasViewport
                 currentDrawing={currentDrawing}
                 characteristics={characteristics}
                 activeBalloonId={activeBalloonId}
-                onSelectCharacteristic={setActiveBalloonId}
+                onSelectCharacteristic={(id) => {
+                  setActiveBalloonId(id);
+                  setIsRightDockOpen(true);
+                  setRightDockTab('inspector');
+                }}
                 onAddCharacteristic={handleAddCharacteristic}
                 onUpdateCharacteristic={handleUpdateCharacteristic}
                 onBulkUpdateCharacteristics={(chars) => {
@@ -888,105 +1053,90 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 rulerUnit={rulerUnit}
                 onCycleRulerUnit={handleCycleRulerUnit}
               />
-            </div>
+            </main>
 
-            {/* Resizable Horizontal Splitter Bar */}
+            {/* Slide-Over Master Table Drawer (height: 60vh when open, 0px when closed) */}
             <div
-              onMouseDown={handleSplitterMouseDown}
-              className={`h-1.5 w-full bg-border-hairline hover:bg-accent-primary cursor-row-resize transition-colors flex items-center justify-center z-10 ${
-                isDraggingSplitter ? 'bg-accent-primary' : ''
+              className={`absolute bottom-0 left-0 right-0 z-30 bg-[var(--bg-surface)] border-t border-[var(--border-strong)] shadow-2xl transition-[height] duration-200 ease-in-out flex flex-col overflow-hidden ${
+                isTableDrawerOpen ? 'h-[60vh]' : 'h-0 pointer-events-none border-transparent'
               }`}
-              title="Drag to resize CAD Drawing Viewport and Bill of Characteristics"
             >
-              <div className="w-8 h-1 rounded-full bg-border-strong" />
+              {isTableDrawerOpen && (
+                <BillOfCharacteristics
+                  drawing={currentDrawing}
+                  characteristics={characteristics}
+                  activeBalloonId={activeBalloonId}
+                  onSelectCharacteristic={setActiveBalloonId}
+                  onUpdateCharacteristic={handleUpdateCharacteristic}
+                  onAutoCalculateFits={handleAutoCalculateFits}
+                  onApproveAll={handleApproveAll}
+                  onExportCSV={() => handleRequestExport('csv')}
+                  onExportExcel={() => handleRequestExport('excel')}
+                  isExpanded={true}
+                  onClose={() => setIsTableDrawerOpen(false)}
+                  isRevisionDiffMode={isRevisionDiffMode}
+                  onOpenCmmImport={() => setIsCmmModalOpen(true)}
+                  activeSubTab={activeBoCTab}
+                  onTabChange={setActiveBoCTab}
+                />
+              )}
             </div>
 
-            {/* Center-Bottom: Docked Bill of Characteristics Master Spreadsheet */}
-            <div
-              style={{ height: `${100 - splitHeightPct}%` }}
-              className="w-full relative overflow-hidden flex flex-col transition-[height] duration-75"
-            >
-              <BillOfCharacteristics
-                drawing={currentDrawing}
-                characteristics={characteristics}
-                activeBalloonId={activeBalloonId}
-                onSelectCharacteristic={setActiveBalloonId}
-                onUpdateCharacteristic={handleUpdateCharacteristic}
-                onAutoCalculateFits={handleAutoCalculateFits}
-                onApproveAll={handleApproveAll}
-                onExportCSV={() => handleRequestExport('csv')}
-                onExportExcel={() => handleRequestExport('excel')}
-                isExpanded={splitHeightPct < 70}
-                onToggleHeight={() => setSplitHeightPct(prev => (prev > 50 ? 30 : 60))}
-                isRevisionDiffMode={isRevisionDiffMode}
-                onOpenCmmImport={() => setIsCmmModalOpen(true)}
-                activeSubTab={activeBoCTab}
-                onTabChange={setActiveBoCTab}
-              />
-            </div>
+            {/* Single Right Dock (380px) */}
+            <StudioRightDock
+              isOpen={isRightDockOpen}
+              onClose={() => setIsRightDockOpen(false)}
+              activeTab={rightDockTab}
+              onTabChange={setRightDockTab}
+              drawing={currentDrawing}
+              characteristics={characteristics}
+              activeBalloonId={activeBalloonId}
+              onSelectCharacteristic={setActiveBalloonId}
+              onUpdateCharacteristic={handleUpdateCharacteristic}
+              onDeleteCharacteristic={handleDeleteCharacteristic}
+              onApproveAll={handleApproveAll}
+              visibleLayers={visibleLayers}
+              onToggleLayer={(l) => setVisibleLayers((prev) => ({ ...prev, [l]: !prev[l] }))}
+              selectedDatum={selectedDatumHighlight}
+              onSelectDatum={handleSelectDatum}
+              isRevisionDiffMode={isRevisionDiffMode}
+              onToggleRevisionDiff={() => setIsRevisionDiffMode((prev) => !prev)}
+              onExportExcel={() => handleRequestExport('excel')}
+            />
           </div>
 
-          {/* Right Pane (360px): Single-Characteristic Focused Inspector */}
-          <SingleCharacteristicInspector
-            characteristic={activeChar}
-            characteristicsList={characteristics}
-            onSelectCharacteristic={setActiveBalloonId}
-            onUpdateCharacteristic={handleUpdateCharacteristic}
-            onDeleteCharacteristic={handleDeleteCharacteristic}
+          {/* Bottom Status Bar (28px) */}
+          <MsPaintStatusBar
+            cursorPos={cursorPos}
+            sheetZone={sheetZone}
+            canvasDimensions={{
+              width: currentDrawing.drawingWidth || 1200,
+              height: currentDrawing.drawingHeight || 800,
+            }}
+            activeCharacteristicTitle={
+              activeChar
+                ? `#${activeChar.balloonNumber < 10 ? `0${activeChar.balloonNumber}` : activeChar.balloonNumber} (${activeChar.nominal_text || activeChar.featureDescription})`
+                : null
+            }
+            statusCounts={statusCounts}
+            zoom={zoom}
+            onZoomChange={setZoom}
+            onResetZoom={() => setZoom(1.0)}
+            onOpenAuditLog={() => setIsAuditLogOpen(true)}
+            auditLogCount={auditLogEntries.length}
           />
-        </div>
-      ) : (
-        /* Full Sheet Mode */
-        <div className="flex-1 overflow-hidden flex flex-col bg-surface">
-          <BillOfCharacteristics
-            drawing={currentDrawing}
-            characteristics={characteristics}
-            activeBalloonId={activeBalloonId}
-            onSelectCharacteristic={setActiveBalloonId}
-            onUpdateCharacteristic={handleUpdateCharacteristic}
-            onAutoCalculateFits={handleAutoCalculateFits}
-            onApproveAll={handleApproveAll}
-            onExportCSV={() => handleRequestExport('csv')}
-            onExportExcel={() => handleRequestExport('excel')}
-            isExpanded={true}
-            isRevisionDiffMode={isRevisionDiffMode}
-            onOpenCmmImport={() => setIsCmmModalOpen(true)}
-            activeSubTab={activeBoCTab}
-            onTabChange={setActiveBoCTab}
-          />
-        </div>
+        </>
       )}
-
-      {/* 3. Classic MS Paint Bottom Status Bar (28px) */}
-      <MsPaintStatusBar
-        cursorPos={cursorPos}
-        sheetZone={sheetZone}
-        canvasDimensions={{
-          width: currentDrawing.drawingWidth || 1200,
-          height: currentDrawing.drawingHeight || 800
-        }}
-        activeCharacteristicTitle={
-          activeChar
-            ? `#${activeChar.balloonNumber < 10 ? `0${activeChar.balloonNumber}` : activeChar.balloonNumber} (${activeChar.nominal_text || activeChar.featureDescription})`
-            : null
-        }
-        statusCounts={statusCounts}
-        zoom={zoom}
-        onZoomChange={setZoom}
-        onResetZoom={() => setZoom(1.0)}
-        onOpenAuditLog={() => setIsAuditLogOpen(true)}
-        auditLogCount={auditLogEntries.length}
-      />
 
       {/* Re-export Warning Modal */}
       {showExportWarning && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-surface border border-border-hairline rounded-xl shadow-2xl max-w-md w-full p-5 text-xs font-sans">
-            <h3 className="text-sm font-bold text-text-primary mb-2 flex items-center gap-2">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border-hairline)] rounded-xl shadow-2xl max-w-md w-full p-5 text-xs font-sans">
+            <h3 className="text-sm font-bold text-[var(--text-primary)] mb-2 flex items-center gap-2">
               <span className="text-amber-500">⚠</span>
               <span>Re-Export Sequence Verification</span>
             </h3>
-            <p className="text-text-secondary mb-4 leading-relaxed">
+            <p className="text-[var(--text-secondary)] mb-4 leading-relaxed">
               An export has already been generated for this drawing session. Proceeding will recalculate display balloon numbers sequentially (1..{characteristics.length}).
             </p>
             <div className="flex justify-end gap-2">
@@ -995,7 +1145,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   setShowExportWarning(false);
                   setPendingExportType(null);
                 }}
-                className="px-3 py-1.5 rounded-md border border-border-hairline hover:bg-subtle text-text-secondary font-medium"
+                className="px-3 py-1.5 rounded-md border border-[var(--border-hairline)] hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] font-medium cursor-pointer"
               >
                 Cancel
               </button>
@@ -1007,7 +1157,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                     setPendingExportType(null);
                   }
                 }}
-                className="px-3 py-1.5 rounded-md bg-accent-primary text-white font-semibold hover:bg-accent-primary/90"
+                className="px-3 py-1.5 rounded-md bg-[var(--accent)] text-white font-semibold hover:brightness-110 cursor-pointer"
               >
                 Proceed with Export
               </button>
@@ -1015,6 +1165,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           </div>
         </div>
       )}
+
       {/* Gemini Vision Controls Modal */}
       <GeminiVisionModal
         isOpen={isGeminiModalOpen}

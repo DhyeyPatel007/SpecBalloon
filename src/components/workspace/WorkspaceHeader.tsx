@@ -19,7 +19,8 @@ import {
   Zap,
   FolderOpen,
   Layers,
-  TableProperties
+  TableProperties,
+  Sliders
 } from 'lucide-react';
 import { DrawingSpec, GeneralToleranceStandard, InspectionStatus, Characteristic } from '../../types/metrology';
 import { SpecBalloonLogo } from '../brand/SpecBalloonLogo';
@@ -79,6 +80,11 @@ export interface WorkspaceHeaderProps {
   firstFlaggedChar?: Characteristic | null;
   onJumpToFlagged?: (char: Characteristic) => void;
   onOpenAuditLog?: () => void;
+  isSampleData?: boolean;
+  isTableDrawerOpen?: boolean;
+  onToggleTableDrawer?: () => void;
+  isRightDockOpen?: boolean;
+  onToggleRightDock?: () => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -108,6 +114,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onReSortClockwise,
   onAutoBalloonDetect,
   onAutoCalcFits,
+  onApproveAll,
   isExtracting,
   onOpenGeminiModal,
   isRevisionDiffMode,
@@ -121,6 +128,11 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   firstFlaggedChar,
   onJumpToFlagged,
   onOpenAuditLog,
+  isSampleData = false,
+  isTableDrawerOpen = false,
+  onToggleTableDrawer,
+  isRightDockOpen = false,
+  onToggleRightDock,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -253,6 +265,23 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             </div>
           )}
         </div>
+
+        {/* Explicit Sample Data Badge */}
+        {isSampleData && (
+          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">
+            SAMPLE DATA
+          </span>
+        )}
+
+        {/* Quick Open PDF Button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="px-2 py-1 rounded-md bg-[var(--bg-subtle)] hover:bg-[var(--border-hairline)] text-[var(--text-primary)] border border-[var(--border-hairline)] text-[11.5px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+          title="Open new vector CAD drawing"
+        >
+          <Upload className="w-3.5 h-3.5 text-[var(--accent)]" />
+          <span className="hidden sm:inline">Open PDF</span>
+        </button>
 
         {/* 4 Categorized Menus */}
         <div className="hidden lg:flex items-center gap-0.5 ml-1">
@@ -588,28 +617,46 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       </div>
 
       {/* =========================================================================
-          ZONE B (CENTER): The "AI Next-Action Co-Pilot Pill"
+          ZONE B (CENTER): Review Status Pill & 1-Click Approve
       ========================================================================= */}
-      <div className="flex-1 max-w-xl mx-2 flex justify-center">
-        {!isAllVerified && firstFlaggedChar ? (
-          <button
-            onClick={() => onJumpToFlagged?.(firstFlaggedChar)}
-            className="group px-3 py-1 rounded-full bg-[var(--bg-subtle)] hover:bg-[var(--bg-selected)] border border-[var(--accent)]/40 hover:border-[var(--accent)] text-xs font-mono flex items-center gap-2 transition-all shadow-xs cursor-pointer"
-            title="Click to jump to and inspect next flagged characteristic"
-          >
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <span className="text-[var(--text-secondary)] font-sans hidden sm:inline">
-              ✨ AI Co-Pilot:
-            </span>
-            <span className="font-semibold text-amber-600 dark:text-amber-400">
-              {flaggedCount} {flaggedCount === 1 ? 'Dimension' : 'Dimensions'} Need Review
-            </span>
-            <span className="text-[var(--text-muted)]">→</span>
-            <span className="text-[var(--accent)] font-bold group-hover:underline flex items-center gap-1">
-              <span>Jump to #{firstFlaggedChar.balloonNumber < 10 ? `0${firstFlaggedChar.balloonNumber}` : firstFlaggedChar.balloonNumber}</span>
-              <kbd className="px-1 py-0.2 rounded bg-[var(--bg-surface)] border text-[9px]">↵</kbd>
-            </span>
-          </button>
+      <div className="flex-1 max-w-xl mx-2 flex justify-center items-center gap-2">
+        {!isAllVerified && flaggedCount > 0 ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (firstFlaggedChar) {
+                  onJumpToFlagged?.(firstFlaggedChar);
+                } else if (onToggleRightDock && !isRightDockOpen) {
+                  onToggleRightDock();
+                }
+              }}
+              className="group px-3 py-1 rounded-full bg-[var(--bg-subtle)] hover:bg-[var(--bg-selected)] border border-amber-500/40 hover:border-amber-500 text-xs font-mono flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+              title="Click to jump to and review next flagged characteristic"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <span className="font-semibold text-amber-600 dark:text-amber-400">
+                {statusCounts.total} found · {flaggedCount} need a look
+              </span>
+              {firstFlaggedChar && (
+                <span className="text-[var(--accent)] font-bold group-hover:underline flex items-center gap-1">
+                  <span>#{firstFlaggedChar.balloonNumber < 10 ? `0${firstFlaggedChar.balloonNumber}` : firstFlaggedChar.balloonNumber}</span>
+                  <kbd className="px-1 py-0.2 rounded bg-[var(--bg-surface)] border text-[9px]">↵</kbd>
+                </span>
+              )}
+            </button>
+
+            {onApproveAll && (
+              <button
+                type="button"
+                onClick={onApproveAll}
+                className="px-2.5 py-1 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-colors"
+                title="Approve all remaining unreviewed dimensions"
+              >
+                <Check className="w-3 h-3" />
+                <span>Approve All</span>
+              </button>
+            )}
+          </div>
         ) : (
           <button
             onClick={() => setOpenDropdown('export')}
@@ -618,11 +665,11 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           >
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
             <span className="font-semibold text-emerald-700 dark:text-emerald-300">
-              All {statusCounts.total} Dimensions Verified (Cpk 1.42)
+              All {statusCounts.total} Dimensions Verified ✓
             </span>
             <span className="text-[var(--text-muted)]">→</span>
             <span className="text-emerald-600 dark:text-emerald-400 font-bold group-hover:underline flex items-center gap-1">
-              <span>Export AS9102 Package</span>
+              <span>Export AS9102</span>
               <span>⬇</span>
             </span>
           </button>
@@ -630,9 +677,59 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       </div>
 
       {/* =========================================================================
-          ZONE C (RIGHT): Theme Switcher, Quick Help & Single Primary Export Menu
+          ZONE C (RIGHT): Table Drawer Toggle, Dock Toggle, Theme, & Primary Export
       ========================================================================= */}
       <div className="flex items-center gap-1.5">
+        {/* Toggle Table Drawer Button */}
+        {onToggleTableDrawer && (
+          <button
+            type="button"
+            onClick={onToggleTableDrawer}
+            className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+              isTableDrawerOpen
+                ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-xs'
+                : 'border-[var(--border-hairline)] bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-hairline)]'
+            }`}
+            title="Toggle Slide-Over Master Table Drawer (⌘J)"
+          >
+            <TableProperties className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Table Drawer</span>
+            <kbd className="text-[9px] font-mono opacity-80">⌘J</kbd>
+          </button>
+        )}
+
+        {/* Toggle Right Dock Button */}
+        {onToggleRightDock && (
+          <button
+            type="button"
+            onClick={onToggleRightDock}
+            className={`relative px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+              isRightDockOpen
+                ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-xs'
+                : 'border-[var(--border-hairline)] bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-hairline)]'
+            }`}
+            title="Toggle Right Metrology Dock (Flagged Queue / Inspector / Layers)"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Dock</span>
+            {flaggedCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-amber-500 text-white font-bold">
+                {flaggedCount}
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* Configure Gemini Vision Button */}
+        <button
+          type="button"
+          onClick={onOpenGeminiModal}
+          className="p-1.5 rounded-md border border-[var(--border-hairline)] bg-[var(--bg-subtle)] hover:bg-[var(--border-hairline)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+          title="Configure Gemini 2.5 Flash Vision API Key & Settings"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+        </button>
+
         {/* 4-way Theme Switcher Dropdown */}
         <div className="relative" data-dropdown="theme">
           <SmartTooltip

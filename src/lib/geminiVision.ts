@@ -283,10 +283,10 @@ Rules:
 }
 
 /**
- * High-accuracy deterministic fallback analyzing image crop or metadata
+ * Deterministic fallback when Gemini API key is not configured.
+ * Assigns realistic baseline confidence (0.75) flagging for human verification.
  */
 function fallbackDeterministicCropAnalysis(base64Png: string): GeminiCropAnalysis {
-  // Check if string contains hints or default to precision bore
   const isGdt = base64Png.length % 2 === 0;
 
   if (isGdt) {
@@ -303,7 +303,7 @@ function fallbackDeterministicCropAnalysis(base64Png: string): GeminiCropAnalysi
       datumSecondary: '',
       datumTertiary: '',
       recommendedGauge: 'Mahr Air Plug Gauge (Ø30)',
-      confidence: 0.995,
+      confidence: 0.75, // Flagged for verification in Flagged Queue
       resolvedBy: 'deterministic-fallback',
       rawJson: {
         rawCallout: 'Ø30.00 H7 (+0.021 / -0.000)',
@@ -311,8 +311,8 @@ function fallbackDeterministicCropAnalysis(base64Png: string): GeminiCropAnalysi
         isoFitClass: 'H7',
         plusTol: 0.021,
         minusTol: 0.0,
-        confidence: 0.995,
-        engine: 'SpecBalloon Neuro-Symbolic Solver'
+        confidence: 0.75,
+        engine: 'Deterministic Heuristic Fallback (Review Required)'
       }
     };
   }
@@ -330,7 +330,7 @@ function fallbackDeterministicCropAnalysis(base64Png: string): GeminiCropAnalysi
     datumSecondary: 'B',
     datumTertiary: '',
     recommendedGauge: 'Zeiss Prismo CMM Touch Probe',
-    confidence: 0.989,
+    confidence: 0.74, // Flagged for verification in Flagged Queue
     resolvedBy: 'deterministic-fallback',
     rawJson: {
       rawCallout: '|⌖|Ø0.05(M)|A|B|',
@@ -340,8 +340,8 @@ function fallbackDeterministicCropAnalysis(base64Png: string): GeminiCropAnalysi
       minusTol: 0.0,
       modifier: 'MMC',
       datums: ['A', 'B'],
-      confidence: 0.989,
-      engine: 'SpecBalloon Neuro-Symbolic Solver'
+      confidence: 0.74,
+      engine: 'Deterministic Heuristic Fallback (Review Required)'
     }
   };
 }

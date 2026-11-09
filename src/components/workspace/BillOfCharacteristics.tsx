@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  X,
   FileSpreadsheet,
   Download,
   RotateCw,
@@ -63,6 +64,7 @@ interface BillOfCharacteristicsProps {
   onOpenCmmImport?: () => void;
   activeSubTab?: 'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing';
   onTabChange?: (tab: 'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing') => void;
+  onClose?: () => void;
 }
 
 export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
@@ -81,6 +83,7 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
   onOpenCmmImport,
   activeSubTab: externalSubTab,
   onTabChange: externalOnTabChange,
+  onClose,
 }) => {
   const [internalSubTab, setInternalSubTab] = useState<'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing'>('main_boc');
   const activeSubTab = externalSubTab ?? internalSubTab;
@@ -290,6 +293,16 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
               title={isExpanded ? 'Minimize Sheet' : 'Restore Sheet'}
             >
               {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
+          )}
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+              title="Close Table Drawer (⌘J)"
+            >
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
