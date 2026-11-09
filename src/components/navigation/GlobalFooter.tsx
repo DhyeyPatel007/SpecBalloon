@@ -191,8 +191,20 @@ export const GlobalFooter: React.FC<GlobalFooterProps> = ({ onNavigate }) => {
 
         {/* Bottom Bar */}
         <div className="pt-8 border-t border-border-hairline flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-text-muted font-mono">
-          <div>
-            © 2026 SpecBalloon Metrology Inc. All rights reserved.
+          <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4">
+            <span>© 2026 SpecBalloon Metrology Inc. All rights reserved.</span>
+            <span className="hidden sm:inline text-zinc-300 dark:text-zinc-700">|</span>
+            <span>
+              Motion components in part by{' '}
+              <a
+                href="https://skiper-ui.com"
+                target="_blank"
+                rel="noreferrer"
+                className="hover:text-text-primary underline decoration-dotted transition-colors"
+              >
+                Skiper UI
+              </a>
+            </span>
           </div>
 
           <div className="flex items-center gap-4">

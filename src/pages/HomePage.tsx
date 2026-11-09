@@ -39,6 +39,64 @@ import {
   BlueprintCalloutItem
 } from '../components/home/OrthographicBlueprintSvg';
 import { fmt3 } from '../utils/metrologyMath';
+import {
+  GridBackground,
+  Compare,
+  InfiniteMovingCards,
+  TextRoll,
+  NumberTicker,
+  MagneticButton,
+  CardContainer,
+  CardBody,
+  CardItem,
+  BentoGrid,
+  BentoGridItem,
+} from '../components/ui';
+
+const STANDARDS_MARQUEE = [
+  {
+    name: 'AS9102 Rev C',
+    title: 'Aerospace First Article Inspection Suite',
+    quote: 'Mandatory Forms 1, 2, and 3 verification with 100% feature traceability.',
+    badge: 'AEROSPACE',
+    metric: '100% Pass',
+  },
+  {
+    name: 'IATF 16949 / AIAG PPAP',
+    title: 'Automotive Production Part Approval Process',
+    quote: 'Level 3 dimensional report submission with calibrated gage R&R study.',
+    badge: 'AUTOMOTIVE',
+    metric: 'Cpk > 1.67',
+  },
+  {
+    name: 'ISO 286-1 & 286-2',
+    title: 'Geometrical Product Specifications (GPS) — Fits',
+    quote: 'Deterministic tolerance unit formula i = 0.45 ∛D + 0.001 D calculation.',
+    badge: 'ISO GPS',
+    metric: '0.000 mm Err',
+  },
+  {
+    name: 'ASME Y14.5-2018',
+    title: 'Dimensioning and Tolerancing (GD&T)',
+    quote: 'True position MMC expansion and dynamic datum reference frame shift.',
+    badge: 'GD&T',
+    metric: 'ASME Y14.5',
+  },
+  {
+    name: 'ZEISS Calypso & PC-DMIS',
+    title: 'Coordinate Measuring Machine Integration',
+    quote: 'Direct ASCII / CSV point cloud ingestion with Euclidean position formula.',
+    badge: 'CMM SYNC',
+    metric: '< 200ms',
+  },
+  {
+    name: '21 CFR Part 11',
+    title: 'Electronic Records & Signatures Compliance',
+    quote: 'Cryptographic SHA-256 document hashing and immutable digital sign-offs.',
+    badge: 'AUDIT-READY',
+    metric: 'SHA-256',
+  },
+];
 
 interface HomePageProps {
   onNavigate: (page: AppPage, sampleId?: string) => void;
@@ -49,7 +107,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
   // ---------------------------------------------------------------------------
   // SECTION 1: Product Theatre States
   // ---------------------------------------------------------------------------
-  const [theatreMode, setTheatreMode] = useState<'scan' | 'xray' | 'diff'>('scan');
+  const [theatreMode, setTheatreMode] = useState<'scan' | 'xray' | 'diff' | 'compare'>('scan');
   const [activeCalloutId, setActiveCalloutId] = useState<string>('tag-01');
   const [scanBeamPct, setScanBeamPct] = useState<number>(35);
   const [isHoveringLoupe, setIsHoveringLoupe] = useState<boolean>(false);
@@ -136,15 +194,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
           SECTION 1: CENTERED EDITORIAL HERO + INTERACTIVE PRODUCT THEATRE
           ========================================================================= */}
       <section className="relative pt-16 pb-20 px-4 sm:px-6 lg:px-8 border-b border-[var(--border-hairline)] overflow-hidden">
-        {/* Subtle Engineering Grid Background */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-40"
-          style={{
-            backgroundImage:
-              'linear-gradient(to right, var(--border-hairline) 1px, transparent 1px), linear-gradient(to bottom, var(--border-hairline) 1px, transparent 1px)',
-            backgroundSize: '40px 40px'
-          }}
-        />
+        {/* Aceternity Engineering Grid Background with Radial Mask */}
+        <GridBackground className="opacity-40" />
 
         {/* Top Centered Editorial Stack */}
         <div className="max-w-4xl mx-auto text-center relative z-10 mb-12">
@@ -156,11 +207,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
             <span>ISO 286 DETERMINISTIC ENGINE</span>
           </div>
 
-          {/* Monumental Headline */}
+          {/* Monumental Headline with Skiper UI TextRoll */}
           <h1 className="font-display font-medium text-4xl sm:text-5xl lg:text-[62px] tracking-[-0.035em] leading-[1.06] text-[var(--text-primary)] mb-6">
-            Precision First Article Inspection.{' '}
+            <TextRoll>Precision First Article Inspection.</TextRoll>{' '}
             <span className="text-[var(--text-muted)] block sm:inline">
-              Built for the speed of thought.
+              <TextRoll delay={0.012}>Built for the speed of thought.</TextRoll>
             </span>
           </h1>
 
@@ -171,13 +222,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
 
           {/* Action Row */}
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <button
+            <MagneticButton
               onClick={() => onNavigate('studio')}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-[var(--text-primary)] text-[var(--bg-page)] text-xs font-mono font-medium hover:opacity-90 transition-opacity shadow-sm cursor-pointer"
             >
               <span>Launch Studio IDE</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            </MagneticButton>
 
             <button
               onClick={onStartTour}
@@ -225,7 +276,18 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                Auto-Scan Loop
+                Auto-Scan
+              </button>
+              <button
+                onClick={() => setTheatreMode('compare')}
+                className={`px-2.5 py-0.5 rounded transition-colors flex items-center gap-1 ${
+                  theatreMode === 'compare'
+                    ? 'bg-[var(--text-primary)] text-[var(--bg-page)] font-semibold'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <Sliders className="w-2.5 h-2.5" />
+                <span>Before/After</span>
               </button>
               <button
                 onClick={() => setTheatreMode('xray')}
@@ -235,7 +297,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                Interactive Loupe
+                Loupe
               </button>
               <button
                 onClick={() => setTheatreMode('diff')}
@@ -268,35 +330,65 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
               onMouseLeave={() => setIsHoveringLoupe(false)}
               className="lg:col-span-8 p-3 bg-[var(--bg-subtle)]/50 relative border-b lg:border-b-0 lg:border-r border-[var(--border-hairline)] overflow-hidden flex items-center justify-center"
             >
-              {/* Ultra-Detailed 2D Orthographic Vector Blueprint */}
-              <OrthographicBlueprintSvg
-                activeTagId={activeCalloutId}
-                onSelectTag={(tagId) => setActiveCalloutId(tagId)}
-                scanBeamPct={scanBeamPct}
-                showLaser={theatreMode === 'scan'}
-              />
+              {theatreMode === 'compare' ? (
+                <Compare
+                  className="w-full h-full rounded-lg"
+                  firstLabel="1. Raw Unballooned CAD"
+                  secondLabel="2. SpecBalloon AI Auto-Ballooned"
+                  firstContent={
+                    <div className="w-full h-full flex items-center justify-center bg-[var(--bg-subtle)] opacity-70 filter grayscale contrast-125">
+                      <OrthographicBlueprintSvg
+                        showLaser={false}
+                        activeTagId={null}
+                        className="w-full h-full pointer-events-none"
+                      />
+                    </div>
+                  }
+                  secondContent={
+                    <div className="w-full h-full flex items-center justify-center bg-[var(--bg-surface)]">
+                      <OrthographicBlueprintSvg
+                        activeTagId={activeCalloutId}
+                        onSelectTag={(tagId) => setActiveCalloutId(tagId)}
+                        scanBeamPct={scanBeamPct}
+                        showLaser={true}
+                        className="w-full h-full"
+                      />
+                    </div>
+                  }
+                />
+              ) : (
+                <>
+                  {/* Ultra-Detailed 2D Orthographic Vector Blueprint */}
+                  <OrthographicBlueprintSvg
+                    activeTagId={activeCalloutId}
+                    onSelectTag={(tagId) => setActiveCalloutId(tagId)}
+                    scanBeamPct={scanBeamPct}
+                    showLaser={theatreMode === 'scan'}
+                  />
 
-              {/* 2X Optical Magnifier Loupe (Visible on X-Ray mode, clamped safely inside bounds) */}
-              {theatreMode === 'xray' && isHoveringLoupe && (
-                <div
-                  style={{
-                    left: `${loupePos.x}px`,
-                    top: `${loupePos.y}px`,
-                    transform: 'translate(-50%, -50%)'
-                  }}
-                  className="absolute pointer-events-none z-30 w-36 h-36 rounded-full border-2 border-[#0284C7] bg-[var(--bg-surface)] shadow-2xl overflow-hidden flex flex-col items-center justify-center p-3 text-center"
-                >
-                  <div className="text-[10px] font-mono text-[#0284C7] font-bold">2× OPTICAL LOUPE</div>
-                  <div className="text-xs font-mono font-bold text-[var(--text-primary)] mt-1">
-                    {activeCallout.callout}
-                  </div>
-                  <div className="text-[9px] font-mono text-[var(--text-muted)] mt-0.5">
-                    {activeCallout.feature}
-                  </div>
-                  <div className="mt-1 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                    ACTUAL: {activeCallout.measured.toFixed(3)}
-                  </div>
-                </div>
+                  {/* 2X Optical Magnifier Loupe (Visible on X-Ray mode, clamped safely inside bounds) */}
+                  {theatreMode === 'xray' && isHoveringLoupe && (
+                    <div
+                      style={{
+                        left: `${loupePos.x}px`,
+                        top: `${loupePos.y}px`,
+                        transform: 'translate(-50%, -50%)'
+                      }}
+                      className="absolute pointer-events-none z-30 w-36 h-36 rounded-full border-2 border-[#0284C7] bg-[var(--bg-surface)] shadow-2xl overflow-hidden flex flex-col items-center justify-center p-3 text-center"
+                    >
+                      <div className="text-[10px] font-mono text-[#0284C7] font-bold">2× OPTICAL LOUPE</div>
+                      <div className="text-xs font-mono font-bold text-[var(--text-primary)] mt-1">
+                        {activeCallout.callout}
+                      </div>
+                      <div className="text-[9px] font-mono text-[var(--text-muted)] mt-0.5">
+                        {activeCallout.feature}
+                      </div>
+                      <div className="mt-1 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        ACTUAL: {activeCallout.measured.toFixed(3)}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -429,13 +521,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
       </section>
 
       {/* =========================================================================
-          SECTION 2: 4-COLUMN ARCHITECTURAL METRIC GRID
+          SECTION 2: 4-COLUMN ARCHITECTURAL METRIC GRID + STANDARDS MARQUEE
           ========================================================================= */}
       <section className="py-14 border-b border-[var(--border-hairline)] bg-[var(--bg-surface)] select-none">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-2 lg:grid-cols-4 gap-8">
           <div className="space-y-1">
             <div className="font-display font-medium text-3xl sm:text-4xl text-[var(--text-primary)] tracking-tight">
-              11.4s
+              <NumberTicker value={11.4} decimalPlaces={1} suffix="s" />
             </div>
             <div className="font-mono text-xs font-semibold text-[var(--text-primary)]">
               150-Dim CAD PDF to AS9102
@@ -447,7 +539,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
 
           <div className="space-y-1">
             <div className="font-display font-medium text-3xl sm:text-4xl text-emerald-600 dark:text-emerald-400 tracking-tight">
-              0.000 mm
+              <NumberTicker value={0} decimalPlaces={3} suffix=" mm" />
             </div>
             <div className="font-mono text-xs font-semibold text-[var(--text-primary)]">
               Math Hallucination Rate
@@ -459,7 +551,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
 
           <div className="space-y-1">
             <div className="font-display font-medium text-3xl sm:text-4xl text-[var(--text-primary)] tracking-tight">
-              99.4%
+              <NumberTicker value={99.4} decimalPlaces={1} suffix="%" />
             </div>
             <div className="font-mono text-xs font-semibold text-[var(--text-primary)]">
               Rotated GD&T Recall
@@ -471,15 +563,24 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
 
           <div className="space-y-1">
             <div className="font-display font-medium text-3xl sm:text-4xl text-[var(--text-primary)] tracking-tight">
-              Forms 1–3
+              <NumberTicker value={100} decimalPlaces={0} suffix="%" />
             </div>
             <div className="font-mono text-xs font-semibold text-[var(--text-primary)]">
-              Complete AS9102 Rev C Suite
+              AS9102 Forms 1, 2 & 3
             </div>
             <div className="text-xs text-[var(--text-muted)]">
               Plus 10-piece SPC run chart export
             </div>
           </div>
+        </div>
+
+        {/* Aceternity UI Infinite Moving Cards Marquee */}
+        <div className="mt-12 pt-8 border-t border-[var(--border-hairline)] overflow-hidden">
+          <div className="max-w-6xl mx-auto px-4 mb-2 flex items-center justify-between text-[11px] font-mono text-[var(--text-muted)]">
+            <span className="uppercase tracking-wider">Normative Metrology Standards & Coordinate Machines</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold">100% Deterministic Compliance</span>
+          </div>
+          <InfiniteMovingCards items={STANDARDS_MARQUEE} speed="normal" />
         </div>
       </section>
 
@@ -648,8 +749,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
           </h2>
         </div>
 
-        {/* 2x2 Bento Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* 2x2 Bento Grid with Aceternity BentoGrid */}
+        <BentoGrid className="grid-cols-1 md:grid-cols-2 gap-6">
           {/* Bento 01: Delta-Revision Lock */}
           <div className="p-6 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-sm flex flex-col justify-between">
             <div>
@@ -858,7 +959,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
               1-click compliance with AS9102 Rev C Form 3 column 5 requirements.
             </div>
           </div>
-        </div>
+        </BentoGrid>
       </section>
 
       {/* =========================================================================
@@ -1072,7 +1173,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
                 ANNUAL DIRECT LABOR RECOVERY
               </div>
               <div className="text-4xl font-display font-medium text-emerald-600 dark:text-emerald-400">
-                {roiCurrency === 'USD' ? `$${annualSavings.toLocaleString()}` : `₹${annualSavings.toLocaleString('en-IN')}`}
+                <NumberTicker
+                  value={annualSavings}
+                  prefix={roiCurrency === 'USD' ? '$' : '₹'}
+                  decimalPlaces={0}
+                />
               </div>
               <div className="text-xs text-[var(--text-secondary)]">
                 {hoursSavedPerMo} engineering hours recovered per month. Payback period: &lt; 5 days.
@@ -1101,20 +1206,20 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
 
         <div className="max-w-2xl mx-auto relative z-10 space-y-4">
           <h2 className="font-display font-medium text-3xl sm:text-4xl lg:text-5xl tracking-tight text-[var(--text-primary)]">
-            Start Inspecting in Seconds.
+            <TextRoll>Start Inspecting in Seconds.</TextRoll>
           </h2>
           <p className="text-base text-[var(--text-secondary)] leading-relaxed">
             Zero installation required. Drop your aerospace or automotive CAD PDF directly into our air-gapped local browser engine.
           </p>
 
           <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
-            <button
+            <MagneticButton
               onClick={() => onNavigate('studio')}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-[var(--text-primary)] text-[var(--bg-page)] text-xs font-mono font-medium hover:opacity-90 transition-opacity shadow-sm cursor-pointer"
             >
               <span>Launch SpecBalloon Studio IDE</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            </MagneticButton>
             <button
               onClick={() => onNavigate('security')}
               className="inline-flex items-center gap-2 px-5 py-3 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-xs font-mono font-medium transition-colors cursor-pointer"

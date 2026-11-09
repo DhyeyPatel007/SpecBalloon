@@ -45,6 +45,7 @@ import {
   calculateAQLSampling,
   calculateDynamicMmcBonus
 } from '../../utils/metrologyMath';
+import { AnimatedTabs } from '../ui';
 
 interface BillOfCharacteristicsProps {
   drawing: DrawingSpec;
@@ -172,54 +173,18 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center p-0.5 rounded-lg bg-subtle border border-border-hairline text-[11px] font-medium flex-shrink-0">
-            <button
-              onClick={() => setActiveSubTab('main_boc')}
-              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
-                activeSubTab === 'main_boc'
-                  ? 'bg-surface text-text-primary font-semibold shadow-xs'
-                  : 'text-text-muted hover:text-text-primary'
-              }`}
-            >
-              <span>📋 Form 3: BoC</span>
-              {isRevisionDiffMode && (
-                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveSubTab('spc_heatmap')}
-              className={`px-2.5 py-1 rounded-md transition-all ${
-                activeSubTab === 'spc_heatmap'
-                  ? 'bg-surface text-text-primary font-semibold shadow-xs'
-                  : 'text-text-muted hover:text-text-primary'
-              }`}
-            >
-              🌡️ 10-Sample SPC Heatmap
-            </button>
-            <button
-              onClick={() => setActiveSubTab('form1_form2')}
-              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
-                activeSubTab === 'form1_form2'
-                  ? 'bg-surface text-text-primary font-semibold shadow-xs'
-                  : 'text-text-muted hover:text-text-primary'
-              }`}
-            >
-              <span>📄 Form 1 & 2: Part & Gage Cal</span>
-              {simulateExpiredCmm && (
-                <span className="w-2 h-2 rounded-full bg-red-500" />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveSubTab('aql_costing')}
-              className={`px-2.5 py-1 rounded-md transition-all ${
-                activeSubTab === 'aql_costing'
-                  ? 'bg-surface text-text-primary font-semibold shadow-xs'
-                  : 'text-text-muted hover:text-text-primary'
-              }`}
-            >
-              ⏱️ AQL Sampling & Quoting Cost
-            </button>
-          </div>
+          <AnimatedTabs
+            tabs={[
+              { id: 'main_boc', label: 'Form 3: BoC', badge: isRevisionDiffMode ? 'ECO' : undefined },
+              { id: 'spc_heatmap', label: '10-Sample SPC' },
+              { id: 'form1_form2', label: 'Forms 1 & 2', badge: simulateExpiredCmm ? 'CAL!' : undefined },
+              { id: 'aql_costing', label: 'AQL & Quoting' },
+            ]}
+            activeTab={activeSubTab}
+            onChange={(id) => setActiveSubTab(id as 'main_boc' | 'spc_heatmap' | 'form1_form2' | 'aql_costing')}
+            className="p-0.5"
+            tabClassName="px-2.5 py-1 text-[11px]"
+          />
         </div>
 
         {/* Right: Status Filter Pills + Search + Collapse Button (Zero duplicate export/CMM buttons here) */}

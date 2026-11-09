@@ -11,6 +11,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { AppPage } from '../components/navigation/GlobalNavbar';
+import { AnimatedTabs, MagneticButton } from '../components/ui';
 
 interface CustomersPageProps {
   onNavigate: (page: AppPage) => void;
@@ -198,49 +199,17 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ onNavigate }) => {
             </p>
           </div>
 
-          {/* Sector Filter Buttons */}
-          <div className="flex items-center gap-1 p-1 rounded-md border border-border-hairline bg-subtle/80 text-xs">
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-3 py-1 rounded transition-colors cursor-pointer ${
-                filter === 'all'
-                  ? 'bg-surface font-semibold text-text-primary shadow-2xs border border-border-hairline'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              All Sectors
-            </button>
-            <button
-              onClick={() => setFilter('aerospace')}
-              className={`px-3 py-1 rounded transition-colors cursor-pointer ${
-                filter === 'aerospace'
-                  ? 'bg-surface font-semibold text-text-primary shadow-2xs border border-border-hairline'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              Aerospace
-            </button>
-            <button
-              onClick={() => setFilter('automotive')}
-              className={`px-3 py-1 rounded transition-colors cursor-pointer ${
-                filter === 'automotive'
-                  ? 'bg-surface font-semibold text-text-primary shadow-2xs border border-border-hairline'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              Automotive
-            </button>
-            <button
-              onClick={() => setFilter('medical')}
-              className={`px-3 py-1 rounded transition-colors cursor-pointer ${
-                filter === 'medical'
-                  ? 'bg-surface font-semibold text-text-primary shadow-2xs border border-border-hairline'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              Medical
-            </button>
-          </div>
+          {/* Sector Filter Tabs with Aceternity AnimatedTabs */}
+          <AnimatedTabs
+            tabs={[
+              { id: 'all', label: 'All Sectors' },
+              { id: 'aerospace', label: 'Aerospace' },
+              { id: 'automotive', label: 'Automotive' },
+              { id: 'medical', label: 'Medical' },
+            ]}
+            activeTab={filter}
+            onChange={(id) => setFilter(id as Sector)}
+          />
         </div>
 
         {/* Case Cards List */}

@@ -19,7 +19,7 @@ interface DocsPageProps {
 }
 
 export const DocsPage: React.FC<DocsPageProps> = ({ onNavigate }) => {
-  const [activeSection, setActiveSection] = useState<'quickstart' | 'shortcuts' | 'calipers' | 'cmm' | 'changelog'>('quickstart');
+  const [activeSection, setActiveSection] = useState<'quickstart' | 'shortcuts' | 'calipers' | 'cmm' | 'motion' | 'changelog'>('quickstart');
 
   const shortcuts = [
     { key: 'Enter / Tab', desc: 'Confirm measurement & advance to next characteristic in Bill of Characteristics' },
@@ -129,6 +129,18 @@ export const DocsPage: React.FC<DocsPageProps> = ({ onNavigate }) => {
               </button>
 
               <button
+                onClick={() => setActiveSection('motion')}
+                className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center justify-between ${
+                  activeSection === 'motion'
+                    ? 'bg-[var(--text-primary)] text-[var(--bg-page)] font-semibold'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)]'
+                }`}
+              >
+                <span>5. Motion Architecture</span>
+                <Code2 className="w-3 h-3 opacity-60" />
+              </button>
+
+              <button
                 onClick={() => setActiveSection('changelog')}
                 className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center justify-between ${
                   activeSection === 'changelog'
@@ -136,7 +148,7 @@ export const DocsPage: React.FC<DocsPageProps> = ({ onNavigate }) => {
                     : 'text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)]'
                 }`}
               >
-                <span>5. v2.5 Changelog</span>
+                <span>6. v2.5 Changelog</span>
                 <FileText className="w-3 h-3 opacity-60" />
               </button>
             </div>
@@ -326,11 +338,52 @@ export const DocsPage: React.FC<DocsPageProps> = ({ onNavigate }) => {
               </div>
             )}
 
-            {/* Section 5: Changelog */}
-            {activeSection === 'changelog' && (
+            {/* Section 5: Motion */}
+            {activeSection === 'motion' && (
               <div className="space-y-6">
                 <div>
                   <span className="text-xs font-mono uppercase tracking-widest text-[var(--text-muted)]">SECTION 5</span>
+                  <h2 className="text-2xl font-display font-medium tracking-tight mt-1">
+                    Motion Architecture & Design System
+                  </h2>
+                </div>
+
+                <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                  SpecBalloon employs a single, lightweight physics motion engine (<code className="font-mono text-xs px-1 py-0.5 rounded bg-[var(--bg-subtle)] border border-[var(--border-hairline)]">framer-motion</code>) paired with architectural component primitives adapted from Aceternity UI and Skiper UI.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)] space-y-2">
+                    <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                      Component Primitives
+                    </h3>
+                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                      ContainerScroll, Compare Before/After slider, BentoGrid, 3D Perspective Card, Infinite Moving Cards marquee, Floating Dock, and Multi-Step Neuro-Symbolic Loader.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)] space-y-2">
+                    <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                      Micro-Interactions
+                    </h3>
+                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                      Skiper UI TextRoll staggered character cascades, NumberTicker tabular counters, MagneticButton cursor attraction, and AnimatedQueueList layout transitions.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-lg border border-sky-200 dark:border-sky-900/50 bg-sky-50/50 dark:bg-sky-950/20 text-xs font-mono text-sky-900 dark:text-sky-200">
+                  <div className="font-bold mb-1">OPEN-SOURCE ATTRIBUTION</div>
+                  <div>Motion components in part by Skiper UI — <a href="https://skiper-ui.com" target="_blank" rel="noreferrer" className="underline font-bold">https://skiper-ui.com</a></div>
+                </div>
+              </div>
+            )}
+
+            {/* Section 6: Changelog */}
+            {activeSection === 'changelog' && (
+              <div className="space-y-6">
+                <div>
+                  <span className="text-xs font-mono uppercase tracking-widest text-[var(--text-muted)]">SECTION 6</span>
                   <h2 className="text-2xl font-display font-medium tracking-tight mt-1">
                     v2.5.0 Release Notes & Engine Improvements
                   </h2>
