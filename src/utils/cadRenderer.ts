@@ -100,7 +100,7 @@ function drawSheetBorder(ctx: CanvasRenderingContext2D, width: number, height: n
 
   // Title Block Typography
   ctx.textAlign = 'left';
-  ctx.fillStyle = inverted ? '#FF5500' : '#EA580C';
+  ctx.fillStyle = inverted ? '#38BDF8' : '#0047AB';
   ctx.font = '700 10px "Space Grotesk", sans-serif';
   ctx.fillText('SPECBALLOON METROLOGY LABS', tbX + 10, tbY + 16, 170);
 

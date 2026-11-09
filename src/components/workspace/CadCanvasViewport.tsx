@@ -1004,9 +1004,9 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         >
           {/* Floating Revision Diff Mode Banner */}
           {isRevisionDiffMode && (
-            <div className="absolute top-3 left-4 right-4 z-30 bg-surface/95 backdrop-blur-md border border-indigo-500/40 rounded-lg shadow-xl px-4 py-2 flex flex-wrap items-center justify-between text-xs gap-2">
+            <div className="absolute top-3 left-4 right-4 z-30 bg-surface/95 backdrop-blur-md border border-[#0047AB]/40 rounded-lg shadow-xl px-4 py-2 flex flex-wrap items-center justify-between text-xs gap-2">
               <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-700 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#0047AB]/10 dark:bg-[#0047AB]/20 border border-[#0047AB]/30 font-mono font-bold text-[#0047AB] dark:text-[#38BDF8]">
                   🔀 REVISION DIFF MODE
                 </span>
                 <span className="font-semibold text-text-primary hidden sm:inline">
@@ -1014,7 +1014,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
                 </span>
                 <div className="flex items-center gap-1.5 text-[11px] font-mono">
                   <span className="px-1.5 py-0.5 rounded bg-subtle text-text-muted">10 Unchanged</span>
-                  <span className="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-semibold">
+                  <span className="px-1.5 py-0.5 rounded bg-[#0047AB]/10 text-[#0047AB] dark:text-[#38BDF8] font-semibold">
                     2 Modified (Δ)
                   </span>
                   <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 font-semibold">
@@ -1029,7 +1029,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
                 <button
                   type="button"
                   onClick={onAcceptRevisionDeltas}
-                  className="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  className="px-3 py-1 rounded bg-[#0047AB] hover:bg-[#003885] text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
                 >
                   <span>✓ Accept All Rev C Deltas & Lock Tag IDs</span>
                 </button>

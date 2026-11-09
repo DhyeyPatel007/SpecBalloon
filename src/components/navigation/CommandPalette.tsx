@@ -390,7 +390,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             <span>↵ Select</span>
             <span>ESC Close</span>
           </div>
-          <span>SpecBalloon v2.5 Metrology OS</span>
+          <span>SpecBalloon Metrology Studio</span>
         </div>
       </div>
     </div>

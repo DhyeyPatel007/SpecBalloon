@@ -190,7 +190,7 @@ export const CmmImportModal: React.FC<CmmImportModalProps> = ({
         {/* Header */}
         <div className="p-4 border-b border-border-hairline flex items-center justify-between bg-subtle/50">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/40 flex items-center justify-center text-accent-primary">
+            <div className="w-8 h-8 rounded-lg bg-[#0047AB]/10 text-[#0047AB] border border-[#0047AB]/20 flex items-center justify-center">
               <Cpu className="w-4 h-4" />
             </div>
             <div>
@@ -198,7 +198,7 @@ export const CmmImportModal: React.FC<CmmImportModalProps> = ({
                 <h3 className="text-sm font-bold text-text-primary">
                   CMM Report Auto-Importer
                 </h3>
-                <span className="px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[10px] font-mono font-bold text-accent-primary">
+                <span className="px-1.5 py-0.2 rounded bg-[#0047AB]/10 border border-[#0047AB]/20 text-[10px] font-mono font-bold text-[#0047AB] dark:text-[#38BDF8]">
                   ZEISS CALYPSO & HEXAGON PC-DMIS
                 </span>
               </div>

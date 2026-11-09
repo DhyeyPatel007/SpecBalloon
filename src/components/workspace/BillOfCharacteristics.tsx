@@ -186,7 +186,7 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
             >
               <span>📋 Form 3: BoC</span>
               {isRevisionDiffMode && (
-                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-[#0047AB] animate-pulse" />
               )}
             </button>
             <button
@@ -410,7 +410,7 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
                             <span
                               className={`mt-0.5 inline-block text-[10px] font-mono font-semibold px-1 rounded ${
                                 char.deltaState === 'MODIFIED'
-                                  ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800'
+                                  ? 'bg-[#0047AB]/10 text-[#0047AB] dark:text-[#38BDF8] border border-[#0047AB]/30'
                                   : char.deltaState === 'ADDED'
                                   ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
                                   : 'bg-red-100 dark:bg-red-950/70 text-red-700 dark:text-red-300'
@@ -812,7 +812,7 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
             <div className="p-4 rounded-xl border border-border-hairline bg-surface shadow-xs space-y-3">
               <div className="flex items-center justify-between border-b border-border-hairline pb-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 font-mono font-bold text-[11px]">
+                  <span className="px-2 py-0.5 rounded bg-[#0047AB]/10 text-[#0047AB] dark:text-[#38BDF8] border border-[#0047AB]/20 font-mono font-bold text-[11px]">
                     NIST / NABL TRACEABLE
                   </span>
                   <h3 className="font-bold text-text-primary text-sm">

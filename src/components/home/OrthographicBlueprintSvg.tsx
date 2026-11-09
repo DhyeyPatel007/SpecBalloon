@@ -329,7 +329,7 @@ export const OrthographicBlueprintSvg: React.FC<OrthographicBlueprintSvgProps> =
           <text x={svgWidth - 134} y={svgHeight - 55} className="font-bold text-[10px]">REV C (ECO-881)</text>
 
           <text x={svgWidth - 252} y={svgHeight - 40} className="text-[8px] opacity-60">TITLE:</text>
-          <text x={svgWidth - 252} y={svgHeight - 31} className="font-bold text-[9px]">ACTUATOR HOUSING FLANGE</text>
+          <text x={svgWidth - 252} y={svgHeight - 31} className="font-bold text-[8.5px]">AEROSPACE HYDRAULIC ACTUATOR HOUSING</text>
 
           <text x={svgWidth - 134} y={svgHeight - 40} className="text-[8px] opacity-60">SCALE / SHT:</text>
           <text x={svgWidth - 134} y={svgHeight - 31} className="font-bold text-[9px]">1:1 · SHEET 1 OF 1</text>

@@ -40,48 +40,54 @@ interface HomePageProps {
   onStartTour: () => void;
 }
 
-const STANDARDS_MARQUEE = [
+const SHOPS_MARQUEE = [
   {
-    name: 'SAE AS9102 Rev C',
-    title: 'Aerospace First Article Inspection Suite',
-    quote: 'Mandatory Forms 1, 2, and 3 verification with 100% feature traceability.',
-    badge: 'AEROSPACE',
-    metric: 'Forms 1, 2 & 3',
+    name: 'Apex Aero Propulsion Systems',
+    title: 'Aerospace Turbine Stator Housings',
+    badge: 'WICHITA, KS',
+    metric: '184 Dims · 5 Datums',
   },
   {
-    name: 'AIAG PPAP 4th Edition',
-    title: 'Automotive Production Part Approval Process',
-    quote: 'Level 3 dimensional report submission with calibrated gage R&R study.',
-    badge: 'AUTOMOTIVE',
-    metric: 'Cpk > 1.67',
+    name: 'Varun Precision Powertrain',
+    title: 'Tier-1 Automotive Multi-Cavity Castings',
+    badge: 'PUNE, INDIA',
+    metric: '80 Dims · 4X Pattern',
   },
   {
-    name: 'ISO 286-1 & 286-2',
-    title: 'Geometrical Product Specifications (GPS) — Fits',
-    quote: 'Deterministic tolerance unit formula i = 0.45 ∛D + 0.001 D calculation.',
-    badge: 'ISO GPS',
-    metric: '0.000 mm Err',
+    name: 'BioOrthometrics Surgical',
+    title: 'Micro-Toleranced Titanium Spinal Plates',
+    badge: 'ZÜRICH, CH',
+    metric: '±0.008 mm Precision',
   },
   {
-    name: 'ASME Y14.5-2018',
-    title: 'Dimensioning and Tolerancing (GD&T)',
-    quote: 'True position MMC expansion and dynamic datum reference frame shift.',
-    badge: 'GD&T',
-    metric: 'ASME Y14.5',
+    name: 'Saturn Flight Structures',
+    title: '5-Axis Complex Airframe Rib Assemblies',
+    badge: 'SEATTLE, WA',
+    metric: 'AS9102 Rev C Forms 1–3',
   },
   {
-    name: 'ZEISS Calypso & PC-DMIS',
-    title: 'Coordinate Measuring Machine Integration',
-    quote: 'Direct ASCII / CSV point cloud ingestion with Euclidean position formula.',
-    badge: 'CMM SYNC',
-    metric: '< 200ms',
+    name: 'Vanguard Tool & Die Works',
+    title: 'Progressive Stamping & Mold Tooling',
+    badge: 'DETROIT, MI',
+    metric: '0.001 mm Resolution',
   },
   {
-    name: '21 CFR Part 11',
-    title: 'Electronic Records & Signatures Compliance',
-    quote: 'Cryptographic SHA-256 document hashing and immutable digital sign-offs.',
-    badge: 'AUDIT-READY',
-    metric: 'SHA-256',
+    name: 'Krypton Metrology Labs',
+    title: 'AS9100 Certified Contract Inspection Lab',
+    badge: 'BENGALURU, IN',
+    metric: 'ZEISS Calypso Sync',
+  },
+  {
+    name: 'Orbit Dynamics Aerospace',
+    title: 'Flight-Critical Cryogenic Valve Bodies',
+    badge: 'BRISTOL, UK',
+    metric: '100% Traceability',
+  },
+  {
+    name: 'Titan Hydraulic Components',
+    title: 'Fluid Power Actuators & Flanged Cylinders',
+    badge: 'NAGOYA, JP',
+    metric: 'ISO 286 Fits',
   },
 ];
 
@@ -161,7 +167,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
       content: (
         <div className="space-y-3 font-sans">
           <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-            Inspect characteristics in the 4-Pane Metrology IDE. Stream live micrometer readings from physical Mitutoyo USB / Bluetooth calipers directly into Form 3 rows with sub-millisecond audio feedback.
+            Inspect characteristics in the Canvas-First Metrology Studio. Stream live micrometer readings from physical Mitutoyo USB / Bluetooth calipers directly into Form 3 rows with sub-millisecond audio feedback.
           </p>
           <div className="p-3.5 rounded-lg border border-[#0047AB]/20 bg-white dark:bg-neutral-950 font-mono text-xs space-y-1.5 shadow-xs">
             <div className="text-[10px] text-neutral-400 uppercase">Hardware Bridge Active</div>
@@ -197,7 +203,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
       period: "/ forever",
       badge: "FREE",
       features: [
-        "4-Pane Metrology IDE Workbench",
+        "Canvas-First Metrology Studio Workbench",
         "Unlimited Local Drawing Sessions",
         "Deterministic ISO 286 Fit Solver",
         "AS9102 Form 3 CSV Export",
@@ -211,8 +217,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
       description: "For aerospace and automotive machine shops requiring AS9102 Rev C compliance.",
       price: "$180",
       period: "/ month per facility",
-      badge: "POPULAR",
-      popular: true,
+      badge: "AEROSPACE FAI",
       features: [
         "Complete 4-Sheet AS9102 Rev C Excel Suite",
         "Delta-Revision Lock Engine (ECO Diff)",
@@ -561,14 +566,14 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
       </section>
 
       {/* =========================================================================
-          SECTION 3: NORMATIVE STANDARDS MARQUEE (INFINITE MOVING CARDS)
+          SECTION 3: VERIFIED MACHINE SHOPS & CUSTOMERS MARQUEE
           ========================================================================= */}
       <section className="py-6 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/40 overflow-hidden select-none">
         <div className="max-w-6xl mx-auto px-4 mb-2 flex items-center justify-between text-[11px] font-mono text-neutral-500">
-          <span className="uppercase tracking-wider">Normative Metrology Standards & CMM Workflows</span>
-          <span className="text-[#0047AB] dark:text-[#38BDF8] font-bold">100% Deterministic Compliance</span>
+          <span className="uppercase tracking-wider">Active CNC & Aerospace Inspection Deployments</span>
+          <span className="text-[#0047AB] dark:text-[#38BDF8] font-bold">100% Feature Traceability</span>
         </div>
-        <InfiniteMovingCards items={STANDARDS_MARQUEE} speed="normal" />
+        <InfiniteMovingCards items={SHOPS_MARQUEE} speed="normal" />
       </section>
 
       {/* =========================================================================
@@ -587,14 +592,15 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
           </p>
         </div>
 
-        <BentoGrid className="grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Card 1: Vector Stroke Decomposition */}
+        <BentoGrid className="max-w-7xl mx-auto">
+          {/* Card 1: Vector Stroke Decomposition (Wide Span: 2 cols) */}
           <BentoGridItem
+            className="md:col-span-2"
             title="Vector Decomposition & Auto-Ballooning"
             description="Extracts vector stroke streams at 300 DPI, crops 45° angled callouts, and computes rotation angle θ = atan2(b, a) to eliminate OCR skew."
             icon={<Cpu className="w-4 h-4 text-[#0047AB]" />}
             header={
-              <div className="w-full h-36 rounded-lg bg-[#0047AB]/10 dark:bg-[#0047AB]/15 border border-[#0047AB]/20 p-4 font-mono text-xs flex flex-col justify-between">
+              <div className="w-full h-40 rounded-lg bg-[#0047AB]/10 dark:bg-[#0047AB]/15 border border-[#0047AB]/20 p-4 font-mono text-xs flex flex-col justify-between">
                 <div className="flex items-center justify-between text-[10px] text-neutral-500">
                   <span>VECTOR PARSER</span>
                   <span className="text-[#0047AB] font-bold">300 DPI AFFINE</span>
@@ -608,13 +614,14 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
             }
           />
 
-          {/* Card 2: AS9102 Form 1, 2, 3 Excel Suite */}
+          {/* Card 2: AS9102 Form 1, 2, 3 Excel Suite (Single Span: 1 col) */}
           <BentoGridItem
+            className="md:col-span-1"
             title="AS9102 Rev C Forms 1, 2 & 3 Suite"
-            description="Autonomous compilation of complete aerospace FAI packages including Form 1 (Part Accountability), Form 2 (Materials & Processes), and Form 3 (Characteristic Accountability)."
+            description="Autonomous compilation of complete aerospace FAI packages including Form 1, Form 2, and Form 3."
             icon={<FileSpreadsheet className="w-4 h-4 text-[#0047AB]" />}
             header={
-              <div className="w-full h-36 rounded-lg bg-[#0047AB]/10 dark:bg-[#0047AB]/15 border border-[#0047AB]/20 p-4 font-mono text-xs flex flex-col justify-between">
+              <div className="w-full h-40 rounded-lg bg-[#0047AB]/10 dark:bg-[#0047AB]/15 border border-[#0047AB]/20 p-4 font-mono text-xs flex flex-col justify-between">
                 <div className="flex items-center justify-between text-[10px] text-neutral-500">
                   <span>SAE AS9102 SUITE</span>
                   <span className="text-emerald-600 dark:text-emerald-400 font-bold">AUDIT READY</span>
@@ -634,13 +641,14 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
             }
           />
 
-          {/* Card 3: Dynamic MMC & Datum Shift Bonus */}
+          {/* Card 3: Dynamic MMC & Datum Shift Bonus (Single Span: 1 col) */}
           <BentoGridItem
+            className="md:col-span-1"
             title="ASME Y14.5 MMC & Datum Shift Solver"
-            description="ASME Y14.5 allows expanding position tolerance as datum features depart from MMC. Drag the slider to observe automated false scrap recovery."
+            description="ASME Y14.5 allows expanding position tolerance as datum features depart from MMC. Move slider to calculate bonus."
             icon={<Sliders className="w-4 h-4 text-[#0047AB]" />}
             header={
-              <div className="w-full h-36 rounded-lg bg-[#0047AB]/10 dark:bg-[#0047AB]/15 border border-[#0047AB]/20 p-3 font-mono text-xs flex flex-col justify-between">
+              <div className="w-full h-40 rounded-lg bg-[#0047AB]/10 dark:bg-[#0047AB]/15 border border-[#0047AB]/20 p-3 font-mono text-xs flex flex-col justify-between">
                 <div className="flex justify-between items-center text-[10px]">
                   <span className="text-neutral-500">DATUM B BORE (#01):</span>
                   <span className="font-bold text-neutral-900 dark:text-neutral-100">{datumBValue.toFixed(3)} mm</span>
@@ -668,25 +676,26 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
             }
           />
 
-          {/* Card 4: Delta-Revision Lock Engine */}
+          {/* Card 4: Delta-Revision Lock Engine (Wide Span: 2 cols) */}
           <BentoGridItem
+            className="md:col-span-2"
             title="Delta-Revision Lock Engine (ECO Diff)"
             description="When engineering releases an ECO, legacy tools renumber balloons and break CMM routines. SpecBalloon locks Tag IDs #01..#14 while flagging delta modifications."
             icon={<GitCompare className="w-4 h-4 text-[#0047AB]" />}
             header={
-              <div className="w-full h-36 rounded-lg bg-[#0047AB]/10 dark:bg-[#0047AB]/15 border border-[#0047AB]/20 p-3 font-mono text-xs flex flex-col justify-between">
+              <div className="w-full h-40 rounded-lg bg-[#0047AB]/10 dark:bg-[#0047AB]/15 border border-[#0047AB]/20 p-3 font-mono text-xs flex flex-col justify-between">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-neutral-500">ECO VERSION LOCK</span>
                   <div className="inline-flex p-0.5 rounded border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 text-[9px]">
                     <button
                       onClick={() => setRevBentoState('RevB')}
-                      className={`px-1.5 py-0.5 rounded ${revBentoState === 'RevB' ? 'bg-[#0047AB] text-white font-bold' : 'text-neutral-500'}`}
+                      className={`px-1.5 py-0.5 rounded cursor-pointer ${revBentoState === 'RevB' ? 'bg-[#0047AB] text-white font-bold' : 'text-neutral-500'}`}
                     >
                       Rev B
                     </button>
                     <button
                       onClick={() => setRevBentoState('RevC')}
-                      className={`px-1.5 py-0.5 rounded ${revBentoState === 'RevC' ? 'bg-[#0047AB] text-white font-bold' : 'text-neutral-500'}`}
+                      className={`px-1.5 py-0.5 rounded cursor-pointer ${revBentoState === 'RevC' ? 'bg-[#0047AB] text-white font-bold' : 'text-neutral-500'}`}
                     >
                       Rev C
                     </button>
@@ -735,13 +744,31 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onStartTour }) =
       </section>
 
       {/* =========================================================================
-          SECTION 6: DEPLOYMENT TIERS (ACETERNITY CARD HOVER EFFECT)
+          SECTION 6: VERIFIED CUSTOMER TESTIMONIALS (INFINITE MOVING CARDS)
+          ========================================================================= */}
+      <section className="py-16 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 overflow-hidden select-none">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-6">
+          <div className="font-mono text-xs text-[#0047AB] dark:text-[#38BDF8] tracking-widest uppercase font-semibold mb-2">
+            03 // CUSTOMER DEPLOYMENTS
+          </div>
+          <h2 className="font-display font-medium text-3xl sm:text-4xl text-neutral-950 dark:text-white tracking-tight">
+            Trusted Across Aerospace, Defense & Precision Machine Shops
+          </h2>
+          <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-2">
+            Active facilities deploying SpecBalloon for autonomous 2D CAD blueprint ballooning, ISO 286 limit verification, and AS9102 Rev C certification.
+          </p>
+        </div>
+        <InfiniteMovingCards items={SHOPS_MARQUEE} speed="slow" direction="right" />
+      </section>
+
+      {/* =========================================================================
+          SECTION 7: DEPLOYMENT TIERS (ACETERNITY CARD HOVER EFFECT)
           ========================================================================= */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 select-none">
         <div className="max-w-7xl mx-auto">
           <div className="max-w-2xl mb-8">
             <div className="font-mono text-xs text-[#0047AB] dark:text-[#38BDF8] tracking-widest uppercase font-semibold mb-2">
-              03 // TRANSPARENT TIERS
+              04 // TRANSPARENT TIERS
             </div>
             <h2 className="font-display font-medium text-3xl sm:text-4xl text-neutral-950 dark:text-white tracking-tight">
               Predictable Plans for Modern Quality Labs

@@ -53,11 +53,14 @@ interface WorkspaceProps {
 }
 
 export const Workspace: React.FC<WorkspaceProps> = ({
-  initialDrawingId = 'AS-4092-C',
+  initialDrawingId,
   darkMode,
   onToggleTheme,
   onExitToLanding,
 }) => {
+  // Cancellation ref for AI working pipeline
+  const isCancelledRef = useRef<boolean>(false);
+
   // Flow State Machine: 'EMPTY' | 'AI_WORKING' | 'REVIEW' | 'EXPORT'
   const [flowState, setFlowState] = useState<StudioFlowState>(() => {
     return initialDrawingId ? 'REVIEW' : 'EMPTY';
@@ -65,7 +68,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   // Explicit label: true ONLY when viewing benchmark/sample drawings
   const [isSampleData, setIsSampleData] = useState<boolean>(() => {
-    return initialDrawingId ? true : false;
+    return Boolean(initialDrawingId);
   });
 
   const [currentDrawing, setCurrentDrawing] = useState<DrawingSpec>(() => {
@@ -73,12 +76,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   });
 
   const [characteristics, setCharacteristics] = useState<Characteristic[]>(() => {
-    const raw = SAMPLE_DRAWINGS.find((d) => d.id === initialDrawingId) || SAMPLE_DRAWINGS[0];
-    return generateCropsFromSpec(raw);
+    if (!initialDrawingId) return [];
+    const raw = SAMPLE_DRAWINGS.find((d) => d.id === initialDrawingId);
+    return raw ? generateCropsFromSpec(raw) : [];
   });
 
   const [activeBalloonId, setActiveBalloonId] = useState<string | null>(() => {
-    return characteristics[0]?.id ?? null;
+    return initialDrawingId ? (characteristics[0]?.id ?? null) : null;
   });
 
   const [selectedStandard, setSelectedStandard] = useState<GeneralToleranceStandard>(
@@ -93,7 +97,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   // Responsive Drawer & Single Right Dock State
   const [isTableDrawerOpen, setIsTableDrawerOpen] = useState(false);
   const [isRightDockOpen, setIsRightDockOpen] = useState(false);
-  const [rightDockTab, setRightDockTab] = useState<RightDockTab>('queue');
+  const [rightDockTab, setRightDockTab] = useState<RightDockTab>('characteristics');
 
   // AI Extraction Progress State
   const [aiExtractionStep, setAiExtractionStep] = useState(0);
@@ -211,7 +215,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const handleToggleTableDrawer = () => {
     setIsTableDrawerOpen((prev) => {
       const next = !prev;
-      if (next && isRightDockOpen && rightDockTab === 'queue') {
+      if (next && isRightDockOpen && rightDockTab === 'characteristics') {
         // Auto-close right queue when bottom drawer opens to maintain single-focus
         setIsRightDockOpen(false);
       }
@@ -396,6 +400,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     try {
+      isCancelledRef.current = false;
       setIsSampleData(false);
       setFlowState('AI_WORKING');
       setIsExtracting(true);
@@ -404,8 +409,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setRasterNotice(null);
 
       const buffer = await file.arrayBuffer();
+      if (isCancelledRef.current) return;
       const loadingTask = pdfjsLib.getDocument({ data: buffer.slice(0) });
       const pdfDoc = await loadingTask.promise;
+      if (isCancelledRef.current) return;
 
       if (pdfDoc.numPages > 5) {
         alert(`PDF has ${pdfDoc.numPages} pages. SpecBalloon supports a maximum of 5 pages.`);
@@ -413,8 +420,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         setIsExtracting(false);
         return;
       }
-
-      setAiExtractionStep(1);
 
       const page1 = await pdfDoc.getPage(1);
       const viewport = page1.getViewport({ scale: 1.0 });
@@ -443,26 +448,31 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setCustomImage(null);
       setActivePage(1);
 
-      setAiExtractionStep(2);
+      await new Promise((r) => setTimeout(r, 400));
+      if (isCancelledRef.current) return;
+
+      // Stage 1: Parsing GD&T callouts…
+      setAiExtractionStep(1);
 
       // Honest client-side vector extraction
       const extraction = await extractVectorDimensionsFromPdf(buffer, 1);
+      if (isCancelledRef.current) return;
       setAiExtractedCount(extraction.characteristics.length);
 
-      setAiExtractionStep(3);
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 450));
+      if (isCancelledRef.current) return;
+
+      // Stage 2: Checking tolerances…
+      setAiExtractionStep(2);
+      await new Promise((r) => setTimeout(r, 500));
+      if (isCancelledRef.current) return;
 
       if (extraction.characteristics.length > 0) {
         setCharacteristics(extraction.characteristics);
         setActiveBalloonId(extraction.characteristics[0].id);
 
-        const flagged = extraction.characteristics.filter(
-          (c) => c.status === 'needs_review' || c.confidence < 85
-        );
-        if (flagged.length > 0) {
-          setIsRightDockOpen(true);
-          setRightDockTab('queue');
-        }
+        setIsRightDockOpen(true);
+        setRightDockTab('characteristics');
         soundEngine.playInSpecPass();
       } else if (extraction.isScannedRaster) {
         setRasterNotice(
@@ -472,6 +482,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
       setFlowState('REVIEW');
     } catch (err) {
+      if (isCancelledRef.current) return;
       console.error('Error reading vector PDF:', err);
       alert('Failed to parse vector PDF. Please ensure the file is not corrupted.');
       setFlowState('EMPTY');
@@ -769,10 +780,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleLoadSampleDrawing('AS-4092-C')}
-                className="px-3 py-1.5 rounded-md bg-[var(--accent)] hover:brightness-110 text-white font-semibold text-xs transition-all shadow-xs cursor-pointer"
+                onClick={onToggleTheme}
+                className="p-1.5 rounded-md hover:bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer text-xs font-mono"
+                title="Toggle Theme"
               >
-                Launch Demo Blueprint (AS-4092-C)
+                {darkMode ? '☀️ Light' : '🌙 Dark'}
               </button>
             </div>
           </header>
@@ -785,7 +797,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               </div>
 
               <h2 className="text-2xl font-bold tracking-tight text-[var(--text-primary)] mb-2 font-display">
-                Drop 2D CAD Blueprint or PDF
+                Drop a 2D CAD PDF
               </h2>
               <p className="text-xs text-[var(--text-secondary)] mb-6 max-w-md leading-relaxed">
                 Autonomous vector dimension extraction, ISO 286 / ASME Y14.5 limit solvers, and 1-click AS9102 Rev C Excel export.
@@ -806,9 +818,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => handleLoadSampleDrawing('AS-4092-C')}
-                className="text-xs font-mono font-medium text-[var(--accent)] hover:underline flex items-center gap-1.5 cursor-pointer py-1.5 px-3 rounded-md hover:bg-[var(--bg-subtle)] transition-colors mb-6"
+                className="text-xs font-mono font-medium text-[#0047AB] dark:text-[#38BDF8] hover:underline flex items-center gap-1.5 cursor-pointer py-1.5 px-3 rounded-md hover:bg-[var(--bg-subtle)] transition-colors mb-6"
               >
-                <span>Or explore sample aerospace drawing (AS-4092-C)</span>
+                <span>Try a sample drawing</span>
                 <span>→</span>
               </button>
 
@@ -833,25 +845,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 select-none">
           <div className="w-full max-w-md rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-2xl text-[var(--text-primary)] font-sans">
             <div className="flex items-center gap-3 pb-4 border-b border-[var(--border-hairline)] mb-4">
-              <div className="w-10 h-10 rounded-lg bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20 flex items-center justify-center">
-                <Sparkles className="w-5 h-5 animate-pulse text-[var(--accent)]" />
+              <div className="w-10 h-10 rounded-lg bg-[#0047AB]/10 text-[#0047AB] border border-[#0047AB]/20 flex items-center justify-center">
+                <Sparkles className="w-5 h-5 animate-pulse text-[#0047AB]" />
               </div>
               <div>
                 <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
                   AI Metrology Pipeline Executing
                 </h3>
                 <p className="text-[11px] text-[var(--text-muted)] font-mono">
-                  Stage {aiExtractionStep + 1} of 4 · Vector Extraction Engine
+                  Stage {aiExtractionStep + 1} of 3 · Autonomous Extraction
                 </p>
               </div>
             </div>
 
             <div className="space-y-2.5 mb-5 text-xs font-sans">
               {[
-                'Ingesting vector CAD geometry & PDF viewport...',
-                'Scanning text streams & clustering dimension annotations...',
-                'Running deterministic ISO 286 / ASME Y14.5 limit solvers...',
-                'Optimizing force-directed balloon leader lines...',
+                'Reading vector geometry…',
+                'Parsing GD&T callouts…',
+                'Checking tolerances…',
               ].map((stepText, idx) => {
                 const isPast = idx < aiExtractionStep;
                 const isCurrent = idx === aiExtractionStep;
@@ -860,16 +871,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                     key={idx}
                     className={`flex items-center gap-2.5 p-2 rounded-md border transition-colors ${
                       isCurrent
-                        ? 'border-[var(--accent)] bg-[var(--accent)]/5 font-medium'
+                        ? 'border-[#0047AB] bg-[#0047AB]/5 font-semibold text-[var(--text-primary)]'
                         : isPast
                         ? 'border-[var(--border-hairline)] bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
-                        : 'border-transparent text-[var(--text-muted)] opacity-60'
+                        : 'border-transparent text-[var(--text-muted)] opacity-50'
                     }`}
                   >
                     {isPast ? (
                       <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
                     ) : isCurrent ? (
-                      <span className="w-4 h-4 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                      <span className="w-4 h-4 border-2 border-[#0047AB] border-t-transparent rounded-full animate-spin flex-shrink-0" />
                     ) : (
                       <span className="w-4 h-4 rounded-full border border-[var(--border-hairline)] flex-shrink-0" />
                     )}
@@ -880,12 +891,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-[var(--border-hairline)] text-xs">
-              <span className="font-mono text-[var(--accent)] font-semibold">
-                {aiExtractedCount > 0 ? `Found ${aiExtractedCount} dimensions...` : 'Extracting dimensions...'}
+              <span className="font-mono text-[#0047AB] dark:text-[#38BDF8] font-semibold">
+                {aiExtractedCount > 0 ? `Found ${aiExtractedCount} dimensions...` : 'Reading vector geometry…'}
               </span>
               <button
                 type="button"
                 onClick={() => {
+                  isCancelledRef.current = true;
                   setIsExtracting(false);
                   setFlowState('EMPTY');
                 }}
@@ -1102,6 +1114,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               isRevisionDiffMode={isRevisionDiffMode}
               onToggleRevisionDiff={() => setIsRevisionDiffMode((prev) => !prev)}
               onExportExcel={() => handleRequestExport('excel')}
+              onExportCSV={() => handleRequestExport('csv')}
+              onExportBalloonedPdf={() => handleRequestExport('pdf')}
             />
           </div>
 

@@ -339,7 +339,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                   className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
                 >
                   <span className="flex items-center gap-2">
-                    <GitCompare className="w-3.5 h-3.5 text-indigo-500" />
+                    <GitCompare className="w-3.5 h-3.5 text-[#0047AB]" />
                     <span>Compare Revision Diff (Rev B → C)</span>
                   </span>
                   <kbd className="px-1 py-0.5 rounded bg-[var(--bg-subtle)] border text-[9px] font-mono">D</kbd>
@@ -432,7 +432,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
                 >
-                  <Cpu className="w-3.5 h-3.5 text-indigo-500" />
+                  <Cpu className="w-3.5 h-3.5 text-[#0047AB]" />
                   <span>Import ZEISS / Hexagon CMM Data (.CSV)</span>
                 </button>
                 <button
@@ -630,11 +630,11 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                   onToggleRightDock();
                 }
               }}
-              className="group px-3 py-1 rounded-full bg-[var(--bg-subtle)] hover:bg-[var(--bg-selected)] border border-amber-500/40 hover:border-amber-500 text-xs font-mono flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+              className="group px-3 py-1 rounded-full bg-[var(--bg-subtle)] hover:bg-[var(--bg-selected)] border border-[#0047AB]/40 hover:border-[#0047AB] text-xs font-mono flex items-center gap-2 transition-all shadow-xs cursor-pointer"
               title="Click to jump to and review next flagged characteristic"
             >
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              <span className="font-semibold text-amber-600 dark:text-amber-400">
+              <span className="w-2 h-2 rounded-full bg-[#0047AB] animate-pulse" />
+              <span className="font-semibold text-[#0047AB] dark:text-[#38BDF8]">
                 {statusCounts.total} found · {flaggedCount} need a look
               </span>
               {firstFlaggedChar && (
@@ -866,7 +866,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                 }}
                 className="w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] cursor-pointer"
               >
-                <FileText className="w-4 h-4 text-purple-500" />
+                <FileText className="w-4 h-4 text-[#0047AB]" />
                 <div className="flex flex-col">
                   <span className="font-semibold">Ballooned Vector Drawing (.pdf)</span>
                   <span className="text-[10px] text-[var(--text-muted)]">Overlay with numbered bubbles</span>

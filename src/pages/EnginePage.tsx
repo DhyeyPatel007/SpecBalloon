@@ -349,7 +349,7 @@ export const EnginePage: React.FC<EnginePageProps> = ({ onNavigate }) => {
         <div className="border border-border-hairline rounded-xl bg-surface p-6 shadow-apple-sm space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border-hairline pb-3">
             <div>
-              <span className="text-[10px] font-mono text-purple-600 font-bold uppercase tracking-wider">
+              <span className="text-[10px] font-mono text-[#0047AB] font-bold uppercase tracking-wider">
                 Sandbox C // ISO 68-1 & ISO 965-1
               </span>
               <h3 className="font-semibold text-sm text-text-primary">
@@ -373,7 +373,7 @@ export const EnginePage: React.FC<EnginePageProps> = ({ onNavigate }) => {
                     onClick={() => setThreadChoice(th)}
                     className={`py-2 rounded text-xs font-mono font-bold transition-all cursor-pointer ${
                       threadChoice === th
-                        ? 'bg-purple-600 text-white shadow-xs'
+                        ? 'bg-[#0047AB] text-white shadow-xs'
                         : 'bg-subtle text-text-secondary hover:bg-surface border border-border-hairline'
                     }`}
                   >
@@ -393,7 +393,7 @@ export const EnginePage: React.FC<EnginePageProps> = ({ onNavigate }) => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-text-muted">Pitch Diameter Nominal (D2):</span>
-                <span className="text-purple-600 font-bold">
+                <span className="text-[#0047AB] font-bold">
                   {fmt3(threadParams.pitchDiameterD2)} mm
                 </span>
               </div>

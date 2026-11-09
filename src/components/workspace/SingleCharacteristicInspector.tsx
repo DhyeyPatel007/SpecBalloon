@@ -681,8 +681,8 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
 
             {/* Capability 3: ISO 68-1 / ISO 965 Metric & Unified Thread Metrology Parameters */}
             {(characteristic.toleranceType === 'Thread' || characteristic.rawCallout.toUpperCase().startsWith('M')) && (
-              <div className="p-2.5 rounded-lg border border-purple-300 dark:border-purple-800 bg-purple-50/40 dark:bg-purple-950/20 space-y-2">
-                <div className="flex items-center justify-between text-[11px] font-semibold text-purple-800 dark:text-purple-300">
+              <div className="p-2.5 rounded-lg border border-[#0047AB]/30 bg-[#0047AB]/5 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-[#0047AB] dark:text-[#38BDF8]">
                   <span>ISO 68-1 / ISO 965 Thread Parameters</span>
                   <span className="font-mono text-[10px] px-1 rounded bg-white/70 dark:bg-black/30 font-bold">
                     {characteristic.threadData?.threadClass || '6H'}
@@ -705,7 +705,7 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
                         <div className="p-1.5 rounded bg-surface border border-border-hairline col-span-2">
                           <div className="flex justify-between items-center">
                             <span className="text-[10px] text-text-muted">Pitch Diameter (D₂)</span>
-                            <span className="text-[10px] font-mono text-purple-600 dark:text-purple-400 font-bold">
+                            <span className="text-[10px] font-mono text-[#0047AB] dark:text-[#38BDF8] font-bold">
                               D - 0.649519·P
                             </span>
                           </div>
@@ -731,7 +731,7 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
                       </div>
 
                       {/* GO / NO-GO Attribute Gauging Toggle */}
-                      <div className="pt-1 border-t border-purple-200 dark:border-purple-800/60 flex items-center justify-between text-xs">
+                      <div className="pt-1 border-t border-[#0047AB]/20 flex items-center justify-between text-xs">
                         <span className="text-[10px] font-semibold text-text-secondary">Thread Plug Gauging:</span>
                         <div className="flex items-center gap-1.5">
                           <button

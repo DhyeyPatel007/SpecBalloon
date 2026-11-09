@@ -19,15 +19,26 @@ export const Timeline = ({
   const [height, setHeight] = useState(0);
 
   useEffect(() => {
-    if (ref.current) {
-      const rect = ref.current.getBoundingClientRect();
-      setHeight(rect.height);
+    const updateHeight = () => {
+      if (ref.current) {
+        setHeight(ref.current.getBoundingClientRect().height);
+      }
+    };
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateHeight) : null;
+    if (ro && ref.current) {
+      ro.observe(ref.current);
     }
-  }, [ref]);
+    return () => {
+      window.removeEventListener("resize", updateHeight);
+      ro?.disconnect();
+    };
+  }, []);
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
-    offset: ["start 15%", "end 60%"],
+    offset: ["start 20%", "end 80%"],
   });
 
   const heightTransform = useTransform(scrollYProgress, [0, 1], [0, height]);

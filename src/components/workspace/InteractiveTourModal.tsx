@@ -45,9 +45,9 @@ export const TOUR_STEPS: TourStep[] = [
     title: '2. Revision Diff & Delta-Lock Engine',
     subtitle: 'Rev B → Rev C Tolerance Shift without Breaking Tag IDs',
     badge: 'ECO STABILITY',
-    icon: <GitCompare className="w-4 h-4 text-indigo-500" />,
+    icon: <GitCompare className="w-4 h-4 text-[#0047AB]" />,
     description:
-      'Solves the #1 industry bottleneck where engineering change orders (ECOs) scramble balloon numbers and break downstream CMM routines. SpecBalloon keeps Tag IDs (#01..#14) permanently locked, automatically dimming unchanged features, highlighting tightened tolerances in purple, and marking new features in green.',
+      'Solves the #1 industry bottleneck where engineering change orders (ECOs) scramble balloon numbers and break downstream CMM routines. SpecBalloon keeps Tag IDs (#01..#14) permanently locked, automatically dimming unchanged features, highlighting tightened tolerances in cobalt, and marking new features in green.',
     keyMoat: 'Delta-lock protects shop-floor CMM programs from breaking on rev updates.',
     uiTarget: 'Floating Revision Diff Banner & 2D Canvas Highlight Pills',
   },

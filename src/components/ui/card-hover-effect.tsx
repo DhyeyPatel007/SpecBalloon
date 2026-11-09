@@ -42,7 +42,7 @@ export const HoverEffect = ({
           <AnimatePresence>
             {hoveredIndex === idx && (
               <motion.span
-                className="absolute inset-0 h-full w-full bg-[#0047AB]/15 dark:bg-[#0047AB]/25 block rounded-2xl -z-10"
+                className="absolute inset-0 h-full w-full bg-[#0047AB]/10 dark:bg-[#0047AB]/20 block rounded-2xl z-10"
                 layoutId="hoverBackground"
                 initial={{ opacity: 0 }}
                 animate={{
@@ -56,7 +56,7 @@ export const HoverEffect = ({
               />
             )}
           </AnimatePresence>
-          <HoverCard popular={item.popular}>
+          <HoverCard>
             <div className="flex items-center justify-between mb-3">
               <HoverCardTitle>{item.title}</HoverCardTitle>
               {item.badge && (
@@ -93,10 +93,7 @@ export const HoverEffect = ({
                 <button
                   type="button"
                   className={cn(
-                    "w-full py-2.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer",
-                    item.popular
-                      ? "bg-[#0047AB] text-white hover:bg-[#003887] shadow-sm"
-                      : "border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-200 dark:hover:bg-neutral-800"
+                    "w-full py-2.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 group-hover:bg-[#0047AB] group-hover:text-white group-hover:border-[#0047AB] shadow-2xs"
                   )}
                 >
                   {item.ctaText}
@@ -113,7 +110,6 @@ export const HoverEffect = ({
 export const HoverCard = ({
   className,
   children,
-  popular,
 }: {
   className?: string;
   children: React.ReactNode;
@@ -122,10 +118,7 @@ export const HoverCard = ({
   return (
     <div
       className={cn(
-        "rounded-xl h-full w-full p-6 overflow-hidden bg-white dark:bg-neutral-950 border transition duration-200 group-hover:border-[#0047AB] relative z-20 shadow-xs flex flex-col justify-between",
-        popular
-          ? "border-[#0047AB] shadow-md ring-1 ring-[#0047AB]/20"
-          : "border-neutral-200 dark:border-neutral-800",
+        "rounded-xl h-full w-full p-6 overflow-hidden bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 transition duration-200 group-hover:border-[#0047AB] dark:group-hover:border-[#0047AB] relative z-20 shadow-xs flex flex-col justify-between",
         className
       )}
     >

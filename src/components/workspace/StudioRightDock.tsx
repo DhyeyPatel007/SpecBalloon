@@ -32,7 +32,7 @@ import {
   GeminiCropAnalysis
 } from '../../lib/geminiVision';
 
-export type RightDockTab = 'queue' | 'inspector' | 'layers';
+export type RightDockTab = 'characteristics' | 'inspector' | 'excel';
 
 export interface StudioRightDockProps {
   isOpen: boolean;
@@ -59,6 +59,8 @@ export interface StudioRightDockProps {
   isRevisionDiffMode?: boolean;
   onToggleRevisionDiff?: () => void;
   onExportExcel?: () => void;
+  onExportCSV?: () => void;
+  onExportBalloonedPdf?: () => void;
 }
 
 export const StudioRightDock: React.FC<StudioRightDockProps> = ({
@@ -81,12 +83,14 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
   isRevisionDiffMode = false,
   onToggleRevisionDiff,
   onExportExcel,
+  onExportCSV,
+  onExportBalloonedPdf,
 }) => {
   const activeChar = characteristics.find((c) => c.id === activeBalloonId) || characteristics[0] || null;
 
-  // Filter flagged queue: unreviewed, confidence < 85%, needs_review, or out_of_spec
+  // Filter flagged queue: ONLY unreviewed low-confidence items (< 85%)
   const flaggedItems = characteristics.filter(
-    (c) => c.status === 'needs_review' || c.status === 'out_of_spec' || (!c.reviewed && c.confidence < 85)
+    (c) => !c.reviewed && c.confidence < 85
   );
 
   // Gemini state for inspector
@@ -139,21 +143,21 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
       className="w-[380px] h-full flex-shrink-0 bg-[var(--bg-surface)] border-l border-[var(--border-hairline)] flex flex-col z-20 shadow-xl overflow-hidden select-none transition-all duration-200"
       aria-label="Studio Dock"
     >
-      {/* Dock Header & 3 Tabs */}
+      {/* Dock Header & 3 Tabs: Characteristics / Inspector / Excel */}
       <div className="h-12 border-b border-[var(--border-hairline)] bg-[var(--bg-subtle)] px-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-1">
           <button
-            onClick={() => onTabChange('queue')}
+            onClick={() => onTabChange('characteristics')}
             className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-              activeTab === 'queue'
-                ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-xs border border-[var(--border-hairline)]'
+              activeTab === 'characteristics'
+                ? 'bg-[var(--bg-surface)] text-[#0047AB] dark:text-[#38BDF8] shadow-xs border border-[var(--border-hairline)]'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]/60'
             }`}
           >
-            <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-            <span>Flagged Queue</span>
+            <AlertCircle className="w-3.5 h-3.5 text-[#0047AB]" />
+            <span>Characteristics</span>
             {flaggedItems.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold">
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-[#0047AB]/10 text-[#0047AB] dark:text-[#38BDF8] font-bold">
                 {flaggedItems.length}
               </span>
             )}
@@ -163,24 +167,24 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
             onClick={() => onTabChange('inspector')}
             className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
               activeTab === 'inspector'
-                ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-xs border border-[var(--border-hairline)]'
+                ? 'bg-[var(--bg-surface)] text-[#0047AB] dark:text-[#38BDF8] shadow-xs border border-[var(--border-hairline)]'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]/60'
             }`}
           >
-            <Sliders className="w-3.5 h-3.5 text-[var(--accent)]" />
+            <Sliders className="w-3.5 h-3.5 text-[#0047AB]" />
             <span>Inspector</span>
           </button>
 
           <button
-            onClick={() => onTabChange('layers')}
+            onClick={() => onTabChange('excel')}
             className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-              activeTab === 'layers'
-                ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-xs border border-[var(--border-hairline)]'
+              activeTab === 'excel'
+                ? 'bg-[var(--bg-surface)] text-[#0047AB] dark:text-[#38BDF8] shadow-xs border border-[var(--border-hairline)]'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]/60'
             }`}
           >
-            <Layers className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Views & Layers</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>Excel</span>
           </button>
         </div>
 
@@ -195,24 +199,24 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
 
       {/* Dock Content Body */}
       <div className="flex-1 overflow-y-auto">
-        {/* TAB 1: FLAGGED QUEUE */}
-        {activeTab === 'queue' && (
+        {/* TAB 1: CHARACTERISTICS (LOW-CONFIDENCE REVIEW QUEUE) */}
+        {activeTab === 'characteristics' && (
           <div className="p-3.5 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-[var(--border-hairline)]">
               <div>
                 <h4 className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider font-mono">
-                  Items Needing Review
+                  Characteristics Queue
                 </h4>
                 <p className="text-[11px] text-[var(--text-muted)]">
                   {flaggedItems.length === 0
-                    ? 'All dimensions verified to 100% confidence.'
-                    : `${flaggedItems.length} dimensions flagged for verification before AS9102 export.`}
+                    ? 'All characteristics verified at 100% confidence.'
+                    : `${flaggedItems.length} low-confidence items requiring engineer sign-off.`}
                 </p>
               </div>
               {flaggedItems.length > 0 && onApproveAll && (
                 <button
                   onClick={onApproveAll}
-                  className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                  className="px-2.5 py-1 rounded bg-[#0047AB] hover:bg-[#003885] text-white text-[11px] font-bold flex items-center gap-1 shadow-xs cursor-pointer"
                 >
                   <Check className="w-3 h-3" />
                   <span>Approve All</span>
@@ -232,7 +236,7 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
                 {onExportExcel && (
                   <button
                     onClick={onExportExcel}
-                    className="w-full py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                    className="w-full py-2 rounded-lg bg-[#0047AB] hover:bg-[#003885] text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Download AS9102 Excel Package</span>
@@ -243,12 +247,7 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
               <div className="space-y-3">
                 {flaggedItems.map((item) => {
                   const isSelected = item.id === activeBalloonId;
-                  const flagReason =
-                    item.status === 'out_of_spec'
-                      ? 'Measurement exceeds tolerance limits'
-                      : item.confidence < 85
-                      ? `Low OCR confidence (${item.confidence.toFixed(0)}%)`
-                      : 'Missing explicit tolerance limits';
+                  const flagLabel = `${Math.round(item.confidence)}% — check this one`;
 
                   return (
                     <div
@@ -256,14 +255,14 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
                       onClick={() => onSelectCharacteristic(item.id)}
                       className={`p-3 rounded-lg border transition-all cursor-pointer ${
                         isSelected
-                          ? 'border-[var(--accent)] bg-[var(--accent)]/5 shadow-xs'
+                          ? 'border-[#0047AB] bg-[#0047AB]/5 shadow-xs'
                           : 'border-[var(--border-hairline)] bg-[var(--bg-subtle)] hover:border-[var(--border-strong)]'
                       }`}
                     >
                       {/* Item Header */}
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-amber-500 text-white font-mono font-bold text-xs flex items-center justify-center">
+                          <span className="w-6 h-6 rounded-full bg-[#0047AB] text-white font-mono font-bold text-xs flex items-center justify-center">
                             #{item.balloonNumber < 10 ? `0${item.balloonNumber}` : item.balloonNumber}
                           </span>
                           <div>
@@ -280,17 +279,17 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
                           className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${
                             item.designator === 'Critical'
                               ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
-                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                              : 'bg-[#0047AB]/10 text-[#0047AB] dark:text-[#38BDF8] border border-[#0047AB]/20'
                           }`}
                         >
                           {item.designator}
                         </span>
                       </div>
 
-                      {/* Flag Reason */}
-                      <div className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 font-medium mb-2.5">
-                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>{flagReason}</span>
+                      {/* Flag Reason: Low confidence label */}
+                      <div className="flex items-center gap-1.5 text-[11px] text-[#0047AB] dark:text-[#38BDF8] font-semibold mb-2.5">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-[#0047AB]" />
+                        <span>{flagLabel}</span>
                       </div>
 
                       {/* Cropped Image Thumbnail if present */}
@@ -626,109 +625,101 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
           </div>
         )}
 
-        {/* TAB 3: VIEWS & LAYERS */}
-        {activeTab === 'layers' && (
-          <div className="p-3.5 space-y-4 text-xs font-sans">
-            {/* Sheet & Views */}
+        {/* TAB 3: EXCEL EXPORT & AS9102 SUITE */}
+        {activeTab === 'excel' && (
+          <div className="p-4 space-y-4 text-xs font-sans">
+            <div className="pb-3 border-b border-[var(--border-hairline)]">
+              <div className="flex items-center gap-2 mb-1">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <h4 className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider font-mono">
+                  AS9102 Rev C Excel Package
+                </h4>
+              </div>
+              <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                Deterministic 4-sheet First Article Inspection package: Form 1 (Part Accountability), Form 2 (Materials & Processes), Form 3 (Characteristic Accountability), and 10-piece SPC capability.
+              </p>
+            </div>
+
+            {/* Forms Readiness Cards */}
             <div className="space-y-2">
-              <h4 className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider font-mono">
-                Drawing Views
-              </h4>
-              <div className="grid grid-cols-1 gap-1.5">
-                {[
-                  { name: 'Front Flange & Bolt Circle', key: 'front', tag: 4 },
-                  { name: 'Section A-A (Cylinder Bore)', key: 'section', tag: 1 },
-                  { name: 'Detail B (Thread & Chamfer)', key: 'detail', tag: 3 },
-                ].map((v) => (
-                  <button
-                    key={v.key}
-                    type="button"
-                    onClick={() => {
-                      onSelectView?.(v.key);
-                      const target = characteristics.find((c) => c.balloonNumber === v.tag);
-                      if (target) onSelectCharacteristic(target.id);
-                    }}
-                    className="w-full px-2.5 py-1.5 rounded-md text-left flex items-center justify-between bg-[var(--bg-subtle)] hover:bg-[var(--border-hairline)] text-[var(--text-primary)] transition-colors cursor-pointer"
-                  >
-                    <span>{v.name}</span>
-                    <span className="text-[10px] font-mono text-[var(--text-muted)]">Jump</span>
-                  </button>
-                ))}
+              <div className="p-3 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-subtle)] flex items-center justify-between">
+                <div>
+                  <div className="font-mono text-xs font-bold text-[var(--text-primary)]">Form 1: Part Record</div>
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono">{drawing.partNumber} · {drawing.revision}</div>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  READY
+                </span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-subtle)] flex items-center justify-between">
+                <div>
+                  <div className="font-mono text-xs font-bold text-[var(--text-primary)]">Form 2: Material & Process</div>
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono">Special Processes & Spec Standards</div>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  READY
+                </span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-subtle)] flex items-center justify-between">
+                <div>
+                  <div className="font-mono text-xs font-bold text-[var(--text-primary)]">Form 3: Characteristic Ledger</div>
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono">
+                    {characteristics.length} characteristics · {characteristics.filter(c => c.status === 'in_spec').length} in-spec
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#0047AB]/10 text-[#0047AB] dark:text-[#38BDF8] border border-[#0047AB]/20">
+                  {characteristics.length} BALLOONS
+                </span>
               </div>
             </div>
 
-            {/* Datums */}
-            <div className="space-y-2 pt-2 border-t border-[var(--border-hairline)]">
-              <h4 className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <Compass className="w-3.5 h-3.5 text-cyan-500" />
-                <span>Primary Datums</span>
-              </h4>
-              <div className="flex items-center gap-2">
-                {(['A', 'B', 'C'] as const).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => onSelectDatum?.(d)}
-                    className={`flex-1 py-1.5 rounded font-mono font-bold text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer ${
-                      selectedDatum === d
-                        ? 'bg-cyan-600 text-white shadow-xs'
-                        : 'bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:bg-[var(--border-hairline)]'
-                    }`}
-                  >
-                    <span>[{d}]</span>
-                  </button>
-                ))}
-              </div>
+            {/* Direct Export Triggers */}
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={onExportExcel}
+                className="w-full py-2.5 rounded-lg bg-[#0047AB] hover:bg-[#003885] text-white font-mono font-semibold text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-white" />
+                <span>Export 4-Sheet AS9102 Excel (.xlsx)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onExportCSV}
+                className="w-full py-2 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-subtle)] hover:bg-[var(--bg-surface)] text-[var(--text-primary)] font-mono text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              >
+                <Download className="w-3.5 h-3.5 text-[#0047AB]" />
+                <span>Export AS9102 Form 3 CSV (.csv)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onExportBalloonedPdf}
+                className="w-full py-2 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-subtle)] hover:bg-[var(--bg-surface)] text-[var(--text-primary)] font-mono text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              >
+                <Download className="w-3.5 h-3.5 text-[#0047AB]" />
+                <span>Export Ballooned PDF Blueprint</span>
+              </button>
             </div>
 
-            {/* Layer Toggles */}
-            <div className="space-y-2 pt-2 border-t border-[var(--border-hairline)]">
-              <h4 className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider font-mono">
-                Layer Visibility
-              </h4>
-              <div className="space-y-1.5">
-                {[
-                  { key: 'balloons', label: 'Inspection Balloons (#01..#17)' },
-                  { key: 'dimensions', label: 'Dimension Annotations & Bboxes' },
-                  { key: 'datums', label: 'Datum Reference Targets' },
-                  { key: 'grid', label: 'ISO Sheet Grid (A-D, 1-8)' },
-                ].map(({ key, label }) => {
-                  const isVis = visibleLayers[key as keyof typeof visibleLayers];
-                  return (
-                    <label
-                      key={key}
-                      className="flex items-center justify-between p-2 rounded bg-[var(--bg-subtle)] cursor-pointer hover:bg-[var(--border-hairline)]"
-                    >
-                      <span className="text-xs text-[var(--text-primary)]">{label}</span>
-                      <input
-                        type="checkbox"
-                        checked={isVis}
-                        onChange={() => onToggleLayer(key as keyof typeof visibleLayers)}
-                        className="rounded text-[var(--accent)] cursor-pointer"
-                      />
-                    </label>
-                  );
-                })}
+            {/* Verification Checklist */}
+            <div className="p-3 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-subtle)] text-[10px] font-mono text-[var(--text-muted)] space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-emerald-500">✓</span>
+                <span>SAE AS9102 Rev C Mandatory Columns</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-emerald-500">✓</span>
+                <span>Net-Inspect & DISCUS Cross-Compatible</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-emerald-500">✓</span>
+                <span>21 CFR Part 11 SHA-256 Cryptographic Stamp</span>
               </div>
             </div>
-
-            {/* Revision Diff Toggle */}
-            {onToggleRevisionDiff && (
-              <div className="pt-2 border-t border-[var(--border-hairline)]">
-                <button
-                  type="button"
-                  onClick={onToggleRevisionDiff}
-                  className={`w-full py-2 rounded-lg font-semibold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer ${
-                    isRevisionDiffMode
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-hairline)]'
-                  }`}
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>{isRevisionDiffMode ? 'Exit Revision Diff Mode' : 'Compare with Rev B (Diff)'}</span>
-                </button>
-              </div>
-            )}
           </div>
         )}
       </div>

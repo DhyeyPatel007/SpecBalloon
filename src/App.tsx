@@ -30,7 +30,7 @@ export const App: React.FC = () => {
     return 'overview';
   });
 
-  const [selectedSampleId, setSelectedSampleId] = useState<string>('AS-4092-C');
+  const [selectedSampleId, setSelectedSampleId] = useState<string | undefined>(undefined);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
 
@@ -82,9 +82,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleNavigate = (page: AppPage, sampleId?: string) => {
-    if (sampleId) {
-      setSelectedSampleId(sampleId);
-    }
+    setSelectedSampleId(sampleId);
     setActivePage(page);
     window.location.hash = page === 'overview' ? '' : page;
     window.scrollTo({ top: 0, behavior: 'instant' });

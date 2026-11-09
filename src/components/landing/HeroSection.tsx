@@ -93,7 +93,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onLaunchWorkspace }) =
   return (
     <section className="relative w-full pt-16 pb-20 overflow-hidden bg-page">
       {/* Subtle background glow */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-b from-blue-100/50 dark:from-blue-950/20 to-transparent blur-3xl pointer-events-none -z-10" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-[#0047AB]/5 blur-3xl pointer-events-none -z-10" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* 1. Header Typography */}

@@ -44,7 +44,7 @@ export const GlobalNavbar: React.FC<GlobalNavbarProps> = ({
             SpecBalloon
           </span>
           <span className="px-1.5 py-0.5 rounded bg-subtle border border-border-hairline text-[10px] font-mono text-text-muted font-medium">
-            v2.5
+            Studio
           </span>
         </div>
 
@@ -96,10 +96,10 @@ export const GlobalNavbar: React.FC<GlobalNavbarProps> = ({
             )}
           </button>
 
-          {/* High-Contrast Primary Launch Pill Button */}
+          {/* High-Contrast Primary Launch Pill Button: Cobalt */}
           <button
             onClick={() => onNavigate('studio')}
-            className="flex items-center gap-1.5 bg-[#09090B] dark:bg-white text-white dark:text-[#09090B] hover:opacity-90 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all shadow-apple-sm cursor-pointer"
+            className="flex items-center gap-1.5 bg-[#0047AB] hover:bg-[#003885] text-white px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all shadow-sm cursor-pointer"
           >
             <span>Launch Studio</span>
             <ArrowRight className="w-3.5 h-3.5 stroke-[2]" />

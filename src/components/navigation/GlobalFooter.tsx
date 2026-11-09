@@ -25,7 +25,7 @@ export const GlobalFooter: React.FC<GlobalFooterProps> = ({ onNavigate }) => {
                 SpecBalloon
               </span>
               <span className="px-1.5 py-0.5 rounded bg-subtle border border-border-hairline text-[10px] font-mono text-text-muted">
-                v2.5
+                Studio
               </span>
             </div>
 
@@ -36,7 +36,7 @@ export const GlobalFooter: React.FC<GlobalFooterProps> = ({ onNavigate }) => {
             <div className="flex items-center gap-2 pt-2">
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-subtle border border-border-hairline text-[11px] font-mono text-text-muted">
                 <span className="w-2 h-2 rounded-full bg-status-pass" />
-                <span>All Systems Operational · v2.5.0</span>
+                <span>All Systems Operational · Canvas Studio</span>
               </div>
             </div>
           </div>
@@ -52,7 +52,7 @@ export const GlobalFooter: React.FC<GlobalFooterProps> = ({ onNavigate }) => {
                   onClick={() => onNavigate('studio')}
                   className="hover:text-text-primary transition-colors cursor-pointer"
                 >
-                  4-Pane Metrology IDE
+                  Canvas-First Metrology Studio
                 </button>
               </li>
               <li>
