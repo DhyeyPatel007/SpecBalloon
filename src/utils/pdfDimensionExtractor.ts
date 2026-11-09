@@ -115,6 +115,9 @@ export async function extractVectorDimensionsFromPdf(
     if (/^(rev|page|sheet|dwg|date|scale|qty|approved|drawn|weight|title)/i.test(text)) continue;
     if (text.length > 40) continue; // Skip long drawing notes
 
+    // One bad callout must never kill the whole extraction: a single span
+    // that fails to parse is skipped and the rest still become balloons.
+    try {
     // Compute ISO Sheet Zone (A-D, 1-8)
     const zoneCol = Math.min(8, Math.max(1, Math.floor((span.x / viewport.width) * 8) + 1));
     const zoneRow = ['A', 'B', 'C', 'D'][Math.min(3, Math.max(0, Math.floor((span.y / viewport.height) * 4)))];
@@ -242,6 +245,10 @@ export async function extractVectorDimensionsFromPdf(
     });
 
     balloonCounter++;
+    } catch {
+      // Skip this one span and keep extracting the rest.
+      continue;
+    }
   }
 
   return {
