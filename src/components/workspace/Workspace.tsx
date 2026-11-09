@@ -103,6 +103,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [aiExtractionStep, setAiExtractionStep] = useState(0);
   const [aiExtractedCount, setAiExtractedCount] = useState(0);
   const [rasterNotice, setRasterNotice] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Layers State
   const [visibleLayers, setVisibleLayers] = useState({
@@ -395,13 +396,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   // Upload custom PDF with real vector extraction
   const handleUploadPdf = async (file: File) => {
     if (file.size > 10 * 1024 * 1024) {
-      alert('File size exceeds the 10 MB limit.');
+      setUploadError('File size exceeds the 10 MB limit. Please upload a smaller vector PDF.');
       return;
     }
 
     try {
       isCancelledRef.current = false;
       setIsSampleData(false);
+      setUploadError(null);
       setFlowState('AI_WORKING');
       setIsExtracting(true);
       setAiExtractionStep(0);
@@ -415,8 +417,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       if (isCancelledRef.current) return;
 
       if (pdfDoc.numPages > 5) {
-        alert(`PDF has ${pdfDoc.numPages} pages. SpecBalloon supports a maximum of 5 pages.`);
-        setFlowState('EMPTY');
+        setUploadError(`PDF has ${pdfDoc.numPages} pages. SpecBalloon supports a maximum of 5 pages.`);
+        setFlowState('REVIEW');
         setIsExtracting(false);
         return;
       }
@@ -475,8 +477,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         setRightDockTab('characteristics');
         soundEngine.playInSpecPass();
       } else if (extraction.isScannedRaster) {
+        // No vector text at all: clear the stale demo data so the new
+        // drawing is never shown with another drawing's balloons.
+        setCharacteristics([]);
         setRasterNotice(
           'Scanned raster image detected with no embedded vector text. Please configure a Gemini 2.5 Flash API key in Settings to run neural vision OCR on raster scans, or use the Box-Balloon tool (B) to select dimensions.'
+        );
+      } else {
+        // Vector text exists but no dimensions matched: say so in the UI
+        // instead of silently keeping the previous drawing's balloons.
+        setCharacteristics([]);
+        setUploadError(
+          `No dimensions found in this PDF (${extraction.totalTextSpansFound} text spans read). Check that the drawing has vector dimension text, or use the Box-Balloon tool (B) to add balloons manually.`
         );
       }
 
@@ -484,8 +496,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     } catch (err) {
       if (isCancelledRef.current) return;
       console.error('Error reading vector PDF:', err);
-      alert('Failed to parse vector PDF. Please ensure the file is not corrupted.');
-      setFlowState('EMPTY');
+      // Never fail silently and never leave the previous drawing's demo
+      // balloons on the new drawing: show the error on the new drawing.
+      setCharacteristics([]);
+      setActiveBalloonId(null);
+      setUploadError(
+        'Failed to parse this vector PDF. Please ensure the file is not corrupted, is a vector PDF under 10 MB and 5 pages, and try again.'
+      );
+      setFlowState('REVIEW');
     } finally {
       setIsExtracting(false);
     }
@@ -1000,6 +1018,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               >
                 {caliperToast.inSpec ? 'IN SPEC' : 'OUT OF SPEC'}
               </span>
+            </div>
+          )}
+
+          {/* Upload Error Banner (visible, not a silent alert) */}
+          {uploadError && (
+            <div className="relative z-40 bg-red-500/10 dark:bg-red-950/60 border-b border-red-500/40 px-4 py-2 text-xs flex items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <span className="text-[var(--text-primary)]">{uploadError}</span>
+              </div>
+              <button
+                onClick={() => setUploadError(null)}
+                className="text-red-600 dark:text-red-400 hover:text-red-700 font-bold px-2 py-0.5 rounded cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
           )}
 

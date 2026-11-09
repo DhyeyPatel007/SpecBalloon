@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   BoundingBox,
   Characteristic,
@@ -18,14 +19,12 @@ import {
   Upload
 } from 'lucide-react';
 
-// Configure pdfjs worker if available
+// Configure pdfjs worker from the locally bundled worker file.
+// Previously this was loaded from a CDN at runtime, so a blocked or slow
+// CDN silently broke PDF parsing (and therefore Upload) with no visible
+// error. The bundled worker ships with the app, so Upload works offline.
 if (typeof window !== 'undefined' && (pdfjsLib as unknown as { GlobalWorkerOptions?: { workerSrc: string } }).GlobalWorkerOptions) {
-  try {
-    (pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc =
-      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${(pdfjsLib as unknown as { version?: string }).version || '4.0.379'}/pdf.worker.min.mjs`;
-  } catch {
-    // Fallback to inline fake-worker
-  }
+  (pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 }
 
 interface CadCanvasViewportProps {

@@ -157,6 +157,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
     if (e.target.files && e.target.files[0]) {
       onUploadPdf(e.target.files[0]);
     }
+    // Reset the input so picking the same file again still fires onChange.
+    e.target.value = '';
     setOpenDropdown(null);
   };
 
@@ -255,7 +257,12 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
               ))}
               <div className="border-t border-[var(--border-hairline)] mt-1 pt-1">
                 <button
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => {
+                    // Close the menu first so it never sits open over the
+                    // picker, then open the file picker.
+                    setOpenDropdown(null);
+                    fileInputRef.current?.click();
+                  }}
                   className="w-full px-2 py-1.5 rounded-md text-left flex items-center gap-2 text-xs text-[var(--accent)] hover:bg-[var(--bg-subtle)] font-medium transition-colors cursor-pointer"
                 >
                   <Upload className="w-3.5 h-3.5" />
@@ -280,7 +287,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           title="Open new vector CAD drawing"
         >
           <Upload className="w-3.5 h-3.5 text-[var(--accent)]" />
-          <span className="hidden sm:inline">Open PDF</span>
+          <span>Open PDF</span>
         </button>
 
         {/* 4 Categorized Menus */}
