@@ -19,66 +19,6 @@ import {
   calculateMovingRangeSPC,
   fmt3
 } from '../utils/metrologyMath';
-import { ExpandableBentoCard, ExpandableCardData, MagneticButton } from '../components/ui';
-
-const METROLOGY_SPECS: ExpandableCardData[] = [
-  {
-    id: 'spec-iso286',
-    tag: 'ISO 286-1:2010',
-    title: 'ISO Limits and Fits',
-    subtitle: 'Fundamental Deviations & Tolerance Units',
-    summary: 'Computes standard tolerance grades (IT01 to IT18) using the fundamental tolerance unit formula without table lookup hallucination.',
-    expandedDetails: {
-      standard: 'ISO 286-1 / ISO 286-2 Geometrical Product Specifications',
-      toleranceRange: 'IT6 through IT11 (0.006mm .. 0.160mm)',
-      formula: 'i = 0.45 · ∛D + 0.001 · D  (µm)',
-      auditRule: 'Mandatory deterministic calculation for all precision shaft/hole pairings in automotive and aerospace assemblies.',
-      description: 'SpecBalloon calculates the exact tolerance grade for any nominal dimension D from 1mm to 500mm across 28 fundamental deviation letters (A through ZC).'
-    }
-  },
-  {
-    id: 'spec-asme-mmc',
-    tag: 'ASME Y14.5-2018',
-    title: 'Dynamic MMC & Datum Shift',
-    subtitle: 'Section 7.3.3 Maximum Material Condition',
-    summary: 'Automatically calculates feature MMC bonus and datum reference frame shift, expanding permissible tolerance zone and saving parts from false scrap.',
-    expandedDetails: {
-      standard: 'ASME Y14.5-2018 / ISO 5459:2011',
-      toleranceRange: 'Variable (+0.000mm to +0.035mm bonus)',
-      formula: 'Bonus = |Actual - MMC|; Effective USL = Stated + Bonus + DatumShift',
-      auditRule: 'Permissible only when (M) modifier is explicitly present in feature control frame or datum reference compartment.',
-      description: 'When a hole departs from its Maximum Material Condition (MMC) towards LMC, the additional material clearance is credited directly to the positional tolerance.'
-    }
-  },
-  {
-    id: 'spec-as9102c',
-    tag: 'SAE AS9102 REV C',
-    title: 'First Article Inspection Suite',
-    subtitle: 'Forms 1, 2, and 3 Autonomous Assembly',
-    summary: 'Builds 4-sheet formatted Excel workbooks containing Form 1 (Part Accountability), Form 2 (Materials & Processes), and Form 3 (Characteristic Accountability).',
-    expandedDetails: {
-      standard: 'SAE AS9102 Revision C (2023)',
-      toleranceRange: '100% Characteristic Coverage',
-      formula: 'Row Audit = 21 CFR Part 11 SHA-256 Hash Signature',
-      auditRule: 'Requires 100% ballooning of every drawing characteristic, drawing zone correlation, and tool/gage traceability.',
-      description: 'Generates Net-Inspect compatible Excel workbooks with real Excel cell formulas (=AVERAGE, =STDEV, =UCL) and embedded cryptographic verification hashes.'
-    }
-  },
-  {
-    id: 'spec-cmm-pos',
-    tag: 'EUCLIDEAN GD&T',
-    title: 'CMM True Position Solver',
-    subtitle: '2-Axis Coordinate Vector Decomposition',
-    summary: 'Converts Cartesian coordinate offsets (ΔX, ΔY) from ZEISS Calypso or Hexagon PC-DMIS into diametral true position deviation.',
-    expandedDetails: {
-      standard: 'ISO 1101:2017 / ASME Y14.5',
-      toleranceRange: 'Diametral cylindrical tolerance zone',
-      formula: 'Actual Error e_pos = 2 · √((ΔX)² + (ΔY)²)',
-      auditRule: 'Measured true position error must be evaluated as a diametral diameter (multiplied by 2), not a radial distance.',
-      description: 'Eliminates error-prone manual square root calculation on coordinate inspection reports. Evaluates against effective MMC limits in real time.'
-    }
-  }
-];
 
 interface EnginePageProps {
   onNavigate: (page: AppPage) => void;
@@ -536,42 +476,21 @@ export const EnginePage: React.FC<EnginePageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* Normative Metrology Specifications Library with Skiper UI Expandable Cards */}
-      <section className="py-16 px-6 sm:px-12 max-w-7xl mx-auto border-t border-border-hairline">
-        <div className="max-w-3xl mb-8">
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded text-xs font-mono bg-surface border border-border-hairline text-text-muted mb-2">
-            <span>NORMATIVE BENCHMARK SPECIFICATIONS</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-display font-medium text-text-primary tracking-tight">
-            Deterministic Standards & Mathematical Proofs
-          </h2>
-          <p className="text-xs text-text-secondary mt-1">
-            Click any specification card below to inspect full mathematical derivations, audit clauses, and tolerance limits.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {METROLOGY_SPECS.map((spec) => (
-            <ExpandableBentoCard key={spec.id} item={spec} />
-          ))}
-        </div>
-      </section>
-
       {/* Footer CTA */}
-      <section className="py-16 border-t border-border-hairline bg-surface text-center">
+      <section className="py-12 border-t border-border-hairline bg-surface text-center">
         <h2 className="font-display font-semibold text-xl text-text-primary mb-2">
           Inspect with Guaranteed Mathematical Precision
         </h2>
         <p className="text-xs text-text-secondary max-w-md mx-auto mb-6">
           Test these exact algorithms against real vector CAD blueprints in our 4-Pane Studio IDE.
         </p>
-        <MagneticButton
+        <button
           onClick={() => onNavigate('studio')}
-          className="bg-[#09090B] dark:bg-white text-white dark:text-[#09090B] px-6 py-2.5 rounded-md font-mono font-medium text-xs inline-flex items-center gap-2 cursor-pointer shadow-apple-sm"
+          className="bg-[#09090B] dark:bg-white text-white dark:text-[#09090B] px-5 py-2 rounded-md font-semibold text-xs inline-flex items-center gap-2 cursor-pointer shadow-apple-sm"
         >
           <span>Open Studio IDE</span>
           <ArrowRight className="w-3.5 h-3.5" />
-        </MagneticButton>
+        </button>
       </section>
     </div>
   );

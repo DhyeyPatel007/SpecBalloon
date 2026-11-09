@@ -12,7 +12,6 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { AppPage } from '../components/navigation/GlobalNavbar';
-import { NumberTicker, MagneticButton, AnimatedTabs } from '../components/ui';
 
 interface PricingPageProps {
   onNavigate: (page: AppPage) => void;
@@ -407,22 +406,14 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
             <div>
               <div className="text-xs font-mono text-[var(--text-muted)] mb-1">PROJECTED ANNUAL SAVINGS</div>
               <div className="text-3xl sm:text-4xl font-display font-medium text-emerald-600 dark:text-emerald-400">
-                <NumberTicker
-                  value={annualCostSavings}
-                  prefix={currency === 'INR' ? '₹' : '$'}
-                  decimalPlaces={0}
-                />
+                {currency === 'INR'
+                  ? `₹${annualCostSavings.toLocaleString('en-IN')}`
+                  : `$${annualCostSavings.toLocaleString('en-US')}`}
               </div>
-              <div className="text-xs text-[var(--text-secondary)] mt-1 flex items-center gap-1 font-mono">
-                <span>Direct recovery:</span>
-                <span className="font-semibold text-[var(--text-primary)]">
-                  <NumberTicker
-                    value={monthlyCostSavings}
-                    prefix={currency === 'INR' ? '₹' : '$'}
-                    suffix="/mo"
-                    decimalPlaces={0}
-                  />
-                </span>
+              <div className="text-xs text-[var(--text-secondary)] mt-1">
+                {currency === 'INR'
+                  ? `₹${monthlyCostSavings.toLocaleString('en-IN')}/mo in direct labor recovered`
+                  : `$${monthlyCostSavings.toLocaleString('en-US')}/mo in direct labor recovered`}
               </div>
             </div>
 
@@ -430,7 +421,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
               <div>
                 <div className="text-[10px] font-mono text-[var(--text-muted)]">MONTHLY HOURS SAVED</div>
                 <div className="text-xl font-semibold font-display text-[var(--text-primary)] mt-0.5">
-                  <NumberTicker value={monthlyHoursSaved} suffix=" hrs/mo" decimalPlaces={0} />
+                  {monthlyHoursSaved} hrs/mo
                 </div>
               </div>
               <div>

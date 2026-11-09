@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Check, Loader2, Sparkles, ShieldCheck } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -158,3 +158,4 @@ export const MultiStepLoader: React.FC<MultiStepLoaderProps> = ({
     </AnimatePresence>
   );
 };
+

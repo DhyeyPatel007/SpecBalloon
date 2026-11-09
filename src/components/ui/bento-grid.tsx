@@ -1,6 +1,6 @@
 import React from 'react';
-import { motion } from 'framer-motion';
-import { cn } from '../../lib/utils';
+import { motion } from 'motion/react';
+import { cn } from '@/lib/utils';
 
 export const BentoGrid = ({
   className,
@@ -12,7 +12,7 @@ export const BentoGrid = ({
   return (
     <div
       className={cn(
-        'grid md:auto-rows-[18rem] grid-cols-1 md:grid-cols-3 gap-4 max-w-7xl mx-auto',
+        'grid md:auto-rows-[19rem] grid-cols-1 md:grid-cols-3 gap-5 max-w-7xl mx-auto',
         className
       )}
     >
@@ -39,7 +39,7 @@ export const BentoGridItem = ({
       whileHover={{ y: -2 }}
       transition={{ duration: 0.18, ease: 'easeOut' }}
       className={cn(
-        'row-span-1 rounded-xl group/bento hover:shadow-lg transition duration-200 p-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 justify-between flex flex-col space-y-4 hover:border-zinc-400 dark:hover:border-zinc-600',
+        'row-span-1 rounded-xl group/bento transition duration-200 p-6 bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 justify-between flex flex-col space-y-4 hover:border-[#0047AB] dark:hover:border-[#0047AB] shadow-xs',
         className
       )}
     >
@@ -47,11 +47,11 @@ export const BentoGridItem = ({
       <div className="group-hover/bento:translate-x-1 transition duration-200">
         <div className="flex items-center gap-2 mb-2">
           {icon}
-          <div className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-900 dark:text-zinc-100">
+          <div className="font-mono text-xs font-bold uppercase tracking-wider text-neutral-900 dark:text-neutral-100">
             {title}
           </div>
         </div>
-        <div className="text-xs text-zinc-600 dark:text-zinc-400 font-sans leading-relaxed">
+        <div className="text-xs text-neutral-600 dark:text-neutral-400 font-sans leading-relaxed">
           {description}
         </div>
       </div>

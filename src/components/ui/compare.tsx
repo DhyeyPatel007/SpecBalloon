@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { ChevronsLeftRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -93,3 +93,4 @@ export const Compare: React.FC<CompareProps> = ({
     </div>
   );
 };
+

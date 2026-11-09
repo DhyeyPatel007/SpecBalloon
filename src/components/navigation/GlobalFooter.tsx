@@ -195,7 +195,7 @@ export const GlobalFooter: React.FC<GlobalFooterProps> = ({ onNavigate }) => {
             <span>© 2026 SpecBalloon Metrology Inc. All rights reserved.</span>
             <span className="hidden sm:inline text-zinc-300 dark:text-zinc-700">|</span>
             <span>
-              Motion components in part by{' '}
+              Number animation adapted from{' '}
               <a
                 href="https://skiper-ui.com"
                 target="_blank"

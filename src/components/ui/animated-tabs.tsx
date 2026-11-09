@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { cn } from '../../lib/utils';
 
 export interface Tab {
@@ -83,3 +83,4 @@ export const AnimatedTabs = ({
     </div>
   );
 };
+

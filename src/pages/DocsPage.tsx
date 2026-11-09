@@ -349,7 +349,7 @@ export const DocsPage: React.FC<DocsPageProps> = ({ onNavigate }) => {
                 </div>
 
                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                  SpecBalloon employs a single, lightweight physics motion engine (<code className="font-mono text-xs px-1 py-0.5 rounded bg-[var(--bg-subtle)] border border-[var(--border-hairline)]">framer-motion</code>) paired with architectural component primitives adapted from Aceternity UI and Skiper UI.
+                  SpecBalloon employs a single, lightweight physics motion engine (<code className="font-mono text-xs px-1 py-0.5 rounded bg-[var(--bg-subtle)] border border-[var(--border-hairline)]">motion/react</code>) paired with architectural component primitives adapted from Aceternity UI and Skiper UI.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Upload, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -147,3 +147,4 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     </div>
   );
 };
+

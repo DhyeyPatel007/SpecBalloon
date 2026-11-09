@@ -36,7 +36,6 @@ import {
   applyDeterministicMetrologyGuardrails,
   GeminiCropAnalysis
 } from '../../lib/geminiVision';
-import { MagneticButton, AnimatedTabs } from '../ui';
 
 interface SingleCharacteristicInspectorProps {
   characteristic: Characteristic | null;
@@ -285,9 +284,8 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
           </div>
         </div>
 
-        {/* Primary Approve Button with Skiper UI MagneticButton */}
-        <MagneticButton
-          strength={0.2}
+        {/* Primary Approve Button */}
+        <button
           onClick={handleApproveAndNext}
           className="w-full h-8 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
           title="Mark Characteristic Approved and Advance to Next (Enter)"
@@ -295,12 +293,12 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
           <CheckCircle2 className="w-3.5 h-3.5" />
           <span>Approve & Jump to Next</span>
           <kbd className="px-1.5 py-0.2 rounded bg-black/20 text-[9.5px] font-mono">Enter ↵</kbd>
-        </MagneticButton>
+        </button>
       </div>
 
-      {/* 2. Sub-Tabs Header with Aceternity AnimatedTabs */}
+      {/* 2. Sub-Tabs Header */}
       <div className="h-9 px-3 border-b border-[var(--border-hairline)] flex items-center justify-between bg-[var(--bg-surface)]">
-        <div className="flex items-center gap-1.5 truncate max-w-[150px]">
+        <div className="flex items-center gap-1.5 truncate max-w-[170px]">
           <span className="text-[11px] font-semibold text-[var(--text-primary)] truncate">
             {characteristic.featureDescription || 'Linear Dim'}
           </span>
@@ -309,16 +307,28 @@ export const SingleCharacteristicInspector: React.FC<SingleCharacteristicInspect
           </span>
         </div>
 
-        <AnimatedTabs
-          tabs={[
-            { id: 'ocr_edit', label: 'OCR & Edit' },
-            { id: 'spc_chart', label: 'SPC Range' },
-          ]}
-          activeTab={activeTab}
-          onChange={(id) => setActiveTab(id as 'ocr_edit' | 'spc_chart')}
-          className="p-0.5"
-          tabClassName="px-2 py-0.5 text-[11px]"
-        />
+        <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-hairline)] text-[11px]">
+          <button
+            onClick={() => setActiveTab('ocr_edit')}
+            className={`px-2 py-0.5 rounded font-semibold transition-all cursor-pointer ${
+              activeTab === 'ocr_edit'
+                ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-2xs'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            OCR & Edit
+          </button>
+          <button
+            onClick={() => setActiveTab('spc_chart')}
+            className={`px-2 py-0.5 rounded font-semibold transition-all cursor-pointer ${
+              activeTab === 'spc_chart'
+                ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-2xs'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            SPC Moving Range
+          </button>
+        </div>
       </div>
 
       {/* 3. Tab Body */}

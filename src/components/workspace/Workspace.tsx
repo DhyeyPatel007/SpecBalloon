@@ -42,15 +42,7 @@ import { InteractiveTourModal } from './InteractiveTourModal';
 import { HelpCenterModal } from './HelpCenterModal';
 import { useUsbCaliperListener } from '../../hooks/useUsbCaliperListener';
 import { exportMultiPagePdfDeck } from '../../utils/pdfDeckExporter';
-import { MultiStepLoader, FileUpload } from '../ui';
 import { Zap } from 'lucide-react';
-
-const AI_PIPELINE_STEPS = [
-  { text: 'STAGE 01 // PyMuPDF Vector Decomposition & Stroke Extraction' },
-  { text: 'STAGE 02 // Gemini 2.5 Flash Spatial Patch Vision & Feature OCR' },
-  { text: 'STAGE 03 // Deterministic ISO 286 & ASME Y14.5 MMC Math Guardrail' },
-  { text: 'STAGE 04 // AS9102 Form 1-2-3 Workbook & Verification Assembly' },
-];
 
 interface WorkspaceProps {
   initialDrawingId?: string;
@@ -1059,13 +1051,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         isOpen={isHelpOpen}
         onClose={() => setIsHelpOpen(false)}
         initialTab={helpInitialTab}
-      />
-
-      {/* Aceternity UI 4-Stage Neuro-Symbolic AI Multi-Step Loader */}
-      <MultiStepLoader
-        loading={isExtracting}
-        loadingStates={AI_PIPELINE_STEPS}
-        duration={1200}
       />
     </div>
   );

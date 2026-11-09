@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { motion, useSpring } from 'framer-motion';
+import { motion, useSpring } from 'motion/react';
 import { cn } from '../../lib/utils';
 
 interface MagneticButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -59,3 +59,4 @@ export const MagneticButton = ({
     </motion.button>
   );
 };
+
