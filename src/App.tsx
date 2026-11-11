@@ -10,6 +10,7 @@ import { SecurityPage } from './pages/SecurityPage';
 import { PricingPage } from './pages/PricingPage';
 import { DocsPage } from './pages/DocsPage';
 import { Workspace } from './components/workspace/Workspace';
+import { useLenisSmoothScroll } from './hooks/useLenisSmoothScroll';
 
 export const App: React.FC = () => {
   const [activePage, setActivePage] = useState<AppPage>(() => {
@@ -33,6 +34,9 @@ export const App: React.FC = () => {
   const [selectedSampleId, setSelectedSampleId] = useState<string | undefined>(undefined);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
+
+  // Site-wide Lenis smooth scrolling (active on all landing & documentation pages, paused in Studio)
+  useLenisSmoothScroll(activePage !== 'studio');
 
   // Sync theme to <html> element class
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { motion, useSpring } from 'motion/react';
 import { cn } from '../../lib/utils';
 
@@ -6,24 +6,30 @@ interface MagneticButtonProps extends React.ButtonHTMLAttributes<HTMLButtonEleme
   children: React.ReactNode;
   className?: string;
   strength?: number;
-  asChild?: boolean;
 }
 
-export const MagneticButton = ({
+export const MagneticButton: React.FC<MagneticButtonProps> = ({
   children,
   className,
-  strength = 0.25,
+  strength = 0.3,
   onClick,
   ...props
-}: MagneticButtonProps) => {
+}) => {
   const ref = useRef<HTMLButtonElement>(null);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
 
   const springConfig = { damping: 15, stiffness: 150, mass: 0.1 };
   const x = useSpring(0, springConfig);
   const y = useSpring(0, springConfig);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (typeof window !== 'undefined') {
+      if (
+        window.matchMedia('(pointer: coarse)').matches ||
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ) {
+        return;
+      }
+    }
     if (!ref.current) return;
     const { clientX, clientY } = e;
     const { left, top, width, height } = ref.current.getBoundingClientRect();
@@ -50,7 +56,7 @@ export const MagneticButton = ({
       style={{ x, y }}
       whileTap={{ scale: 0.97 }}
       className={cn(
-        'relative inline-flex items-center justify-center transition-colors focus:outline-none select-none',
+        'relative inline-flex items-center justify-center transition-colors focus:outline-none select-none cursor-pointer',
         className
       )}
       {...(props as any)}
@@ -59,4 +65,3 @@ export const MagneticButton = ({
     </motion.button>
   );
 };
-
