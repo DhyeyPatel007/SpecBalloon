@@ -16,6 +16,7 @@ from limits_math import (
     calculate_iso_286_limits,
     calculate_iso_965_thread_limits,
 )
+from vector_pass import BBox, LineSegment, Point2D
 
 
 @dataclass
@@ -231,6 +232,128 @@ async def analyze_cropped_patch_with_gemini(
             status="ERROR",
             conflict_notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"],
         )
+
+
+NAME_TO_GLYPH = {
+    "GDT_POSITION": "⌖",
+    "GDT_PERPENDICULARITY": "⟂",
+    "GDT_PARALLELISM": "//",
+    "GDT_FLATNESS": "⏥",
+    "GDT_SURFACE_PROFILE": "⌒",
+    "GDT_CIRCULAR_RUNOUT": "↗",
+    "GDT_CONCENTRICITY": "◎",
+    "GDT_CYLINDRICITY": "⌭",
+    "GDT_STRAIGHTNESS": "⏤",
+    "GDT_ANGULARITY": "∠",
+    "GDT_SYMMETRY": "⌯",
+    "GDT_TOTAL_RUNOUT": "↗",
+    "GDT_ROUNDNESS": "◯",
+}
+
+
+@dataclass(frozen=True)
+class SymbolCellTopology:
+    has_diagonal_stroke: bool    # 22° <= |angle| <= 68° (characteristic of Runout ↗, Angularity ∠, Parallelism //)
+    has_horizontal_stroke: bool  # |angle| <= 8° or >= 172°
+    has_vertical_stroke: bool    # 82° <= |angle| <= 98°
+    circle_count: int            # 2 concentric circles -> ◎; 1 circle + crosshairs -> ⌖
+
+
+def analyze_symbol_compartment_strokes(
+    frame_bbox: BBox,
+    page_segments: list[LineSegment],
+    page_circles: list[tuple[object, float]],
+) -> SymbolCellTopology:
+    """Analyzes vector strokes inside a GD&T symbol compartment (the left-most cell of a frame):
+
+    - Takes the frame's bounding box (the symbol cell is the left-most ~1.35 × height region).
+    - Classifies every vector segment in that cell by angle: diagonal (22°–68°), horizontal (≤10° or ≥170°), vertical (≥80°).
+    - Counts circles whose centre lies inside the symbol cell and whose radius is ≤ 65% of the frame height.
+    """
+    sym_cell = BBox(
+        frame_bbox.x0 - 2.0,
+        frame_bbox.y0 - 2.0,
+        frame_bbox.x0 + max(12.0, frame_bbox.height * 1.35),
+        frame_bbox.y1 + 2.0,
+    )
+    cell_len_limit = max(18.0, frame_bbox.height * 1.5)
+
+    has_diag = False
+    has_horiz = False
+    has_vert = False
+
+    for seg in page_segments:
+        if seg.length > cell_len_limit or seg.length < 1.2:
+            continue
+        if sym_cell.contains_point(seg.midpoint, tol=1.5):
+            ang = abs(seg.angle_deg) % 180.0
+            if 22.0 <= ang <= 68.0:
+                has_diag = True
+            elif ang <= 10.0:
+                has_horiz = True
+            elif ang >= 80.0:
+                has_vert = True
+
+    c_count = 0
+    for center_pt, rad in page_circles:
+        if rad <= frame_bbox.height * 0.65 and sym_cell.contains_point(center_pt, tol=frame_bbox.height * 0.05):
+            c_count += 1
+
+    return SymbolCellTopology(
+        has_diagonal_stroke=has_diag,
+        has_horizontal_stroke=has_horiz,
+        has_vertical_stroke=has_vert,
+        circle_count=c_count,
+    )
+
+
+def verify_vision_symbol_second_check(
+    vision_gdt_type: str,
+    vision_confidence: float,
+    topology: SymbolCellTopology,
+    sheet_verified_gdt_types: set[str],
+    has_diameter_prefix_in_zone: bool,
+) -> tuple[str, str, float, list[str]]:
+    """Deterministic Second Check for Vision GD&T Symbol Resolution (Fixes Part A #4 / Issue F):
+
+    1. Vector Topology Check:
+       - If Vision claims GDT_PERPENDICULARITY ('⟂') at 0.95 confidence, but the symbol cell contains a diagonal vector stroke (22°–68°, e.g. Runout arrow '↗') and no Ø (or has a diagonal arrow), override 'GDT_PERPENDICULARITY' -> 'GDT_CIRCULAR_RUNOUT'.
+       - If topology has 2 concentric circles and 0 straight strokes, enforce 'GDT_CONCENTRICITY'.
+       - If topology has 1 circle + orthogonal crosshairs, enforce 'GDT_POSITION' ('⌖').
+    2. Sheet Symbol Inventory Cross-Check:
+       - Circular Runout ('↗') NEVER has a 'Ø' cylindrical tolerance zone symbol, whereas Position ('⌖') and Concentricity ('◎') on turned shafts do. If Vision claims 'GDT_PERPENDICULARITY' without 'Ø' on a sheet whose verified inventory is {GDT_POSITION, GDT_CONCENTRICITY, GDT_CIRCULAR_RUNOUT}, reclassify to 'GDT_CIRCULAR_RUNOUT'.
+    3. Non-Negotiable Guardrail:
+       - Record ALWAYS stays in review (confidence capped at <= 0.70) with explicit audit note.
+    """
+    notes: list[str] = []
+    resolved_type = vision_gdt_type
+    # 1. Vector Topology Check
+    if vision_gdt_type == "GDT_PERPENDICULARITY" and topology.has_diagonal_stroke:
+        resolved_type = "GDT_CIRCULAR_RUNOUT"
+        notes.append("Second-check override: diagonal stroke detected (22°–68°) -> CIRCULAR_RUNOUT (↗)")
+    elif topology.circle_count >= 2 and not (topology.has_horizontal_stroke or topology.has_vertical_stroke or topology.has_diagonal_stroke):
+        if resolved_type != "GDT_CONCENTRICITY":
+            resolved_type = "GDT_CONCENTRICITY"
+            notes.append("Second-check override: 2 concentric circle paths detected -> CONCENTRICITY (◎)")
+    elif topology.circle_count == 1 and topology.has_horizontal_stroke and topology.has_vertical_stroke:
+        if resolved_type != "GDT_POSITION":
+            resolved_type = "GDT_POSITION"
+            notes.append("Second-check override: 1 circle + orthogonal crosshairs detected -> POSITION (⌖)")
+    # 2. Sheet Symbol Inventory Cross-Check
+    if (
+        resolved_type == "GDT_PERPENDICULARITY"
+        and "GDT_CIRCULAR_RUNOUT" in sheet_verified_gdt_types
+        and "GDT_PERPENDICULARITY" not in sheet_verified_gdt_types
+        and not has_diameter_prefix_in_zone
+    ):
+        resolved_type = "GDT_CIRCULAR_RUNOUT"
+        notes.append(
+            "Second-check override: GDT_PERPENDICULARITY absent from sheet inventory "
+            "{GDT_POSITION, GDT_CONCENTRICITY, GDT_CIRCULAR_RUNOUT} -> CIRCULAR_RUNOUT (↗)"
+        )
+    glyph = NAME_TO_GLYPH.get(resolved_type, "⌖")
+    capped_confidence = round(min(0.70, max(0.45, vision_confidence * 0.72)), 3)
+    return resolved_type, glyph, capped_confidence, notes
 
 
 def test_gemini_vision() -> None:

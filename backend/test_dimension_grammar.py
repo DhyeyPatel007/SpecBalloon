@@ -1,5 +1,6 @@
 # backend/test_dimension_grammar.py
-from dimension_grammar import parse_dimension_callout
+from dimension_grammar import parse_dimension_callout, parse_special_dimension_cases
+from gdt_parser import parse_gdt_frame_with_quantity
 
 
 def test_parse_iso_fit():
@@ -129,5 +130,34 @@ def test_parse_fraction_nominal():
     assert p is not None
     assert p.nominal == 30.0
     assert p.tolerance_kind == "LIMIT_STACK"
+
+
+def test_grammar_and_gdt_upgrades() -> None:
+    # 1. Roughness range 'Rz 6.3…16' -> [6.3, 16.0]
+    rz = parse_special_dimension_cases("Rz 6.3…16")
+    assert rz and rz.lsl_override == 6.3 and rz.usl_override == 16.0
+    # 2. Explicit single-sided '1 +0.2' beats fit 'h9' -> [1.0, 1.2], fit_class None
+    d_exp = parse_special_dimension_cases("1 +0.2")
+    assert d_exp and d_exp.lsl_override == 1.0 and d_exp.usl_override == 1.2 and d_exp.fit_class is None
+    # 3. 'Ø 59 H6 Ⓔ' -> ISO_FIT H6 with envelope_req=True
+    d_fit = parse_special_dimension_cases("Ø 59 H6 Ⓔ")
+    assert d_fit and d_fit.kind == "ISO_FIT" and d_fit.fit_class == "H6" and d_fit.envelope_req is True
+    # 4. Stray leading integer glued onto a decimal tolerance callout: '2 0.35 ±0.5' -> '0.35 ±0.5'
+    d_stray = parse_special_dimension_cases("2 0.35 ±0.5")
+    assert d_stray and d_stray.nominal == 0.35 and d_stray.plus_tol == 0.5
+    # 5. Parenthesized '(0.26)' rejected
+    assert parse_special_dimension_cases("(0.26)") is None
+    # 6. Repeated GD&T frames with (Nx) parsed cleanly (pipe form, as the assembler produces)
+    fr, q = parse_gdt_frame_with_quantity("|◎|Ø 0.1|B| (4x)")
+    assert fr is not None and q == 4
+    fr2, q2 = parse_gdt_frame_with_quantity("|⌖|Ø 0.1|A| (3x)")
+    assert fr2 is not None and q2 == 3
+    # 7. MIN_LIMIT '≥ 2' -> lsl = usl = 2.0, never deduplicated against '2 ±0.2'
+    d_min = parse_special_dimension_cases("≥ 2")
+    assert d_min and d_min.tolerance_kind == "MIN_LIMIT" and d_min.lsl_override == 2.0 and d_min.usl_override == 2.0
+    # 8. MAX_LIMIT '≤ 1.7' -> [0.0, 1.7] (repo rule, main.py:386)
+    d_max = parse_special_dimension_cases("≤ 1.7")
+    assert d_max and d_max.tolerance_kind == "MAX_LIMIT" and d_max.lsl_override == 0.0 and d_max.usl_override == 1.7
+
 
 

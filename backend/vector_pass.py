@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import base64
 import math
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 import fitz  # PyMuPDF
@@ -182,96 +183,211 @@ def extract_text_spans(page: fitz.Page) -> list[TextSpan]:
     return spans
 
 
-import re as _re
+# Pre-cluster PUA & symbol normalization map so cluster v2 classifies PUA tolerances as TOLNUM/SIGN
+PUA_PRE_CLUSTER_MAP: dict[int, str] = {
+    **{0xF030 + d: str(d) for d in range(10)},  # U+F030..U+F039 -> '0'..'9'
+    0xF02E: ".",   # PUA decimal point
+    0xF02B: "+",   # PUA plus
+    0xF02D: "-",   # PUA minus
+    0x2212: "-",   # Unicode minus
+    0x2013: "-",   # En-dash
+    0x2014: "-",   # Em-dash
+    0xF0B1: "±",   # PUA plus-minus (Symbol font)
+    0xF0B0: "°",   # PUA degree
+    0xF032: "Ø",   # PUA diameter glyph ('' in real03)
+    0xF0AC: "Ø",   # PUA diameter glyph variant
+    0x2300: "Ø",   # Unicode diameter
+    0xF0A3: "≤",   # PUA less-than-or-equal
+    0xF0B3: "≥",   # PUA greater-than-or-equal
+}
 
-# Real drawings split a dimension across several text spans; PyMuPDF
-# reports each font run separately. The merge below reassembles them.
-# (v2, 12 Nov 2026 — the v1 rule only looked RIGHT of a dimension, and
-# processed tolerance spans as primaries before their dimension, so a
-# tolerance that sorted one tenth of a point earlier never merged. The
-# v1 test_vector_pass expectation "Ø30.00 +0.021 / -0.000" never actually
-# held: v1 produced ['+0.021', 'Ø30.00 -0.000'].)
-_DASH_TRANSLATE = str.maketrans({"–": "-", "—": "-", "−": "-"})
-_SIGN_ONLY = {"±", "+", "-"}
+GDT_SYMBOLS_SET = {"⌖", "⏥", "⏤", "◯", "⌭", "⌒", "⌓", "⟂", "⊥", "∠", "//", "∥", "◎", "⌯", "↗", "⌰", "\x00"}
+
+# Updated FIT regex: accepts H6, g6, js6 AND trailing envelope/material modifiers like 'H6 Ⓔ' or 'H6 (E)'
 _PREFIX_CHARS = {"Ø", "⌀", "R", "M", "Z"}
-_TOLNUM_RE = _re.compile(r"^[±+\-]\s*\d")
-_FIT_RE = _re.compile(r"^(?:[A-Za-z]{1,2}\d{1,2}|H|h|g|f|js|JS)$")
+
+FIT_TOKEN_RE = re.compile(
+    r"^(?:[A-HJ-Za-hj-z]|js|JS)\d{1,2}(?:\s*(?:[ⒺⓂⓁ]|\([EML]\)))?$"
+)
+ENVELOPE_ONLY_RE = re.compile(r"^(?:[ⒺⓂⓁ]|\([EML]\))$")
+TOLNUM_TOKEN_RE = re.compile(r"^(?:±|\+/-|\+-|[+-])\s*\d+(?:\.\d+)?°?$")
+PREFIX_TOKEN_RE = re.compile(r"^(?:[Ø⌀RM]|Ra|Rz|[≤≥]|min\.?|max\.?|\d+\s*[xX×])$", re.IGNORECASE)
+GDT_DATUM_RE = re.compile(r"^[A-D](?:-[A-D])?(?:\s*(?:[ⓂⓁ]|\([ML]\)))?$")
+GDT_QTY_RE = re.compile(r"^\(?\s*\d+\s*[xX×]\s*\)?$")
+
+
+def normalize_pua_for_clustering(text: str) -> str:
+    """Translates PUA digits, PUA ±, PUA Ø, and dashes BEFORE token classification."""
+    out = "".join(PUA_PRE_CLUSTER_MAP.get(ord(ch), ch) for ch in text)
+    return " ".join(out.strip().split())
+
+
+def classify_span_token(raw_text: str) -> str:
+    t = normalize_pua_for_clustering(raw_text)
+    if not t:
+        return "OTHER"
+    if t in ("+", "-", "±", "+/-", "≤", "≥"):
+        return "SIGN"
+    if TOLNUM_TOKEN_RE.match(t):
+        return "TOLNUM"
+    # Thread guard: a token starting with M + digit is a THREAD, never a FIT class
+    if re.match(r"^M\d", t, re.IGNORECASE):
+        return "OTHER"
+    if FIT_TOKEN_RE.match(t):
+        return "FIT"
+    if ENVELOPE_ONLY_RE.match(t):
+        return "ENVELOPE"
+    if (
+        PREFIX_TOKEN_RE.match(t)
+        or (len(t) == 1 and 0xE000 <= ord(t) <= 0xF8FF)
+        or (len(t) == 1 and t in _PREFIX_CHARS)
+    ):
+        return "PREFIX"
+    if re.match(r"^(?:Ra|Rz)\b", t, re.IGNORECASE):
+        return "ROUGH"
+    if re.match(r"^[Ø⌀R]?\s*\d+(?:\.\d+)?°?$", t):
+        return "NUM"
+    if re.match(r"^\.\d+$", t):
+        return "DECCONT"
+    return "OTHER"
 
 
 def _token_class(text: str) -> str:
     """Coarse class of a single text span, for the merge rules."""
-    t = text.strip()
-    if t in _SIGN_ONLY:
-        return "SIGN"
-    if _TOLNUM_RE.match(t):
-        return "TOLNUM"
-    if _re.match(r"^\d+(\.\d+)?°?$", t):
-        return "NUM"
-    if _re.match(r"^\.\d+$", t):
-        return "DECCONT"
-    if t in ("Ra", "Rz"):
-        return "ROUGH"
-    if _FIT_RE.match(t):
-        return "FIT"
-    if (len(t) == 1 and 0xE000 <= ord(t) <= 0xF8FF) or (len(t) == 1 and t in _PREFIX_CHARS):
-        return "PREFIX"
-    return "OTHER"
+    return classify_span_token(text)
 
 
-def _has_digit(text: str) -> bool:
-    return any(c.isdigit() for c in text)
+def assemble_boxed_gdt_frames(spans: list[TextSpan]) -> list[TextSpan]:
+    """
+    Fixes Issue A (` 0.1` x4, ` 0.2` extras) and Issue B (7 missed GD&T frames on real03):
+    Assembles horizontally adjacent GD&T compartment spans:
+      [Symbol: ◎ / ⌖ / ↗ / \\x00] + [Tol: Ø 0.1 /  0.2] + [Datum: A / B] + [Optional: (4x) / (3x)]
+    into a single pipe-delimited frame span `|◎|Ø 0.1|B| (4x)` BEFORE dimension clustering steals `Ø 0.1`.
+    """
+    if not spans:
+        return []
+
+    used: set[str] = set()
+    result: list[TextSpan] = []
+    sorted_spans = sorted(spans, key=lambda s: (round(s.bbox.y0, 1), s.bbox.x0))
+
+    for sp in sorted_spans:
+        if sp.span_id in used:
+            continue
+        norm_t = normalize_pua_for_clustering(sp.text)
+        # Check if this span is a single GD&T symbol cell (not already a full pipe frame)
+        is_sym_head = (
+            norm_t in GDT_SYMBOLS_SET
+            or (len(norm_t) == 1 and ord(norm_t) >= 0xF000)
+        ) and "|" not in norm_t
+
+        if not is_sym_head:
+            continue
+
+        h = max(sp.font_size, sp.bbox.height, 6.0)
+        row_cells = [sp]
+        curr_bbox = sp.bbox
+
+        # Sweep right across the same horizontal row to collect [Tol Cell], [Datum Cells], and [(Nx)]
+        for cand in sorted_spans:
+            if cand.span_id == sp.span_id or cand.span_id in used:
+                continue
+            if abs(cand.rotation_deg - sp.rotation_deg) > 5.0:
+                continue
+            dy = abs(cand.bbox.center.y - sp.bbox.center.y)
+            dx = cand.bbox.x0 - curr_bbox.x1
+            if dy > 0.65 * h or dx < -0.3 * h or dx > 2.8 * h:
+                continue
+
+            c_norm = normalize_pua_for_clustering(cand.text)
+            # Cell 2 must be a tolerance zone (e.g. 'Ø 0.1', '0.05', 'Ø0.2(M)')
+            if len(row_cells) == 1:
+                if re.match(r"^[Ø⌀]?\s*0\.\d+(?:\s*(?:[ⓂⓁ]|\([ML]\)))?$", c_norm):
+                    row_cells.append(cand)
+                    curr_bbox = curr_bbox.union(cand.bbox)
+            else:
+                # Subsequent cells are Datum letters (A, B, C) or trailing quantity (4x), (3x)
+                if GDT_DATUM_RE.match(c_norm) or GDT_QTY_RE.match(c_norm):
+                    row_cells.append(cand)
+                    curr_bbox = curr_bbox.union(cand.bbox)
+
+        if len(row_cells) >= 2:
+            for c in row_cells:
+                used.add(c.span_id)
+            compartments: list[str] = []
+            qty_suffix = ""
+            for c in row_cells:
+                cn = normalize_pua_for_clustering(c.text)
+                if GDT_QTY_RE.match(cn):
+                    qty_suffix = f" ({cn.strip('() ')})"
+                else:
+                    compartments.append(cn)
+            frame_str = "|" + "|".join(compartments) + "|" + qty_suffix
+            result.append(
+                replace(
+                    sp,
+                    text=frame_str,
+                    bbox=curr_bbox,
+                    is_clustered=True,
+                    constituent_texts=[c.text for c in row_cells],
+                )
+            )
+
+    for sp in sorted_spans:
+        if sp.span_id not in used:
+            result.append(sp)
+    return result
 
 
-def _x_overlap_ratio(a: BBox, b: BBox) -> float:
-    inter = max(0.0, min(a.x1, b.x1) - max(a.x0, b.x0))
-    return inter / max(1.0, min(a.width, b.width))
+def resolve_cluster_v2_claims(
+    primary_text: str,
+    right_tokens: list[tuple[str, str, float]],  # list of (span_id, raw_text, distance_pt)
+    left_tokens: list[tuple[str, str, float]],   # list of (span_id, raw_text, distance_pt)
+) -> tuple[str, list[str]]:
+    """
+    Enforces the 3 critical cluster v2 guards:
+    1. NEVER left-claim a bare NUM ('2') onto a decimal dimension ('0.35 ±0.5') unless it has 'x'/'×' or is PREFIX/SIGN.
+    2. Explicit numeric tolerance (TOLNUM: '+0.2', '±0.5') ALWAYS takes precedence over a competing FIT token ('h9').
+    3. Attaches FIT with envelope modifier ('H6 Ⓔ') or a trailing ENVELOPE token ('Ⓔ') onto a FIT dimension ('Ø 59 H6 Ⓔ').
+    """
+    claimed_ids: list[str] = []
+    p_norm = normalize_pua_for_clustering(primary_text)
 
+    # 1. Left-prefix claiming: ONLY claim PREFIX ('Ø', '4x', '≥', 'Rz') or SIGN — never bare NUM ('2')!
+    prefix_parts: list[str] = []
+    for sid, l_raw, _dist in left_tokens:
+        l_cls = classify_span_token(l_raw)
+        l_norm = normalize_pua_for_clustering(l_raw)
+        if l_cls in ("PREFIX", "SIGN"):
+            prefix_parts.append(l_norm)
+            claimed_ids.append(sid)
 
-def _reading_key(rot: float):
-    """Sort key putting spans in reading order for the merged text."""
-    if rot == -90.0:
-        return lambda s: (-round(s.bbox.y0, 1), round(s.bbox.x0, 1))
-    if rot == 90.0:
-        return lambda s: (round(s.bbox.y0, 1), round(s.bbox.x0, 1))
-    if rot == 180.0:
-        return lambda s: (-round(s.bbox.x0, 1), round(s.bbox.y0, 1))
-    return lambda s: (round(s.bbox.x0, 1), round(s.bbox.y0, 1))
+    # 2. Right-side claiming with Explicit-Tolerance-Beats-Fit precedence
+    tol_tokens = [(sid, normalize_pua_for_clustering(r_raw), d) for sid, r_raw, d in right_tokens if classify_span_token(r_raw) == "TOLNUM"]
+    fit_tokens = [(sid, normalize_pua_for_clustering(r_raw), d) for sid, r_raw, d in right_tokens if classify_span_token(r_raw) == "FIT"]
+    env_tokens = [(sid, normalize_pua_for_clustering(r_raw), d) for sid, r_raw, d in right_tokens if classify_span_token(r_raw) == "ENVELOPE"]
 
+    suffix_parts: list[str] = []
+    if tol_tokens:
+        # Explicit numeric tolerance present -> claim up to 2 stacked +/- tolerances, IGNORE competing bare fit ('h9')
+        for sid, t_norm, _d in tol_tokens[:2]:
+            suffix_parts.append(t_norm)
+            claimed_ids.append(sid)
+        if len(suffix_parts) == 2 and suffix_parts[0].startswith("+") and suffix_parts[1].startswith("-"):
+            suffix_parts = [f"{suffix_parts[0]} / {suffix_parts[1]}"]
+    elif fit_tokens:
+        # No explicit tolerance -> claim the closest FIT token (e.g., 'H6' or 'H6 Ⓔ')
+        f_sid, f_norm, _d = min(fit_tokens, key=lambda x: x[2])
+        suffix_parts.append(f_norm)
+        claimed_ids.append(f_sid)
+        # Also claim immediately adjacent envelope modifier 'Ⓔ' if split into its own span
+        if env_tokens and not any(e in f_norm for e in ("Ⓔ", "Ⓜ", "Ⓛ")):
+            e_sid, e_norm, _ed = min(env_tokens, key=lambda x: x[2])
+            suffix_parts.append(e_norm)
+            claimed_ids.append(e_sid)
 
-import re as _re
-
-# Real drawings split a dimension across several text spans; PyMuPDF
-# reports each font run separately. The merge below reassembles them.
-# (v2, 12 Nov 2026 — the v1 rule only looked RIGHT of a dimension, and
-# processed tolerance spans as primaries before their dimension, so a
-# tolerance that sorted one tenth of a point earlier never merged. The
-# v1 test_vector_pass expectation "Ø30.00 +0.021 / -0.000" never actually
-# held: v1 produced ['+0.021', 'Ø30.00 -0.000'].)
-_DASH_TRANSLATE = str.maketrans({"–": "-", "—": "-", "−": "-"})
-_SIGN_ONLY = {"±", "+", "-"}
-_PREFIX_CHARS = {"Ø", "⌀", "R", "M", "Z"}
-_TOLNUM_RE = _re.compile(r"^[±+\-]\s*\d")
-_FIT_RE = _re.compile(r"^(?:[A-Za-z]{1,2}\d{1,2}|H|h|g|f|js|JS)$")
-
-
-def _token_class(text: str) -> str:
-    """Coarse class of a single text span, for the merge rules."""
-    t = text.strip()
-    if t in _SIGN_ONLY:
-        return "SIGN"
-    if _TOLNUM_RE.match(t):
-        return "TOLNUM"
-    if _re.match(r"^\d+(\.\d+)?°?$", t):
-        return "NUM"
-    if _re.match(r"^\.\d+$", t):
-        return "DECCONT"
-    if t in ("Ra", "Rz"):
-        return "ROUGH"
-    if _FIT_RE.match(t):
-        return "FIT"
-    if (len(t) == 1 and 0xE000 <= ord(t) <= 0xF8FF) or (len(t) == 1 and t in _PREFIX_CHARS):
-        return "PREFIX"
-    return "OTHER"
+    assembled = " ".join(prefix_parts + [p_norm] + suffix_parts).strip()
+    return assembled, claimed_ids
 
 
 def _has_digit(text: str) -> bool:
@@ -315,10 +431,12 @@ def cluster_split_tolerance_spans(spans: list[TextSpan]) -> list[TextSpan]:
     if not spans:
         return []
 
-    # Normalise dash variants in the clustered view (raw spans untouched).
+    spans = assemble_boxed_gdt_frames(spans)
+
+    # Normalise dash variants and PUA characters in the clustered view (raw spans untouched).
     norm: list[TextSpan] = []
     for s in spans:
-        t = s.text.translate(_DASH_TRANSLATE)
+        t = normalize_pua_for_clustering(s.text)
         norm.append(
             TextSpan(
                 s.span_id, t, s.bbox, s.origin, s.font_name, s.font_size,
@@ -365,13 +483,13 @@ def cluster_split_tolerance_spans(spans: list[TextSpan]) -> list[TextSpan]:
         # dimension base: they claim nothing (a lone glyph must not join a
         # note, and a paren echo must not swallow a thread callout).
         ptext = primary.text.strip()
-        if len(ptext) > 25 or ptext.startswith("("):
+        if len(ptext) > 25 or ptext.startswith("(") or ptext.startswith("|"):
             singletons[primary.span_id] = len(clustered)
             clustered.append(primary)
             continue
         # A fit class ('H7') only completes a dimension number ('Ø30' +
         # 'H7'), never a paren or a thread ('(0.31)' + 'M4' merged wrongly).
-        base_is_dim_number = bool(_re.match(r"^[Ø⌀R]?\s*\d", ptext))
+        base_is_dim_number = bool(re.match(r"^[Ø⌀R]?\s*\d", ptext))
         # Stacked-tolerance budget: one stacked tolerance per dimension,
         # unless it is the opposite half of a +/- pair.
         stacked_signs: list[str] = []
@@ -453,7 +571,17 @@ def cluster_split_tolerance_spans(spans: list[TextSpan]) -> list[TextSpan]:
                 accept = False
                 if cls in ("TOLNUM", "SIGN"):
                     accept = True
-                elif cls == "FIT" and base_is_dim_number and not _re.match(r"^M\d", cand.text.strip()):
+                elif cls == "FIT" and base_is_dim_number and not re.match(r"^M\d", cand.text.strip()):
+                    has_competing_tolnum = any(
+                        _token_class(c.text) == "TOLNUM"
+                        and (c.span_id not in used or c.span_id in singletons)
+                        and abs(c.rotation_deg - rot) <= 5.0
+                        and abs(c.bbox.center.y - primary.bbox.center.y) <= 1.15 * h
+                        for c in norm
+                    )
+                    if not has_competing_tolnum:
+                        accept = True
+                elif cls == "ENVELOPE" and (base_is_dim_number or last_class == "FIT"):
                     accept = True
                 elif cls == "NUM" and last_class in ("SIGN", "ROUGH"):
                     accept = True
@@ -462,6 +590,8 @@ def cluster_split_tolerance_spans(spans: list[TextSpan]) -> list[TextSpan]:
                 elif cls == "ROUGH" and last_class == "PREFIX":
                     accept = True
                 elif cls == "PREFIX" and last_class == "PREFIX":
+                    accept = True
+                elif (last_class == "ROUGH" or ptext.startswith(("Ra", "Rz", "RA", "RZ"))) and re.match(r"^(?:…|\.{2,3}|[-–—~])\s*\d", cand.text.strip()):
                     accept = True
                 if not accept:
                     continue
@@ -522,7 +652,7 @@ def _merge_tolerance_columns(clustered: list[TextSpan]) -> list[TextSpan]:
     # A merged pair ('+0.021 -0.000') is not a fragment and must not move.
     tol_idx = [
         i for i, s in enumerate(clustered)
-        if _re.match(r"^[±+\-]\s*\d+(\.\d+)?°?\s*$", s.text.strip())
+        if re.match(r"^[±+\-]\s*\d+(\.\d+)?°?\s*$", s.text.strip())
     ]
     if not tol_idx:
         return clustered
@@ -541,7 +671,7 @@ def _merge_tolerance_columns(clustered: list[TextSpan]) -> list[TextSpan]:
                 continue
             if abs(dim.rotation_deg - tol.rotation_deg) > 5.0:
                 continue
-            if "±" in dim.text or _re.search(r"[+-]\d+\.?\d*\s*$", dim.text):
+            if "±" in dim.text or re.search(r"[+-]\d+\.?\d*\s*$", dim.text):
                 continue
             dy = abs(dim.bbox.center.y - tol.bbox.center.y)
             dx = tol.bbox.x0 - dim.bbox.x1

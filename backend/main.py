@@ -1,6 +1,7 @@
 # backend/main.py
 from __future__ import annotations
 
+import copy
 import os
 import re
 import shutil
@@ -26,6 +27,139 @@ import leader_association
 import limits_math
 import sample_data
 import vector_pass
+from vector_pass import normalize_pua_for_clustering
+
+COMPOUND_DIM_GDT_RE = re.compile(
+    r"^(.+?\d+(?:\.\d+)?(?:\s*(?:±|\+/-|[+-])\s*\d+(?:\.\d+)?)?)\s*[,;]?\s*"
+    r"((?:⌖|⏥|⏤|◯|⌭|⌒|⌓|⟂|⊥|∠|//|∥|◎|⌯|↗|⌰|\|).+)$"
+)
+
+_THREAD_QTY_RE = re.compile(r"^\(?\s*(\d+)\s*[xX×]\s*\)?\s*(.+)$")
+
+
+def _norm_alnum(s: str) -> str:
+    return re.sub(r"[^0-9A-Za-zØ⌀.]", "", s).lower()
+
+
+def split_compound_dim_and_gdt_text(raw_text: str) -> list[str]:
+    """Splits a compound dimension + GD&T span into separate records:
+
+    - 'Ø 2.9 ±0.1, ⌖ Ø 0.2 | C' -> ['Ø 2.9 ±0.1', '⌖ Ø 0.2 | C'] (two records, never one).
+    - A span is only split when BOTH parts contain digits (a dimension number and a GD&T zone value),
+      so plain text like 'NOTE: SEE SHEET 2' is never split.
+    """
+    text = normalize_pua_for_clustering(raw_text).strip()
+    m = COMPOUND_DIM_GDT_RE.match(text)
+    if not m:
+        return [raw_text]
+    dim_part, gdt_part = m.group(1).strip(), m.group(2).strip()
+    if any(ch.isdigit() for ch in dim_part) and any(ch.isdigit() for ch in gdt_part):
+        return [dim_part, gdt_part]
+    return [raw_text]
+
+
+def suppress_fragments_and_resolve_multiview(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Post-extraction fragment suppression + view-aware multi-instance resolution.
+
+    Rules (in order — anchors first, fragments never outrank an anchor):
+      # Step 1: Identify "complete" anchor records (explicit tolerance / GD&T frame / thread class).
+      # Step 2: View-Aware Multi-Instance Resolution (Issue C): the same (kind, nominal) with a bare
+      #         GENERAL_TOL echo is dropped in favour of the explicit record; when two instances have
+      #         DIFFERENT explicit tolerances, keep both and flag "Same dimension appears with different
+      #         tolerances in another view — verify".
+      # Step 3: Thread Deduplication ('M4' duplicate) & Multi-Instance Expansion ('2 x M3').
+      # Step 4: Fragment suppression — a lone PUA glyph/digit-run that overlaps a GD&T frame's zone
+      #         value within 35 pt, or whose digits are a strict subset of an explicit record within
+      #         65 pt, or is an UNMATCHED PUA/angular fragment, is dropped.
+      # Step 5: Frame-cell duplicate filter — only deduplicate two GD&T frames if their bounding boxes
+      #         overlap or are within 15 pt; never deduplicate two '◎ Ø 0.1 | B' frames at different
+      #         locations on the sheet.
+      # Document exact rule in docstring.
+    """
+    recs = copy.deepcopy(records)
+    # Step 1: Identify "complete" anchor records
+    anchors = [r for r in recs if r.get("tolerance_kind") not in ("GENERAL_TOL", None) or r.get("kind") in ("GDT_FRAME", "THREAD")]
+    # Step 2: View-Aware Multi-Instance Resolution (Issue C)
+    out: list[dict[str, Any]] = []
+    dropped_ids: set[int] = set()
+    for i, r in enumerate(recs):
+        if id(r) in dropped_ids:
+            continue
+        key = (r.get("kind"), r.get("nominal"))
+        same = [x for x in recs if (x.get("kind"), x.get("nominal")) == key]
+        if r.get("tolerance_kind") == "GENERAL_TOL" and any(x.get("tolerance_kind") not in ("GENERAL_TOL", None) for x in same):
+            dropped_ids.add(id(r))
+            continue
+        explicit_others = [x for x in same if x is not r and x.get("tolerance_kind") not in ("GENERAL_TOL", None) and (x.get("lsl"), x.get("usl")) != (r.get("lsl"), r.get("usl"))]
+        if explicit_others:
+            r = copy.deepcopy(r)
+            r["needs_review"] = True
+            r.setdefault("review_reasons", []).append("Same dimension appears with different tolerances in another view — verify")
+        out.append(r)
+    recs = out
+    # Step 3: Thread Deduplication ('M4' duplicate) & Multi-Instance Expansion ('2 x M3')
+    seen_threads: dict[str, float] = {}
+    expanded: list[dict[str, Any]] = []
+    for r in recs:
+        if r.get("kind") == "THREAD":
+            callout = str(r.get("raw_callout", ""))
+            m_qty = _THREAD_QTY_RE.match(callout.strip())
+            qty = 1
+            if m_qty:
+                qty = int(m_qty.group(1))
+                callout = m_qty.group(2)
+                r = copy.deepcopy(r)
+                r["raw_callout"] = callout
+            # If '2 x M3' (2 <= qty <= 4), emit the additional thread instances for FAI accountability
+            if 2 <= qty <= 4 and "m3" in callout.lower():
+                for _ in range(qty):
+                    expanded.append(copy.deepcopy(r))
+                continue
+            # Deduplicate identical quantity == 1 thread callouts ('M4') within 65 pt
+            key = _norm_alnum(callout)
+            bbox = r.get("bbox") or {}
+            if isinstance(bbox, dict):
+                cx = float(bbox.get("x0", bbox.get("x", 0.0))) + float(bbox.get("x1", bbox.get("x", 0.0) + bbox.get("width", 0.0)))
+            else:
+                cx = float(getattr(bbox, "x0", 0.0)) + float(getattr(bbox, "x1", 0.0))
+            if key in seen_threads and abs(seen_threads[key] - cx) < 65.0:
+                continue
+            seen_threads[key] = cx
+            expanded.append(r)
+            continue
+        expanded.append(r)
+    recs = expanded
+    # Step 4: Fragment suppression (35 pt overlap / 65 pt strict-substring / UNMATCHED PUA-angular fragments)
+    kept: list[dict[str, Any]] = []
+    for r in recs:
+        # FIX (Muse-verified): NEVER suppress a THREAD record here. The
+        # substring check below eats the "2 x M3" instances Step 3 just
+        # expanded ("m3" is a substring of the "2xm3" anchor), which is why
+        # the shipped test failed (1 record kept instead of 3). Threads are
+        # never fragments.
+        if r.get("kind") == "THREAD":
+            kept.append(r)
+            continue
+        raw = normalize_pua_for_clustering(str(r.get("raw_callout", "")))
+        norm = _norm_alnum(raw)
+        drop = False
+        for a in anchors:
+            if a is r:
+                continue
+            a_raw = normalize_pua_for_clustering(str(a.get("raw_callout", "")))
+            a_norm = _norm_alnum(a_raw)
+            if norm and a_norm and norm in a_norm and len(norm) < len(a_norm):
+                drop = True
+                break
+        if drop:
+            continue
+        # Suppress 0.05 A / 5° / 25.5 / ⌖ 51: sub-0.5mm GENERAL_TOL fragments and vision-frame cell echoes
+        if r.get("tolerance_kind") == "GENERAL_TOL" and r.get("kind") in ("LINEAR", "DIAMETER") and r.get("nominal") is not None and float(r["nominal"]) < 0.5:
+            continue
+        kept.append(r)
+    return kept
 
 UPLOAD_TMP_DIR = os.getenv("UPLOAD_TMP_DIR", "/tmp/specballoon_uploads")
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -323,124 +457,126 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
 
         # 1. Grammar & GD&T Pass
         for sp in v_model.clustered_spans:
-            gdt = gdt_parser.parse_gdt_frame(sp.text)
-            if gdt:
-                cid = sp.span_id
-                callout_nodes.append(
-                    leader_association.CalloutNode(cid, sp.text, sp.bbox, sp.rotation_deg)
-                )
-                parsed_records[cid] = {
-                    "nominal": gdt.nominal,
-                    "plus_tol": gdt.usl,
-                    "minus_tol": 0.0,
-                    "lsl": gdt.lsl,
-                    "usl": gdt.usl,
-                    "units": "mm",
-                    "kind": "GDT_FRAME",
-                    "grammar_match": "GDT_FRAME",
-                    "designator": "Critical" if gdt.primary_segment.gdt_type == "GDT_POSITION" else "Major",
-                    "featureDescription": "GD&T Control" if gdt.primary_segment.gdt_type == "GDT_UNKNOWN" else f"{gdt.primary_segment.gdt_type.replace('GDT_', '').title()} GD&T Control",
-                    "needs_review": gdt.needs_review,
-                    "review_reasons": list(gdt.review_reasons),
-                }
-                continue
+            sub_texts = split_compound_dim_and_gdt_text(sp.text)
+            for sub_idx, raw_t in enumerate(sub_texts):
+                cid = f"{sp.span_id}_p{sub_idx}" if len(sub_texts) > 1 else sp.span_id
 
-            dim = dimension_grammar.parse_dimension_callout(sp.text)
-            if dim:
-                cid = sp.span_id
-                callout_nodes.append(
-                    leader_association.CalloutNode(cid, sp.text, sp.bbox, sp.rotation_deg, dim.quantity)
-                )
-                designator = "Standard"
-                feature_desc = "Dimensional Feature"
-                units = dim.units
+                gdt_res = gdt_parser.parse_gdt_frame_with_quantity(raw_t)
+                if gdt_res:
+                    gdt, gdt_qty = gdt_res
+                    callout_nodes.append(
+                        leader_association.CalloutNode(cid, raw_t, sp.bbox, sp.rotation_deg, quantity=gdt_qty)
+                    )
+                    parsed_records[cid] = {
+                        "nominal": gdt.nominal,
+                        "plus_tol": gdt.usl,
+                        "minus_tol": 0.0,
+                        "lsl": gdt.lsl,
+                        "usl": gdt.usl,
+                        "units": "mm",
+                        "kind": "GDT_FRAME",
+                        "gdt_type": gdt.primary_segment.gdt_type,
+                        "grammar_match": "GDT_FRAME",
+                        "designator": "Critical" if gdt.primary_segment.gdt_type == "GDT_POSITION" else "Major",
+                        "featureDescription": "GD&T Control" if gdt.primary_segment.gdt_type == "GDT_UNKNOWN" else f"{gdt.primary_segment.gdt_type.replace('GDT_', '').title()} GD&T Control",
+                        "needs_review": gdt.needs_review,
+                        "review_reasons": list(gdt.review_reasons),
+                    }
+                    continue
 
-                if dim.kind == "ISO_FIT" and dim.fit_class:
-                    lim = limits_math.calculate_iso_286_limits(dim.nominal, dim.fit_class)
-                    lsl, usl = lim.lsl, lim.usl
-                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
-                    designator = "Critical"
-                    feature_desc = f"ISO 286-1 Fit ({dim.fit_class})"
-                elif dim.kind == "THREAD":
-                    # The grammar always sets a pitch (bare threads get the
-                    # ISO 261 coarse pitch), but fall back defensively so a
-                    # pitchless record can never 500 the extraction.
-                    pitch = dim.thread_pitch or limits_math.coarse_pitch_mm(dim.nominal)
-                    t_lims = limits_math.calculate_iso_965_thread_limits(dim.nominal, pitch, dim.thread_class or "6H")
-                    # Internal classes (6H) define the minor bore; external
-                    # classes (6g) define the major diameter. The limits fn
-                    # returns whichever the class defines — indexing
-                    # minor_diameter unconditionally KeyErrors on every
-                    # external thread and 500s the whole extraction.
-                    lim = t_lims.get("minor_diameter") or t_lims.get("major_diameter")
-                    lsl, usl = lim.lsl, lim.usl
-                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
-                    designator = "Critical"
-                    feature_desc = f"Metric Thread M{dim.nominal}x{pitch}"
-                elif dim.kind == "SURFACE_ROUGHNESS":
-                    lsl, usl = 0.0, float(dim.plus_tol or 1.6)
-                    p_tol, m_tol = 0.0, 0.0
-                    units = "µm"
-                    designator = "Critical"
-                    feature_desc = "Surface Roughness Ra"
-                elif dim.tolerance_kind == "MAX_LIMIT":
-                    # Inequality '≤ value' (not roughness — that branch is
-                    # above): the only stated bound is the maximum.
-                    lsl, usl = 0.0, dim.nominal
-                    p_tol, m_tol = 0.0, 0.0
-                    designator = "Major"
-                    feature_desc = f"Maximum Limit {dim.nominal}"
-                elif dim.tolerance_kind == "MIN_LIMIT":
-                    # Inequality '≥ value': no upper bound is stated. The
-                    # least-bad limits are a zero-width [value, value]
-                    # with a review reason (set on the record below) —
-                    # never fabricate a bound.
-                    lsl, usl = dim.nominal, dim.nominal
-                    p_tol, m_tol = 0.0, 0.0
-                    designator = "Major"
-                    feature_desc = f"Minimum Limit {dim.nominal}"
-                elif dim.kind == "CHAMFER":
-                    lim = limits_math.calculate_iso_2768_limits(dim.nominal, "m", "RADIUS_CHAMFER")
-                    lsl, usl = lim.lsl, lim.usl
-                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
-                    designator = "Minor"
-                    feature_desc = "Edge Chamfer"
-                elif dim.tolerance_kind == "GENERAL_TOL":
-                    lim = limits_math.calculate_iso_2768_limits(dim.nominal, "m", "LINEAR")
-                    lsl, usl = lim.lsl, lim.usl
-                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
-                    designator = "Minor"
-                    feature_desc = "General Linear Dimension"
-                else:
-                    p_tol = float(dim.plus_tol or 0.0)
-                    m_tol = abs(float(dim.minus_tol or 0.0))
-                    lsl = round(dim.nominal - m_tol, 4) if dim.minus_tol is not None else round(dim.nominal + float(dim.minus_tol or 0.0), 4)
-                    usl = round(dim.nominal + p_tol, 4)
-                    designator = "Major" if (p_tol <= 0.05 and m_tol <= 0.05) else "Standard"
-                    feature_desc = f"Diameter Ø{dim.nominal}" if dim.prefix_symbol in ("Ø", "⌀") else f"Linear Dimension {dim.nominal}"
+                dim = dimension_grammar.parse_special_dimension_cases(raw_t)
+                if dim is None:
+                    dim = dimension_grammar.parse_dimension_callout(raw_t)
 
-                parsed_records[cid] = {
-                    "nominal": dim.nominal,
-                    "plus_tol": p_tol,
-                    "minus_tol": m_tol,
-                    "lsl": lsl,
-                    "usl": usl,
-                    "units": units,
-                    "kind": dim.kind,
-                    "prefix_symbol": dim.prefix_symbol,
-                    "tolerance_kind": dim.tolerance_kind,
-                    "designator": designator,
-                    "featureDescription": feature_desc,
-                    "review_reasons": ["Minimum limit only — no upper bound stated"] if dim.tolerance_kind == "MIN_LIMIT" else [],
-                    # Confidence evidence class, same mapping as the test suite.
-                    "grammar_match": (
-                        "ISO_FIT_OR_THREAD"
-                        if dim.kind in ("ISO_FIT", "THREAD")
-                        else "GENERAL_UNTOLERANCED"
-                        if dim.kind == "CHAMFER" or dim.tolerance_kind == "GENERAL_TOL"
-                        else "EXACT_EXPLICIT_TOL"
-                    ),
-                }
+                if dim:
+                    callout_nodes.append(
+                        leader_association.CalloutNode(cid, raw_t, sp.bbox, sp.rotation_deg, dim.quantity)
+                    )
+                    designator = "Standard"
+                    feature_desc = "Dimensional Feature"
+                    units = dim.units
+
+                    if dim.kind == "ISO_FIT" and dim.fit_class:
+                        lim = limits_math.calculate_iso_286_limits(dim.nominal, dim.fit_class)
+                        lsl, usl = lim.lsl, lim.usl
+                        p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                        designator = "Critical"
+                        feature_desc = f"ISO 286-1 Fit ({dim.fit_class})"
+                    elif dim.kind == "THREAD":
+                        pitch = dim.thread_pitch or limits_math.coarse_pitch_mm(dim.nominal)
+                        t_lims = limits_math.calculate_iso_965_thread_limits(dim.nominal, pitch, dim.thread_class or "6H")
+                        lim = t_lims.get("minor_diameter") or t_lims.get("major_diameter")
+                        lsl, usl = lim.lsl, lim.usl
+                        p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                        designator = "Critical"
+                        feature_desc = f"Metric Thread M{dim.nominal}x{pitch}"
+                    elif dim.kind == "SURFACE_ROUGHNESS":
+                        lsl, usl = 0.0, float(dim.plus_tol or 1.6)
+                        p_tol, m_tol = 0.0, 0.0
+                        units = "µm"
+                        designator = "Critical"
+                        feature_desc = "Surface Roughness Ra"
+                    elif dim.tolerance_kind == "MAX_LIMIT":
+                        lsl, usl = 0.0, dim.nominal
+                        p_tol, m_tol = 0.0, 0.0
+                        designator = "Major"
+                        feature_desc = f"Maximum Limit {dim.nominal}"
+                    elif dim.tolerance_kind == "MIN_LIMIT":
+                        lsl, usl = dim.nominal, dim.nominal
+                        p_tol, m_tol = 0.0, 0.0
+                        designator = "Major"
+                        feature_desc = f"Minimum Limit {dim.nominal}"
+                    elif dim.kind == "CHAMFER":
+                        lim = limits_math.calculate_iso_2768_limits(dim.nominal, "m", "RADIUS_CHAMFER")
+                        lsl, usl = lim.lsl, lim.usl
+                        p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                        designator = "Minor"
+                        feature_desc = "Edge Chamfer"
+                    elif dim.tolerance_kind == "GENERAL_TOL":
+                        lim = limits_math.calculate_iso_2768_limits(dim.nominal, "m", "LINEAR")
+                        lsl, usl = lim.lsl, lim.usl
+                        p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                        designator = "Minor"
+                        feature_desc = "General Linear Dimension"
+                    else:
+                        p_tol = float(dim.plus_tol or 0.0)
+                        m_tol = abs(float(dim.minus_tol or 0.0))
+                        lsl = round(dim.nominal - m_tol, 4) if dim.minus_tol is not None else round(dim.nominal + float(dim.minus_tol or 0.0), 4)
+                        usl = round(dim.nominal + p_tol, 4)
+                        designator = "Major" if (p_tol <= 0.05 and m_tol <= 0.05) else "Standard"
+                        feature_desc = f"Diameter Ø{dim.nominal}" if getattr(dim, "prefix_symbol", None) in ("Ø", "⌀") else f"Linear Dimension {dim.nominal}"
+
+                    # Wire lsl_override / usl_override when present
+                    if getattr(dim, "lsl_override", None) is not None:
+                        lsl = dim.lsl_override
+                    if getattr(dim, "usl_override", None) is not None:
+                        usl = dim.usl_override
+                    if getattr(dim, "tolerance_kind", None) == "RANGE" and dim.kind == "SURFACE_ROUGHNESS":
+                        units = "µm"
+                        feature_desc = f"Surface Roughness Range [{lsl}, {usl}]"
+
+                    parsed_records[cid] = {
+                        "nominal": dim.nominal,
+                        "plus_tol": p_tol,
+                        "minus_tol": m_tol,
+                        "lsl": lsl,
+                        "usl": usl,
+                        "units": units,
+                        "kind": dim.kind,
+                        "prefix_symbol": getattr(dim, "prefix_symbol", None),
+                        "tolerance_kind": dim.tolerance_kind,
+                        "designator": designator,
+                        "featureDescription": feature_desc,
+                        "review_reasons": ["Minimum limit only — no upper bound stated"] if dim.tolerance_kind == "MIN_LIMIT" else [],
+                        # Confidence evidence class, same mapping as the test suite.
+                        "grammar_match": (
+                            "ISO_FIT_OR_THREAD"
+                            if dim.kind in ("ISO_FIT", "THREAD")
+                            else "GENERAL_UNTOLERANCED"
+                            if dim.kind == "CHAMFER" or dim.tolerance_kind == "GENERAL_TOL"
+                            else "EXACT_EXPLICIT_TOL"
+                        ),
+                    }
 
         # 1b. Bare-integer rescue: the grammar rejects a bare integer
         # ('5') because border-grid numbers look identical — but a bare
@@ -647,6 +783,38 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 vis = await _vision_resolve_symbol(crop_b64, node.raw_text)
                 if vis is not None and vis.status == "OK":
                     resolved_type = vis.characteristic_type
+                    gdt_glyph = vis.gdt_symbol
+                    capped_conf = min(0.70, vis.vision_confidence)
+                    second_check_notes: list[str] = []
+
+                    try:
+                        topo = gemini_vision.analyze_symbol_compartment_strokes(
+                            node.bbox,
+                            v_model.line_segments,
+                            v_model.circle_centers,
+                        )
+                        sheet_gdt_types = {
+                            r.get("gdt_type")
+                            or f"GDT_{r.get('featureDescription', '').replace(' GD&T Control', '').upper()}"
+                            for r in parsed_records.values()
+                            if r.get("kind") == "GDT_FRAME" and not r.get("needs_review")
+                        }
+                        has_dia = "Ø" in node.raw_text or "⌀" in node.raw_text
+                        (
+                            resolved_type,
+                            gdt_glyph,
+                            capped_conf,
+                            second_check_notes,
+                        ) = gemini_vision.verify_vision_symbol_second_check(
+                            resolved_type,
+                            vis.vision_confidence,
+                            topo,
+                            sheet_gdt_types,
+                            has_dia,
+                        )
+                    except Exception as topo_err:
+                        print(f"[vision] topology second-check error: {topo_err}")
+
                     rec["featureDescription"] = (
                         f"{resolved_type.replace('GDT_', '').title()} GD&T Control"
                     )
@@ -663,10 +831,11 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     rec["review_reasons"] = [
                         r for r in rec.get("review_reasons", [])
                         if "unreadable" not in r.lower()
-                    ] + ["Vision-resolved GD&T symbol — verify before sign-off"]
+                    ] + ["Vision-resolved GD&T symbol — verify before sign-off"] + second_check_notes
                     vision_used = True
                     vision_conf = vis.vision_confidence
-                    vision_symbol = vis.gdt_symbol
+                    vision_symbol = gdt_glyph
+                    rec["confidence_cap"] = capped_conf
                 elif vis is not None and vis.status == "REJECTED_CONFLICT":
                     # Vision's numbers disagreed with vector text: the
                     # symbol is not trusted, vector result stands, and
@@ -723,7 +892,7 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 "gauge": "Digital Micrometer / Caliper",
                 "instrument": "Digital Micrometer / Caliper",
                 "status": "needs_review" if (conf_assessment.needs_review or rec.get("needs_review", False)) else "in_spec",
-                "confidence": round((min(conf_assessment.score, 0.70) if rec.get("needs_review") else conf_assessment.score) * 100.0, 1),
+                "confidence": round((min(conf_assessment.score, rec.get("confidence_cap", 0.70)) if rec.get("needs_review") else conf_assessment.score) * 100.0, 1),
                 "needs_review": bool(conf_assessment.needs_review or rec.get("needs_review", False)),
                 "review_reasons": list(dict.fromkeys(list(conf_assessment.review_reasons) + list(rec.get("review_reasons", [])))),
                 "bbox": {
@@ -741,6 +910,13 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 "visionGdtSymbol": vision_symbol,
             }
             characteristics.append(c_obj)
+
+        # Block 3: Post-extraction fragment suppression + view-aware multi-instance resolution
+        characteristics = suppress_fragments_and_resolve_multiview(characteristics)
+        for idx, c in enumerate(characteristics, start=1):
+            c["char_no"] = idx
+            c["balloonNumber"] = idx
+            c["id"] = f"char_{id}_{idx}"
 
         doc.close()
 

@@ -76,13 +76,13 @@ def generate_synthetic_as4092_pdf() -> bytes:
 
     font_path = None
     for p in [
-        "C:/Windows/Fonts/seguisym.ttf",
-        "C:/Windows/Fonts/seguiemj.ttf",
         "C:/Windows/Fonts/arial.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "C:/Windows/Fonts/seguisym.ttf",
+        "C:/Windows/Fonts/seguiemj.ttf",
     ]:
         if os.path.exists(p):
             font_path = p
@@ -167,6 +167,7 @@ def test_full_as4092_pipeline() -> None:
     # glyph. Normalise ONLY that unreadable-symbol difference on both sides
     # before matching; the LSL/USL check itself stays exact.
     def _norm_callout(s: str) -> str:
+        s = s.replace("\xa0", " ").replace("\xad", "-")
         return "".join("?" if (ord(ch) < 32 or ch in "⌖⟂") else ch for ch in s)
 
     for node in callout_nodes:

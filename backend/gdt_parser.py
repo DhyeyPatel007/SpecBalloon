@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+from vector_pass import normalize_pua_for_clustering
+
 GdtSymbol = Literal[
     "⌖", "⏥", "⏤", "◯", "⌭", "⌒", "⌓", "⟂", "∠", "//", "◎", "⌯", "↗", "⌰", "UNKNOWN"
 ]
@@ -275,6 +277,33 @@ def parse_gdt_frame(raw_text: str) -> ParsedGdtFrame | None:
         needs_review=needs_review,
         review_reasons=review_reasons,
     )
+
+
+GDT_FRAME_QTY_RE = re.compile(
+    r"^(?:\(?\s*(\d+)\s*[xX×]\s*\)?\s*)?(.+?)(?:\s*\(?\s*(\d+)\s*[xX×]\s*\)?)?$"
+)
+
+
+def parse_gdt_frame_with_quantity(raw_text: str) -> tuple[ParsedGdtFrame, int] | None:
+    """Updated GD&T frame parser wrapper supporting leading/trailing (Nx) quantities:
+
+    - Extracts leading or trailing `(Nx)` / `Nx` quantity suffixes (e.g. `|◎|Ø 0.1|B| (4x)`,
+      `|◎|Ø 0.2|B| (3x)`, `|⌖|Ø 0.1|A| (3x)`) BEFORE parsing so trailing `(4x)`/`(3x)`
+      never breaks the frame parse.
+    - Returns (ParsedGdtFrame, quantity). Quantity defaults to 1 when no (Nx) is present.
+    """
+    text = normalize_pua_for_clustering(raw_text).strip()
+    qty = 1
+    m_qty = GDT_FRAME_QTY_RE.match(text)
+    if m_qty and (m_qty.group(1) or m_qty.group(3)):
+        qty = int(m_qty.group(1) or m_qty.group(3))
+        text = (m_qty.group(2) or text).strip()
+    # FIX 4: call the real public entry parse_gdt_frame(str), not
+    # _parse_single_segment (which takes list[str] and returns GdtSegment).
+    frame = parse_gdt_frame(text)
+    if frame is None:
+        return None
+    return frame, qty
 
 
 def test_gdt_parser() -> None:

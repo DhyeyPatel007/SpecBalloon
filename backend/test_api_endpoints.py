@@ -5,7 +5,11 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-from main import app
+from main import (
+    app,
+    split_compound_dim_and_gdt_text,
+    suppress_fragments_and_resolve_multiview,
+)
 from test_pipeline_e2e import generate_synthetic_as4092_pdf
 
 client = TestClient(app)
@@ -283,3 +287,19 @@ def test_vision_low_confidence_keeps_vector_result(monkeypatch):
     assert pos["featureDescription"] == "GD&T Control"
     assert pos["needs_review"] is True
     assert pos["vision_used"] is False
+
+
+def test_fragment_suppression_and_multiview() -> None:
+    # 1. Compound 'Ø 2.9 ±0.1, ⌖ Ø 0.2 | C' splits into two records
+    parts = split_compound_dim_and_gdt_text("Ø 2.9 ±0.1, ⌖ Ø 0.2 | C")
+    assert len(parts) == 2 and parts[0].strip() == "Ø 2.9 ±0.1" and parts[1].strip() == "⌖ Ø 0.2 | C"
+    # 2. Fragment suppression & multi-view explicit-over-general resolution
+    mock_recs = [
+        {"raw_callout": "12.35 ±0.3", "kind": "LINEAR", "nominal": 12.35, "tolerance_kind": "BILATERAL_SYM", "lsl": 12.05, "usl": 12.65, "bbox": {"x0": 100, "y0": 100, "x1": 150, "y1": 112}},
+        {"raw_callout": "12.35", "kind": "LINEAR", "nominal": 12.35, "tolerance_kind": "GENERAL_TOL", "lsl": 12.15, "usl": 12.55, "bbox": {"x0": 300, "y0": 100, "x1": 320, "y1": 112}},
+        {"raw_callout": "2 x M3", "kind": "THREAD", "tolerance_kind": "THREAD_CLASS", "bbox": {"x0": 100, "y0": 200, "x1": 130, "y1": 212}},
+    ]
+    cleaned = suppress_fragments_and_resolve_multiview(mock_recs)
+    assert len(cleaned) == 3  # 1x (12.35 ±0.3) + 2x (2 x M3 instances)
+    assert cleaned[0]["lsl"] == 12.05 and cleaned[0]["usl"] == 12.65
+

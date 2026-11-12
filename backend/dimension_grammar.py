@@ -6,6 +6,154 @@ from dataclasses import dataclass
 from typing import Literal
 
 import limits_math
+from vector_pass import normalize_pua_for_clustering
+
+# 1. Roughness Range Regex: matches 'Rz 6.3…16', 'Rz 6.3...16', 'Ra 0.8-1.6 µm'
+SURFACE_RANGE_RE = re.compile(
+    r"^\s*(Ra|Rz)\s*(\d+(?:\.\d+)?)\s*(?:…|\.{2,3}|[-–—~])\s*(\d+(?:\.\d+)?)\s*(?:µm|um)?\s*$",
+    re.IGNORECASE,
+)
+# FIX 1: tolerance group accepts ± / +/- / +- / + / - (was [+-] only).
+EXPLICIT_SINGLE_SIDED_RE = re.compile(
+    r"^\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(?:\s+[a-zA-Z]{1,2}\d{1,2})?\s+((?:±|\+/-|\+-|[+-])\d+(?:\.\d+)?)(?:\s+[a-zA-Z]{1,2}\d{1,2})?\s*$"
+)
+INEQUALITY_MIN_MAX_RE = re.compile(
+    r"^\s*(?:(≤|<=|max\.?)|(≥|>=|min\.?))\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
+STRAY_LEADING_INT_RE = re.compile(
+    r"^(\d+)\s+(\d+\.\d+\s*(?:±|\+/-|\+-|[+-])\s*\d+(?:\.\d+)?.*)$"
+)
+ISO_FIT_ENVELOPE_RE = re.compile(
+    r"^\s*([Ø⌀]?)\s*(\d+(?:\.\d+)?)\s*([A-HJ-Za-hj-z]{1,2}\d{1,2})\s*(?:[ⒺⓂⓁ]|\([EML]\))?"
+    r"(?:\s*\(\s*\+?(\d+(?:\.\d+)?)\s*/\s*([+-]?\d+(?:\.\d+)?)\s*\))?\s*$"
+)
+
+
+@dataclass(frozen=True)
+class ExtendedParsedDimension:
+    raw_callout: str
+    kind: str
+    tolerance_kind: str
+    quantity: int = 1
+    prefix_symbol: str | None = None
+    nominal: float = 0.0
+    plus_tol: float = 0.0
+    minus_tol: float = 0.0
+    lsl_override: float | None = None
+    usl_override: float | None = None
+    fit_class: str | None = None
+    envelope_req: bool = False
+    units: str = "mm"
+
+
+def parse_special_dimension_cases(raw_callout: str) -> ExtendedParsedDimension | None:
+    """
+    Parses special dimension callouts the base `parse_dimension_callout` misses or reads wrong:
+    - Parses roughness ranges ('Rz 6.3…16' -> LSL 6.3, USL 16.0).
+    - Rejects parenthesized echoes like '(0.26)', '(20.7)', '(Ø 27)' immediately.
+    - Explicit single-sided tolerance beats any inferred fit class ('1 +0.2' -> [1.0, 1.2]).
+    - ISO fit with envelope modifier ('Ø 59 H6 Ⓔ' -> fit_class H6, envelope_req=True).
+    - Stray leading integers glued onto a toleranced decimal ('2 0.35 ±0.5' -> '0.35 ±0.5').
+    - Inequality min/max ('≥ 2' -> MIN_LIMIT, '≤ 1.7' -> MAX_LIMIT).
+    """
+    text = normalize_pua_for_clustering(raw_callout).strip()
+    # Rule E1: Reject any parenthesized or bracketed auxiliary/dual-unit echo '(0.26)'
+    if (text.startswith("(") and text.endswith(")")) or (text.startswith("[") and text.endswith("]")):
+        return None
+    # Rule A: Stray leading integer glued onto a decimal tolerance callout: '2 0.35 ±0.5' -> '0.35 ±0.5'
+    m_stray = STRAY_LEADING_INT_RE.match(text)
+    if m_stray:
+        text = m_stray.group(2)
+    # Rule B3: Surface Roughness Range 'Rz 6.3…16'
+    m_rz = SURFACE_RANGE_RE.match(text)
+    if m_rz:
+        lo, hi = float(m_rz.group(2)), float(m_rz.group(3))
+        return ExtendedParsedDimension(
+            raw_callout=raw_callout,
+            kind="SURFACE_ROUGHNESS",
+            tolerance_kind="RANGE",
+            nominal=0.0,
+            plus_tol=0.0,
+            minus_tol=0.0,
+            lsl_override=lo,
+            usl_override=hi,
+        )
+    # Rule B1: Explicit single-sided tolerance beats fit ('1 +0.2' -> [1.0, 1.2])
+    m_exp = EXPLICIT_SINGLE_SIDED_RE.match(text)
+    if m_exp:
+        nom = float(m_exp.group(2))
+        t_str = m_exp.group(3)
+        if t_str.startswith(("±", "+/-", "+-")):
+            # FIX 1: a ± tolerance is bilateral: plus = minus = |t|.
+            t = float(t_str.lstrip("±+/-"))
+            return ExtendedParsedDimension(
+                raw_callout=raw_callout,
+                kind="LINEAR",
+                tolerance_kind="BILATERAL_SYM",
+                prefix_symbol=m_exp.group(1) or None,
+                nominal=nom,
+                plus_tol=t,
+                minus_tol=t,
+                lsl_override=round(nom - t, 4),
+                usl_override=round(nom + t, 4),
+                fit_class=None,
+            )
+        t = float(t_str)
+        plus, minus = (t, 0.0) if t > 0 else (0.0, abs(t))
+        return ExtendedParsedDimension(
+            raw_callout=raw_callout,
+            kind="LINEAR",
+            tolerance_kind="BILATERAL_ASYM",
+            prefix_symbol=m_exp.group(1) or None,
+            nominal=nom,
+            plus_tol=plus,
+            minus_tol=minus,
+            lsl_override=round(nom - minus, 4),
+            usl_override=round(nom + plus, 4),
+            fit_class=None,
+        )
+    # Rule B2: ISO fit with envelope modifier ('Ø 59 H6 Ⓔ')
+    m_fit = ISO_FIT_ENVELOPE_RE.match(text)
+    if m_fit:
+        nom = float(m_fit.group(2))
+        fit = m_fit.group(3)
+        env = bool(m_fit.group(4)) or "Ⓔ" in text or "(E)" in text
+        return ExtendedParsedDimension(
+            raw_callout=raw_callout,
+            kind="ISO_FIT",
+            tolerance_kind="ISO_FIT",
+            prefix_symbol=m_fit.group(1) or None,
+            nominal=nom,
+            fit_class=fit,
+            envelope_req=env,
+        )
+    # Rule B4: Inequality min/max ('≥ 2' -> MIN_LIMIT, '≤ 1.7' -> MAX_LIMIT)
+    # FIX 2: group(1)=max-side, group(2)=min-side, group(3)=prefix, group(4)=value.
+    m_ineq = INEQUALITY_MIN_MAX_RE.match(text)
+    if m_ineq:
+        val = float(m_ineq.group(4))
+        if m_ineq.group(1) is not None:
+            return ExtendedParsedDimension(
+                raw_callout=raw_callout,
+                kind="LINEAR",
+                tolerance_kind="MAX_LIMIT",
+                prefix_symbol=m_ineq.group(3) or None,
+                nominal=val,
+                # FIX 3: MAX_LIMIT is [0.0, nominal] per main.py:386, never [val, val].
+                lsl_override=0.0,
+                usl_override=val,
+            )
+        return ExtendedParsedDimension(
+            raw_callout=raw_callout,
+            kind="LINEAR",
+            tolerance_kind="MIN_LIMIT",
+            prefix_symbol=m_ineq.group(3) or None,
+            nominal=val,
+            lsl_override=val,
+            usl_override=val,
+        )
+    return None
 
 DimensionKind = Literal[
     "DIAMETER",
@@ -161,7 +309,13 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
     # inch fractions. raw_callout keeps the display text (the return sites
     # below still use `text`). Glyph mapping is skipped for frames (they
     # contain '|') so a GD&T symbol cell is never rewritten as 'Ø'.
-    work = text.replace("–", "-").replace("—", "-").replace("−", "-")
+    work = (
+        text.replace("–", "-")
+        .replace("—", "-")
+        .replace("−", "-")
+        .replace("\xad", "-")
+        .replace("\xa0", " ")
+    )
     if "|" not in work:
         # PUA digit runs first (see _PUA_DIGITS): a run is a number, a
         # lone U+F032 is the diameter sign.

@@ -15,7 +15,10 @@ from vector_pass import (
     BBox,
     Point2D,
     TextSpan,
+    assemble_boxed_gdt_frames,
+    classify_span_token,
     cluster_split_tolerance_spans,
+    resolve_cluster_v2_claims,
     test_vector_pass,
 )
 
@@ -152,3 +155,35 @@ def test_neighbor_column_tolerance_is_not_claimed():
     assert "43.3 ±0.5" in texts
     assert "39 ±0.3" in texts
     assert not any("±0.3" in t and "43.3" in t for t in texts)
+
+
+def test_cluster_v2_pua_and_precedence() -> None:
+    # 1. PUA ±0.5 (\uf0b1\uf030\uf02e\uf035) is classified as TOLNUM and merges onto 6.8
+    pua_pm_05 = "\uf0b1\uf030\uf02e\uf035"
+    assert classify_span_token(pua_pm_05) == "TOLNUM"
+    merged, ids = resolve_cluster_v2_claims("6.8", [("s2", pua_pm_05, 3.0)], [])
+    assert merged == "6.8 ±0.5" and ids == ["s2"]
+
+    # 2. Stray bare integer '2' on the left of '0.35 ±0.5' is NOT claimed
+    merged_stray, ids_stray = resolve_cluster_v2_claims("0.35", [("s3", "±0.5", 2.5)], [("s1", "2", 4.0)])
+    assert merged_stray == "0.35 ±0.5" and "s1" not in ids_stray
+
+    # 3. '1 +0.2' vs 'h9': explicit '+0.2' wins over 'h9'
+    merged_fit_vs_tol, ids_fvt = resolve_cluster_v2_claims(
+        "1", [("s_tol", "+0.2", 3.0), ("s_fit", "h9", 5.0)], []
+    )
+    assert merged_fit_vs_tol == "1 +0.2" and "s_fit" not in ids_fvt
+
+    # 4. 'Ø 59 H6 Ⓔ' claims both H6 and Ⓔ
+    merged_h6e, _ = resolve_cluster_v2_claims("\uf032 59", [("s_h6", "H6", 3.0), ("s_env", "Ⓔ", 6.0)], [])
+    assert merged_h6e == "Ø 59 H6 Ⓔ"
+
+    # 5. Boxed GD&T cells [◎] [\uf032 0.1] [B] [(4x)] assemble into '|◎|Ø 0.1|B| (4x)'
+    s1 = TextSpan("g1", "◎", BBox(100, 200, 112, 212), Point2D(100, 210), "CAD", 9.0, 0.0)
+    s2 = TextSpan("g2", "\uf032 0.1", BBox(112, 200, 138, 212), Point2D(114, 210), "CAD", 9.0, 0.0)
+    s3 = TextSpan("g3", "B", BBox(138, 200, 150, 212), Point2D(140, 210), "CAD", 9.0, 0.0)
+    s4 = TextSpan("g4", "(4x)", BBox(152, 200, 170, 212), Point2D(153, 210), "CAD", 9.0, 0.0)
+    assembled_spans = assemble_boxed_gdt_frames([s1, s2, s3, s4])
+    assert len(assembled_spans) == 1
+    assert assembled_spans[0].text == "|◎|Ø 0.1|B| (4x)"
+
