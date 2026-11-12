@@ -169,8 +169,17 @@ async def _vision_resolve_symbol(
         vis = await gemini_vision.analyze_cropped_patch_with_gemini(
             crop_b64, vector_text_in_bbox=vector_text
         )
-    except Exception:
+    except Exception as exc:  # Vision must never fail an extraction
+        print(f"[vision] call failed ({type(exc).__name__}: {exc}) — keeping vector result")
         return None
+    # Log the outcome for the Render logs: silent swallowing hides
+    # real misconfiguration (bad key, model error) as "vision declined".
+    print(
+        f"[vision] status={vis.status} "
+        f"confidence={vis.vision_confidence:.2f} "
+        f"type={vis.characteristic_type} symbol={vis.gdt_symbol!r} "
+        f"vector_text={vector_text!r}"
+    )
     if vis.status == "REJECTED_CONFLICT":
         return vis
     if vis.status != "OK":
