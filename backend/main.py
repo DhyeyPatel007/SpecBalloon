@@ -307,7 +307,12 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     feature_desc = f"ISO 286-1 Fit ({dim.fit_class})"
                 elif dim.kind == "THREAD" and dim.thread_pitch:
                     t_lims = limits_math.calculate_iso_965_thread_limits(dim.nominal, dim.thread_pitch, dim.thread_class or "6H")
-                    lim = t_lims["minor_diameter"]
+                    # Internal classes (6H) define the minor bore; external
+                    # classes (6g) define the major diameter. The limits fn
+                    # returns whichever the class defines — indexing
+                    # minor_diameter unconditionally KeyErrors on every
+                    # external thread and 500s the whole extraction.
+                    lim = t_lims.get("minor_diameter") or t_lims.get("major_diameter")
                     lsl, usl = lim.lsl, lim.usl
                     p_tol, m_tol = lim.plus_tol, lim.minus_tol
                     designator = "Critical"

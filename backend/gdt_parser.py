@@ -114,6 +114,17 @@ def _parse_modifier(mod_str: str) -> tuple[MaterialModifier, bool, bool]:
     return mod, proj, free
 
 
+def _is_unreadable_symbol(cell: str) -> bool:
+    """True when a symbol cell holds no readable glyph — the PDF font
+    lacked the GD&T symbol and extraction produced NUL / control chars
+    (DejaVu Sans and Liberation Sans do this for ⌖ U+2336 and ⟂ U+27C2),
+    or a lone replacement character. A real symbol is never unreadable."""
+    s = cell.strip()
+    if not s:
+        return False
+    return all(ord(ch) < 32 or ord(ch) == 127 or ord(ch) == 0xFFFD for ch in s)
+
+
 def _parse_single_segment(cells: list[str], inherited_symbol: tuple[GdtSymbol, GdtType] | None = None) -> GdtSegment | None:
     clean_cells = [c.strip() for c in cells if c.strip()]
     if not clean_cells:
@@ -121,6 +132,10 @@ def _parse_single_segment(cells: list[str], inherited_symbol: tuple[GdtSymbol, G
 
     sym_info = SYMBOL_MAP.get(clean_cells[0].upper()) or SYMBOL_MAP.get(clean_cells[0])
     is_unknown_symbol = False
+    # True only when the symbol slot provably held a glyph the PDF font
+    # could not render (NUL / control chars). Lets a datumless frame
+    # through the guard below; inferred-unknown frames still need datums.
+    symbol_unreadable = False
 
     if sym_info is not None:
         tol_idx = 1
@@ -132,11 +147,19 @@ def _parse_single_segment(cells: list[str], inherited_symbol: tuple[GdtSymbol, G
         # Case 1: First cell is an unreadable glyph (e.g. \x00, ?, unmapped char), second cell is tolerance
         if len(clean_cells) >= 2 and TOL_COMPARTMENT_RE.match(clean_cells[1]):
             datums_candidate = clean_cells[2:]
-            # Must have at least one valid datum reference to infer frame
+            # Must have at least one valid datum reference to infer frame,
+            # UNLESS there are no trailing cells at all and the symbol slot
+            # is provably unreadable (missing font glyph) — flatness and
+            # similar frames legitimately carry no datums.
             if datums_candidate and all(DATUM_CELL_RE.match(c) for c in datums_candidate):
                 sym_info = ("UNKNOWN", "GDT_UNKNOWN")
                 tol_idx = 1
                 is_unknown_symbol = True
+            elif not datums_candidate and _is_unreadable_symbol(clean_cells[0]):
+                sym_info = ("UNKNOWN", "GDT_UNKNOWN")
+                tol_idx = 1
+                is_unknown_symbol = True
+                symbol_unreadable = True
             else:
                 return None
         # Case 2: Symbol compartment was completely empty/omitted, so clean_cells[0] is tolerance
@@ -177,7 +200,11 @@ def _parse_single_segment(cells: list[str], inherited_symbol: tuple[GdtSymbol, G
         d_mod: MaterialModifier = "MMC" if d_mod_raw in ("M", "Ⓜ") else ("LMC" if d_mod_raw in ("L", "Ⓛ") else "RFS")
         datums.append(DatumRef(letter=letter, modifier=d_mod))
 
-    if is_unknown_symbol and len(datums) == 0:
+    # An inferred-unknown frame with no datums is too weak to accept —
+    # EXCEPT when the symbol slot provably held a glyph the font could
+    # not render (e.g. datumless flatness "|\x00|0.04|"): the control-char
+    # cell is itself evidence a symbol was there.
+    if is_unknown_symbol and len(datums) == 0 and not symbol_unreadable:
         return None
 
     return GdtSegment(

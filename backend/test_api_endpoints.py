@@ -83,3 +83,45 @@ def test_invalid_file_upload():
     assert res.status_code == 400
     assert res.json()["error"]["code"] == "INVALID_PDF"
 
+
+
+def _leader_pdf(callouts: list[tuple[str, float, float, float, float]]) -> bytes:
+    """Minimal drawing: a small circle per feature + leader + text."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=842, height=595)
+    shape = page.new_shape()
+    for text, fx, fy, tx, ty in callouts:
+        shape.draw_circle(fitz.Point(fx, fy), 9)
+        shoulder_x = tx - 4.0 if tx >= fx else tx + 65.0
+        elbow_x = shoulder_x - 14.0 if tx >= fx else shoulder_x + 14.0
+        shape.draw_line(fitz.Point(fx, fy), fitz.Point(elbow_x, ty - 3.0))
+        shape.draw_line(fitz.Point(elbow_x, ty - 3.0), fitz.Point(shoulder_x, ty - 3.0))
+    shape.finish(width=0.7, color=(0, 0, 0))
+    shape.commit()
+    for text, fx, fy, tx, ty in callouts:
+        page.insert_text(fitz.Point(tx, ty), text, fontsize=9.0)
+    out = doc.tobytes()
+    doc.close()
+    return out
+
+
+def test_external_thread_does_not_crash_extraction():
+    # Regression: an external thread (6g) used to KeyError on
+    # t_lims["minor_diameter"] and 500 the whole extraction, because
+    # ISO 965 returns only major-diameter limits for external classes.
+    pdf = _leader_pdf([
+        ("M8x1.25 - 6g", 300, 200, 450, 180),
+        ("Ø20.00 ±0.05", 300, 400, 450, 380),
+    ])
+    up = client.post("/api/v1/drawings", files={"file": ("ext-thread.pdf", pdf, "application/pdf")})
+    assert up.status_code == 200
+    dwg_id = up.json()["id"]
+    ex = client.post(f"/api/v1/drawings/{dwg_id}/extract")
+    assert ex.status_code == 200
+    ext = ex.json()
+    assert ext["count"] == 2, ext
+    thread = next(c for c in ext["characteristics"] if "M8" in c["raw_callout"])
+    # 6g external: major diameter limits (ISO 965-1) 7.765 / 7.971
+    assert abs(thread["lsl"] - 7.765) < 1e-3 and abs(thread["usl"] - 7.971) < 1e-3

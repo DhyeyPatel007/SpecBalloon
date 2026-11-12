@@ -57,6 +57,19 @@ def test_parse_unreadable_symbol_frame():
 
     # Reject if tolerance or datums are invalid/missing
     assert parse_gdt_frame("|\x00|invalid|A|") is None
-    assert parse_gdt_frame("|\x00|0.02|") is None
+    # Datumless frame with a PROVABLY unreadable symbol slot is accepted:
+    # flatness and similar frames legitimately carry no datums, and a
+    # control-char symbol cell proves the glyph was there but unreadable.
+    f3 = parse_gdt_frame("|\x00|0.04|")
+    assert f3 is not None
+    assert f3.primary_segment.gdt_type == "GDT_UNKNOWN"
+    assert f3.lsl == 0.0 and f3.usl == 0.04
+    assert f3.needs_review is True
+    # ...but readable junk with no datums is still rejected.
+    assert parse_gdt_frame("|XYZ|0.04|") is None
+    # Note: with a VALID datum present, Agy's inference accepts any first
+    # cell as an unknown symbol (documenting, not changing, that call).
+    f4 = parse_gdt_frame("|XYZ|0.02|A|")
+    assert f4 is not None and f4.primary_segment.gdt_type == "GDT_UNKNOWN"
 
 
