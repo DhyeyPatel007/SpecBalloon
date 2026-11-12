@@ -281,6 +281,7 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     "usl": gdt.usl,
                     "units": "mm",
                     "kind": "GDT_FRAME",
+                    "grammar_match": "GDT_FRAME",
                     "designator": "Critical" if gdt.primary_segment.gdt_type == "GDT_POSITION" else "Major",
                     "featureDescription": "GD&T Control" if gdt.primary_segment.gdt_type == "GDT_UNKNOWN" else f"{gdt.primary_segment.gdt_type.replace('GDT_', '').title()} GD&T Control",
                     "needs_review": gdt.needs_review,
@@ -347,6 +348,14 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     "kind": dim.kind,
                     "designator": designator,
                     "featureDescription": feature_desc,
+                    # Confidence evidence class, same mapping as the test suite.
+                    "grammar_match": (
+                        "ISO_FIT_OR_THREAD"
+                        if dim.kind in ("ISO_FIT", "THREAD")
+                        else "GENERAL_UNTOLERANCED"
+                        if dim.kind == "CHAMFER" or dim.tolerance_kind == "GENERAL_TOL"
+                        else "EXACT_EXPLICIT_TOL"
+                    ),
                 }
 
         # 2. Leader Association
@@ -382,9 +391,9 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
             lead_dist = assoc.distance_score_pt if assoc else 999.0
 
             signals = confidence.EvidenceSignals(
-                text_source="VECTOR_FONTS",
-                grammar_match="PERFECT_REGEX",
-                leader_association="DIRECT_LEADER" if lead_kind == "DIRECT_LEADER" else ("STACKED_SIBLING" if lead_kind == "STACKED_SIBLING" else "NO_LEADER"),
+                text_source="CLUSTERED_VECTOR",
+                grammar_match=rec.get("grammar_match", "EXACT_EXPLICIT_TOL"),
+                leader_association=lead_kind,
                 leader_distance_pt=lead_dist,
                 rotation_deg=node.rotation_deg,
                 vision_used=False,

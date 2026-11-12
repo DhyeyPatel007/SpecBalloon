@@ -9,6 +9,19 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 
+def _clean(value: Any) -> Any:
+    """Replace characters the XLSX format cannot store. PDF text can carry
+    NUL/control chars where a font lacked a glyph (e.g. the GD&T symbol
+    cell extracted as \\x00) — openpyxl refuses those in worksheets, so
+    show them as '?' rather than dropping the cell or crashing the export.
+    Tab / newline / carriage return are legal in XLSX and kept."""
+    if not isinstance(value, str):
+        return value
+    return "".join(
+        "?" if (ord(ch) < 32 and ch not in "\t\n\r") else ch for ch in value
+    )
+
+
 def build_as9102_workbook_bytes(
     drawing_meta: dict[str, Any],
     characteristics: list[dict[str, Any]],
@@ -153,6 +166,7 @@ def build_as9102_workbook_bytes(
             status,
             notes,
         ]
+        row_data = [_clean(v) for v in row_data]
         for c_idx, val in enumerate(row_data, start=1):
             cell = ws3.cell(r_offset, c_idx, val)
             cell.border = grid_border
@@ -193,7 +207,7 @@ def build_as9102_workbook_bytes(
         lsl = float(ch.get("lsl", 0.0))
         usl = float(ch.get("usl", 0.0))
         samples: list[float] = ch.get("lot_measurements") or []
-        base_cols = [ch.get("char_no", r_offset - 3), ch.get("raw_callout", ""), lsl, usl]
+        base_cols = [_clean(v) for v in [ch.get("char_no", r_offset - 3), ch.get("raw_callout", ""), lsl, usl]]
         for c_idx, val in enumerate(base_cols, start=1):
             cell = ws4.cell(r_offset, c_idx, val)
             cell.border = grid_border

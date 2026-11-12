@@ -162,9 +162,20 @@ def test_full_as4092_pipeline() -> None:
     assert len(placed) == 17
 
     # Acceptance Bar 4: Verify computed LSL/USL match ground truth to 0.001 mm
+    # The two GD&T frames' symbols (⌖ / ⟂) do not exist in the test fonts,
+    # so extraction reads them as NUL while the benchmark keeps the real
+    # glyph. Normalise ONLY that unreadable-symbol difference on both sides
+    # before matching; the LSL/USL check itself stays exact.
+    def _norm_callout(s: str) -> str:
+        return "".join("?" if (ord(ch) < 32 or ch in "⌖⟂") else ch for ch in s)
+
     for node in callout_nodes:
         lsl, usl, _ = parsed_records[node.callout_id]
-        expected = next(item for item in AS_4092_C_BENCHMARK_SPECS if item[0] == node.raw_text)
+        expected = next(
+            item
+            for item in AS_4092_C_BENCHMARK_SPECS
+            if _norm_callout(item[0]) == _norm_callout(node.raw_text)
+        )
         assert abs(lsl - expected[3]) < 1e-3 and abs(usl - expected[4]) < 1e-3, (
             f"Mismatch on {node.raw_text}: got [{lsl}, {usl}], expected [{expected[3]}, {expected[4]}]"
         )
