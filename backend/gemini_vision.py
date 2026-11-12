@@ -165,6 +165,18 @@ def _scrub_key(text: str) -> str:
     return re.sub(r"key=[^&\s\"']+", "key=[REDACTED]", text)
 
 
+def _vision_model() -> str:
+    """Vision model, overridable via GEMINI_VISION_MODEL without a deploy.
+
+    Default is gemini-3.5-flash-lite: Google deprecated gemini-2.5-flash
+    for new projects (Nov 2026) — its generateContent endpoint 404s for
+    projects that never used 2.5, and Google routes 2.5 Flash to
+    3.5 Flash-Lite. The old hardcoded 2.5-flash string is what made every
+    vision call error after the wiring went live.
+    """
+    return os.getenv("GEMINI_VISION_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
+
+
 async def analyze_cropped_patch_with_gemini(
     crop_base64_png: str,
     vector_text_in_bbox: str | None = None,
@@ -179,7 +191,10 @@ async def analyze_cropped_patch_with_gemini(
         )
 
     b64_clean = crop_base64_png.split(",", 1)[-1]
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={resolved_key}"
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{_vision_model()}:generateContent?key={resolved_key}"
+    )
     prompt = (
         "You are an ASME Y14.5 / ISO 1101 engineering blueprint OCR parser. "
         "Read ONLY the cropped callout or GD&T Feature Control Frame in this image patch. "

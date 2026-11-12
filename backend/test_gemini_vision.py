@@ -34,3 +34,12 @@ def test_error_notes_never_carry_the_api_key():
     assert "AIzaSyDUMMYKEY1234567890" not in clean
     assert "key=[REDACTED]" in clean
     assert "403 Forbidden" in clean
+
+
+def test_vision_model_defaults_to_current_flash_lite(monkeypatch):
+    from gemini_vision import _vision_model
+
+    monkeypatch.delenv("GEMINI_VISION_MODEL", raising=False)
+    assert _vision_model() == "gemini-3.5-flash-lite"
+    monkeypatch.setenv("GEMINI_VISION_MODEL", "gemini-3.8-flash")
+    assert _vision_model() == "gemini-3.8-flash"
