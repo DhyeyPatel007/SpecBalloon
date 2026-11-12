@@ -224,6 +224,11 @@ def test_vision_resolves_unknown_gdt_symbols(monkeypatch):
     assert pos["visionGdtSymbol"] == "⌖"
     assert pos["visionConfidence"] == 0.91
     assert "unreadable" not in " ".join(pos["review_reasons"]).lower()
+    # Guardrail (12 Nov 2026): a resolved symbol stays in review — vision
+    # confidently misread a real runout frame as perpendicularity at 0.95,
+    # so a human confirms the symbol before sign-off.
+    assert pos["needs_review"] is True
+    assert "verify before sign-off" in " ".join(pos["review_reasons"])
     # Limits stay vector: zone 0.05 -> LSL 0 / USL 0.05
     assert abs(pos["lsl"] - 0.0) < 1e-3 and abs(pos["usl"] - 0.05) < 1e-3
     perp = _find_char(chars, "0.02")

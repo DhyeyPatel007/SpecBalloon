@@ -471,11 +471,17 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     rec["designator"] = (
                         "Critical" if resolved_type == "GDT_POSITION" else "Major"
                     )
-                    rec["needs_review"] = False
+                    # The symbol is filled in, but the record STAYS in
+                    # review: vision has confidently misread a real frame
+                    # (runout 0.2/A called perpendicularity at 0.95 on a
+                    # HEIDENHAIN sheet, 12 Nov 2026). A wrong symbol type
+                    # in the FAI form is a defect, so a human confirms the
+                    # symbol in Studio before sign-off; the confidence cap
+                    # stays on while the record is in review.
                     rec["review_reasons"] = [
                         r for r in rec.get("review_reasons", [])
                         if "unreadable" not in r.lower()
-                    ]
+                    ] + ["Vision-resolved GD&T symbol — verify before sign-off"]
                     vision_used = True
                     vision_conf = vis.vision_confidence
                     vision_symbol = vis.gdt_symbol
