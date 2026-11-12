@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+import limits_math
+
 DimensionKind = Literal[
     "DIAMETER",
     "RADIUS",
@@ -25,6 +27,7 @@ ToleranceKind = Literal[
     "ISO_FIT",
     "THREAD_CLASS",
     "MAX_LIMIT",
+    "MIN_LIMIT",
     "GENERAL_TOL",
     "BASIC_REF",
 ]
@@ -69,20 +72,42 @@ SURFACE_RA_RE = re.compile(
 )
 THREAD_RE = re.compile(
     r"^\s*M\s*(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(?:-\s*|\s+)?([4-8][gGhH](?:[4-8][gGhH])?)?"
-    r"(?:\s*(?:↧|DEPTH|DP)\s*(\d+(?:\.\d+)?))?\s*$"
+    r"(?:\s*(?:↧|DEPTH|DP)\s*(\d+(?:\.\d+)?))?(?:\s*\([^)]*\))?\s*$"
+)
+# A thread written without a pitch ('M4', '2 x M3'): the pitch is the ISO
+# 261 coarse pitch for that diameter. A trailing paren is a dual-unit
+# echo / count, e.g. 'M4 (0.31)' or 'M3 x 8 (2x)'.
+THREAD_BARE_RE = re.compile(
+    r"^\s*M\s*(\d+(?:\.\d+)?)\s*(?:-\s*|\s+)?([4-8][gGhH](?:[4-8][gGhH])?)?(?:\s*\([^)]*\))?\s*$"
 )
 CHAMFER_RE = re.compile(
     r"^\s*(?:C\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)°)\s*$"
 )
 ISO_FIT_RE = re.compile(
-    r"^\s*([Ø⌀]?)\s*(\d+(?:\.\d+)?)\s+([A-Za-z]{1,2}\d{1,2})"
-    r"(?:\s*\(\s*\+?(\d+(?:\.\d+)?)\s*/\s*([+-]?\d+(?:\.\d+)?)\s*\))?\s*$"
+    r"^\s*([Ø⌀]?)\s*(\d+(?:\.\d+)?)\s*([A-Za-z]{1,2}\d{1,2})"
+    r"(?:\s*\(\s*\+?(\d+(?:\.\d+)?)\s*/\s*([+-]?\d+(?:\.\d+)?)\s*\))?(?:\s*[ⒺⓂⓁ])?\s*$"
+)
+# 'min. Ø 8' / 'max. Ø 33 (1.30)': a stated minimum or maximum, with an
+# optional dual-unit echo in parens after it.
+MIN_MAX_RE = re.compile(
+    r"^\s*(?:min\.|max\.)\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)(?:\s*\([^)]*\))?\s*$",
+    re.IGNORECASE,
 )
 ASYM_TOL_RE = re.compile(
     r"^\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)\s*"
     r"\(\s*\+?(\d+(?:\.\d+)?)\s*/\s*([+-]?\d+(?:\.\d+)?)\s*\)\s*$"
     r"|^\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)\s+"
     r"\+(\d+(?:\.\d+)?)\s*(?:/|\s+)\s*([+-]?\d+(?:\.\d+)?)\s*$"
+)
+# One-sided tolerance: only an upper or only a lower deviation is stated
+# ('3.4 -0.2' -> +0.0 / -0.2; '7.4 +0.2' -> +0.2 / -0.0).
+SINGLE_SIDED_RE = re.compile(
+    r"^\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)\s*([+-])\s*(\d+(?:\.\d+)?)\s*$"
+)
+# Inequality limit: only a maximum or only a minimum is stated
+# ('≤ 1.7' -> MAX_LIMIT; '≥ 7.3' -> MIN_LIMIT).
+INEQUALITY_RE = re.compile(
+    r"^\s*([≤≥])\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)\s*$"
 )
 SYM_TOL_RE = re.compile(
     r"^\s*(?:PCD\s*)?([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)\s*(?:±|\+/-|\+-)\s*(\d+(?:\.\d+)?)(°?)"
@@ -98,6 +123,19 @@ COMPOUND_HOLE_RE = re.compile(
 GENERAL_DIM_RE = re.compile(
     r"^\s*(?:PCD\s*)?([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)\s*(?:THRU|TYP|FULL)?\s*$",
     re.IGNORECASE,
+)
+
+
+# Private-use digits in the HEIDENHAIN font: the digits 0-9, the decimal
+# point and the degree sign are encoded as PUA code points (U+F030-F039,
+# U+F02E, U+F0B0). A run of TWO or more of them is a number ('25.05',
+# '5.5', '120 deg'); a LONE U+F032 is the diameter sign, not the digit 2,
+# so runs of length 1 are left for the glyph map below.
+_PUA_DIGITS: dict[str, str] = {chr(0xF030 + d): str(d) for d in range(10)}
+_PUA_DIGITS[chr(0xF02E)] = "."
+_PUA_DIGITS[chr(0xF0B0)] = "°"
+_PUA_DIGIT_RUN_RE = re.compile(
+    "[" + "".join(re.escape(c) for c in _PUA_DIGITS) + "]{2,}"
 )
 
 
@@ -119,10 +157,38 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
     ):
         return None
 
+    # Working copy for parsing: normalise dashes, private-use glyphs and
+    # inch fractions. raw_callout keeps the display text (the return sites
+    # below still use `text`). Glyph mapping is skipped for frames (they
+    # contain '|') so a GD&T symbol cell is never rewritten as 'Ø'.
+    work = text.replace("–", "-").replace("—", "-").replace("−", "-")
+    if "|" not in work:
+        # PUA digit runs first (see _PUA_DIGITS): a run is a number, a
+        # lone U+F032 is the diameter sign.
+        work = _PUA_DIGIT_RUN_RE.sub(
+            lambda m: "".join(_PUA_DIGITS[c] for c in m.group(0)), work
+        )
+        # Private-use glyphs are written as chr() so the source file never
+        # contains the code points themselves (U+F086 <=, U+F087 >=,
+        # U+F032 and U+F0AC both render as the diameter sign in the
+        # HEIDENHAIN font on real03).
+        for _from, _to in (
+            (chr(0xF086), "≤"),
+            (chr(0xF087), "≥"),
+            (chr(0xF032), "Ø"),
+            (chr(0xF0AC), "Ø"),
+        ):
+            work = work.replace(_from, _to)
+        work = re.sub(
+            r"(?<![\d.])(\d+)/(\d+)(?![\d.])",
+            lambda m: f"{int(m.group(1)) / int(m.group(2)):g}",
+            work,
+        )
+
     # 1. Extract leading multiplier (e.g., '4X ')
     quantity = 1
-    qty_match = QTY_PREFIX_RE.match(text)
-    body = text
+    qty_match = QTY_PREFIX_RE.match(work)
+    body = work
     if qty_match:
         # Ensure it's not a chamfer like '0.5 x 45°' (where group 1 is a decimal, handled by \d+ above)
         if not body.endswith("°"):
@@ -200,8 +266,12 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
     thr_match = THREAD_RE.match(body)
     if thr_match:
         maj_dia = float(thr_match.group(1))
-        pitch = float(thr_match.group(2))
+        second = float(thr_match.group(2))
         t_class = thr_match.group(3) or "6H"
+        # The second number is the pitch only when it is a standard ISO 261
+        # pitch for this diameter; otherwise it is a length/depth and the
+        # pitch is the ISO coarse pitch (e.g. 'M3 x 8' -> pitch 0.5).
+        pitch = second if limits_math.is_standard_pitch_mm(maj_dia, second) else limits_math.coarse_pitch_mm(maj_dia)
         return ParsedDimension(
             raw_callout=text,
             kind="THREAD",
@@ -213,6 +283,28 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
             minus_tol=None,
             fit_class=None,
             thread_pitch=pitch,
+            thread_class=t_class,
+            chamfer_angle_deg=None,
+            units="mm",
+        )
+
+    # 5b. Bare thread 'M4', '2 x M3': no pitch printed, use the ISO 261
+    # coarse pitch for the diameter.
+    bare_match = THREAD_BARE_RE.match(body)
+    if bare_match:
+        maj_dia = float(bare_match.group(1))
+        t_class = bare_match.group(2) or "6H"
+        return ParsedDimension(
+            raw_callout=text,
+            kind="THREAD",
+            tolerance_kind="THREAD_CLASS",
+            quantity=quantity,
+            prefix_symbol="M",
+            nominal=maj_dia,
+            plus_tol=None,
+            minus_tol=None,
+            fit_class=None,
+            thread_pitch=limits_math.coarse_pitch_mm(maj_dia),
             thread_class=t_class,
             chamfer_angle_deg=None,
             units="mm",
@@ -296,6 +388,34 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
             units="deg" if deg_s else "mm",
         )
 
+    # 8b. Single-sided tolerance '3.4 -0.2' / '7.4 +0.2': only one
+    # deviation is stated, the other side is exactly the nominal.
+    ss_match = SINGLE_SIDED_RE.match(body)
+    if ss_match:
+        pref = _norm_prefix(ss_match.group(1) or "")
+        nom = float(ss_match.group(2))
+        is_deg = bool(ss_match.group(3))
+        sign = ss_match.group(4)
+        val = float(ss_match.group(5))
+        p_tol = val if sign == "+" else 0.0
+        m_tol = 0.0 if sign == "+" else -val
+        kind: DimensionKind = "ANGULAR" if is_deg else ("DIAMETER" if pref == "Ø" else ("RADIUS" if pref == "R" else "LINEAR"))
+        return ParsedDimension(
+            raw_callout=text,
+            kind=kind,
+            tolerance_kind="BILATERAL_ASYM",
+            quantity=quantity,
+            prefix_symbol=pref,
+            nominal=nom,
+            plus_tol=p_tol,
+            minus_tol=m_tol,
+            fit_class=None,
+            thread_pitch=None,
+            thread_class=None,
+            chamfer_angle_deg=None,
+            units="deg" if is_deg else "mm",
+        )
+
     # 9. Symmetric Bilateral Tolerance 'Ø120.0 ±0.15' or '45° ±0.5°'
     sym_match = SYM_TOL_RE.match(body)
     if sym_match:
@@ -313,6 +433,33 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
             nominal=nom,
             plus_tol=tol,
             minus_tol=-tol,
+            fit_class=None,
+            thread_pitch=None,
+            thread_class=None,
+            chamfer_angle_deg=None,
+            units="deg" if is_deg else "mm",
+        )
+
+    # 9b. Inequality limit '≤ 1.7' / '≥ 7.3': only one bound is stated.
+    # The value is carried in nominal; main.py turns MAX_LIMIT into
+    # [0, value] and MIN_LIMIT into [value, value] with a review note
+    # (never fabricate the missing bound).
+    ineq_match = INEQUALITY_RE.match(body)
+    if ineq_match:
+        sign = ineq_match.group(1)
+        pref = _norm_prefix(ineq_match.group(2) or "")
+        val = float(ineq_match.group(3))
+        is_deg = bool(ineq_match.group(4))
+        kind: DimensionKind = "ANGULAR" if is_deg else ("DIAMETER" if pref == "Ø" else ("RADIUS" if pref == "R" else "LINEAR"))
+        return ParsedDimension(
+            raw_callout=text,
+            kind=kind,
+            tolerance_kind="MAX_LIMIT" if sign == "≤" else "MIN_LIMIT",
+            quantity=quantity,
+            prefix_symbol=pref,
+            nominal=val,
+            plus_tol=None,
+            minus_tol=None,
             fit_class=None,
             thread_pitch=None,
             thread_class=None,
@@ -344,6 +491,30 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
                 chamfer_angle_deg=None,
                 units="mm",
             )
+
+    # 10b. Min / max callout 'min. Ø 8' / 'max. Ø 33 (1.30)': a bound, not
+    # a tolerance — general tolerance applies around the stated value.
+    mm_match = MIN_MAX_RE.match(body)
+    if mm_match:
+        pref = _norm_prefix(mm_match.group(1) or "")
+        nom = float(mm_match.group(2))
+        is_deg = bool(mm_match.group(3))
+        kind: DimensionKind = "ANGULAR" if is_deg else ("DIAMETER" if pref == "Ø" else ("RADIUS" if pref == "R" else "LINEAR"))
+        return ParsedDimension(
+            raw_callout=text,
+            kind=kind,
+            tolerance_kind="GENERAL_TOL",
+            quantity=quantity,
+            prefix_symbol=pref,
+            nominal=nom,
+            plus_tol=None,
+            minus_tol=None,
+            fit_class=None,
+            thread_pitch=None,
+            thread_class=None,
+            chamfer_angle_deg=None,
+            units="deg" if is_deg else "mm",
+        )
 
     # 11. Untoleranced General Dimension ('Ø78.0', 'R12.5', '45°', '64.0')
     gen_match = GENERAL_DIM_RE.match(body)

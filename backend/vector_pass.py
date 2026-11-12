@@ -182,74 +182,395 @@ def extract_text_spans(page: fitz.Page) -> list[TextSpan]:
     return spans
 
 
+import re as _re
+
+# Real drawings split a dimension across several text spans; PyMuPDF
+# reports each font run separately. The merge below reassembles them.
+# (v2, 12 Nov 2026 — the v1 rule only looked RIGHT of a dimension, and
+# processed tolerance spans as primaries before their dimension, so a
+# tolerance that sorted one tenth of a point earlier never merged. The
+# v1 test_vector_pass expectation "Ø30.00 +0.021 / -0.000" never actually
+# held: v1 produced ['+0.021', 'Ø30.00 -0.000'].)
+_DASH_TRANSLATE = str.maketrans({"–": "-", "—": "-", "−": "-"})
+_SIGN_ONLY = {"±", "+", "-"}
+_PREFIX_CHARS = {"Ø", "⌀", "R", "M", "Z"}
+_TOLNUM_RE = _re.compile(r"^[±+\-]\s*\d")
+_FIT_RE = _re.compile(r"^(?:[A-Za-z]{1,2}\d{1,2}|H|h|g|f|js|JS)$")
+
+
+def _token_class(text: str) -> str:
+    """Coarse class of a single text span, for the merge rules."""
+    t = text.strip()
+    if t in _SIGN_ONLY:
+        return "SIGN"
+    if _TOLNUM_RE.match(t):
+        return "TOLNUM"
+    if _re.match(r"^\d+(\.\d+)?°?$", t):
+        return "NUM"
+    if _re.match(r"^\.\d+$", t):
+        return "DECCONT"
+    if t in ("Ra", "Rz"):
+        return "ROUGH"
+    if _FIT_RE.match(t):
+        return "FIT"
+    if (len(t) == 1 and 0xE000 <= ord(t) <= 0xF8FF) or (len(t) == 1 and t in _PREFIX_CHARS):
+        return "PREFIX"
+    return "OTHER"
+
+
+def _has_digit(text: str) -> bool:
+    return any(c.isdigit() for c in text)
+
+
+def _x_overlap_ratio(a: BBox, b: BBox) -> float:
+    inter = max(0.0, min(a.x1, b.x1) - max(a.x0, b.x0))
+    return inter / max(1.0, min(a.width, b.width))
+
+
+def _reading_key(rot: float):
+    """Sort key putting spans in reading order for the merged text."""
+    if rot == -90.0:
+        return lambda s: (-round(s.bbox.y0, 1), round(s.bbox.x0, 1))
+    if rot == 90.0:
+        return lambda s: (round(s.bbox.y0, 1), round(s.bbox.x0, 1))
+    if rot == 180.0:
+        return lambda s: (-round(s.bbox.x0, 1), round(s.bbox.y0, 1))
+    return lambda s: (round(s.bbox.x0, 1), round(s.bbox.y0, 1))
+
+
+import re as _re
+
+# Real drawings split a dimension across several text spans; PyMuPDF
+# reports each font run separately. The merge below reassembles them.
+# (v2, 12 Nov 2026 — the v1 rule only looked RIGHT of a dimension, and
+# processed tolerance spans as primaries before their dimension, so a
+# tolerance that sorted one tenth of a point earlier never merged. The
+# v1 test_vector_pass expectation "Ø30.00 +0.021 / -0.000" never actually
+# held: v1 produced ['+0.021', 'Ø30.00 -0.000'].)
+_DASH_TRANSLATE = str.maketrans({"–": "-", "—": "-", "−": "-"})
+_SIGN_ONLY = {"±", "+", "-"}
+_PREFIX_CHARS = {"Ø", "⌀", "R", "M", "Z"}
+_TOLNUM_RE = _re.compile(r"^[±+\-]\s*\d")
+_FIT_RE = _re.compile(r"^(?:[A-Za-z]{1,2}\d{1,2}|H|h|g|f|js|JS)$")
+
+
+def _token_class(text: str) -> str:
+    """Coarse class of a single text span, for the merge rules."""
+    t = text.strip()
+    if t in _SIGN_ONLY:
+        return "SIGN"
+    if _TOLNUM_RE.match(t):
+        return "TOLNUM"
+    if _re.match(r"^\d+(\.\d+)?°?$", t):
+        return "NUM"
+    if _re.match(r"^\.\d+$", t):
+        return "DECCONT"
+    if t in ("Ra", "Rz"):
+        return "ROUGH"
+    if _FIT_RE.match(t):
+        return "FIT"
+    if (len(t) == 1 and 0xE000 <= ord(t) <= 0xF8FF) or (len(t) == 1 and t in _PREFIX_CHARS):
+        return "PREFIX"
+    return "OTHER"
+
+
+def _has_digit(text: str) -> bool:
+    return any(c.isdigit() for c in text)
+
+
+def _x_overlap_ratio(a: BBox, b: BBox) -> float:
+    inter = max(0.0, min(a.x1, b.x1) - max(a.x0, b.x0))
+    return inter / max(1.0, min(a.width, b.width))
+
+
+def _reading_key(rot: float):
+    """Sort key putting spans in reading order for the merged text."""
+    if rot == -90.0:
+        return lambda s: (-round(s.bbox.y0, 1), round(s.bbox.x0, 1))
+    if rot == 90.0:
+        return lambda s: (round(s.bbox.y0, 1), round(s.bbox.x0, 1))
+    if rot == 180.0:
+        return lambda s: (-round(s.bbox.x0, 1), round(s.bbox.y0, 1))
+    return lambda s: (round(s.bbox.x0, 1), round(s.bbox.y0, 1))
+
+
 def cluster_split_tolerance_spans(spans: list[TextSpan]) -> list[TextSpan]:
     """
     Merges CAD split tolerance tokens: e.g. base nominal '30.00' (10pt) followed
     closely on the right by smaller superscript '+0.021' (7pt) and subscript '-0.000' (7pt),
     or a leading prefix like '4X' / 'Ø' split into an adjacent span.
+
+    Real-sheet cases handled (verified on SICK / HEIDENHAIN / KHK drawings):
+    - en-dash tolerances ('3.4' + '–0.2') — dash variants normalised to '-'.
+    - rotated text: the tolerance is stacked along the reading direction
+      ('Ø 38' + '±0.1' for -90 deg text, tolerance directly above the dimension).
+    - split sign + number ('±' + '0.1' -> '±0.1'; 'R' + 'Z' + '6.3' -> 'Rz 6.3').
+    - split decimals ('0' + '.625' -> '0.625').
+    - a lone prefix glyph left of the number ('\\uf086' + '1.7', 'Ø' + '2.000').
+
+    A tolerance merges into the dimension it FOLLOWS in reading order:
+    for -90 deg text that is the dimension directly BELOW it. This stops a
+    tolerance stacked between two dimensions from joining the wrong one.
     """
     if not spans:
         return []
 
+    # Normalise dash variants in the clustered view (raw spans untouched).
+    norm: list[TextSpan] = []
+    for s in spans:
+        t = s.text.translate(_DASH_TRANSLATE)
+        norm.append(
+            TextSpan(
+                s.span_id, t, s.bbox, s.origin, s.font_name, s.font_size,
+                s.rotation_deg, s.is_clustered, s.constituent_texts,
+            )
+        )
+
+    # Dimension-like spans claim first; a tolerance that sorts a tenth of a
+    # point earlier must not become its own primary before its dimension.
+    # (Rank by leading sign, not by "has a digit": '+0.021' has a digit
+    # but is still a tolerance — it must not claim '-0.000' first.)
+    def _primary_key(s: TextSpan):
+        t = s.text.strip()
+        cls = _token_class(t)
+        if t[:1] in ("±", "+", "-"):
+            rank = 1
+        elif _has_digit(t):
+            rank = 0
+        elif cls in ("PREFIX", "ROUGH"):
+            rank = 1
+        else:
+            rank = 2
+        return (rank, round(s.bbox.y0, 1), round(s.bbox.x0, 1))
+
+    ordered = sorted(norm, key=_primary_key)
+    by_id = {s.span_id: s for s in norm}
     used: set[str] = set()
     clustered: list[TextSpan] = []
-    sorted_spans = sorted(spans, key=lambda s: (round(s.bbox.y0, 1), s.bbox.x0))
+    # Singleton clusters (a primary that claimed nothing) may be stolen by
+    # a later dimension primary: '0.1' sorts before '2.4', but it is the
+    # tolerance's number, so '2.4' reclaims it as its '± 0.1' continuation.
+    singletons: dict[str, int] = {}
+    dead: set[int] = set()
 
-    for primary in sorted_spans:
+    for primary in ordered:
         if primary.span_id in used:
             continue
-
-        # Only merge horizontal or near-horizontal spans in the same rotation group
+        rot = primary.rotation_deg
         h = max(primary.font_size, primary.bbox.height, 4.0)
         group = [primary]
         used.add(primary.span_id)
+        current = primary.bbox
+        # A long sentence / note and a parenthesised fragment are never a
+        # dimension base: they claim nothing (a lone glyph must not join a
+        # note, and a paren echo must not swallow a thread callout).
+        ptext = primary.text.strip()
+        if len(ptext) > 25 or ptext.startswith("("):
+            singletons[primary.span_id] = len(clustered)
+            clustered.append(primary)
+            continue
+        # A fit class ('H7') only completes a dimension number ('Ø30' +
+        # 'H7'), never a paren or a thread ('(0.31)' + 'M4' merged wrongly).
+        base_is_dim_number = bool(_re.match(r"^[Ø⌀R]?\s*\d", ptext))
+        # Stacked-tolerance budget: one stacked tolerance per dimension,
+        # unless it is the opposite half of a +/- pair.
+        stacked_signs: list[str] = []
 
-        # Look for right-adjacent superscript/subscript tolerances or unit/fit suffixes
-        current_bbox = primary.bbox
-        for cand in sorted_spans:
-            if cand.span_id in used:
-                continue
-            if abs(cand.rotation_deg - primary.rotation_deg) > 5.0:
-                continue
+        # Left prefixes: a lone glyph / letter run immediately left of the
+        # number ('R' + 'Z' + '6.3', '\\uf086' + '1.7', 'Ø' + '2.000').
+        edge = primary.bbox.x0
+        for _ in range(2):
+            best: TextSpan | None = None
+            best_gap = float("inf")
+            for cand in norm:
+                if cand.span_id in used and cand.span_id not in singletons:
+                    continue
+                if abs(cand.rotation_deg - rot) > 5.0:
+                    continue
+                if _token_class(cand.text) not in ("PREFIX", "ROUGH"):
+                    continue
+                gap = edge - cand.bbox.x1
+                dy = abs(cand.bbox.center.y - primary.bbox.center.y)
+                if -0.35 * h <= gap <= 0.35 * h and dy <= 0.8 * h and gap < best_gap:
+                    best, best_gap = cand, gap
+            if best is None:
+                break
+            if best.span_id in singletons:
+                dead.add(singletons.pop(best.span_id))
+            group.append(best)
+            used.add(best.span_id)
+            edge = best.bbox.x0
+            current = current.union(best.bbox)
 
-            dx = cand.bbox.x0 - current_bbox.x1
-            dy_center = abs(cand.bbox.center.y - primary.bbox.center.y)
-
-            # Case 1: Stacked +/- tolerances to the right of nominal
-            is_tol_token = cand.text.startswith(("+", "-", "±", "H", "h", "g", "f", "js", "JS", "/"))
-            if -0.35 * h <= dx <= 1.45 * h and dy_center <= 1.15 * h and is_tol_token:
+        last_class = _token_class(primary.text)
+        # Right / stacked candidates, re-scanned as the union bbox grows
+        # (a sign claimed first lets its number follow in the next pass).
+        changed = True
+        while changed:
+            changed = False
+            for cand in norm:
+                if cand.span_id in used and cand.span_id not in singletons:
+                    continue
+                if abs(cand.rotation_deg - rot) > 5.0:
+                    continue
+                cls = _token_class(cand.text)
+                dx = cand.bbox.x0 - current.x1
+                dy_center = abs(cand.bbox.center.y - primary.bbox.center.y)
+                _right = -0.35 * h <= dx <= 1.45 * h and dy_center <= 1.15 * h
+                # The "following" direction is the reading direction: for
+                # 0 deg it is page-right, for 180 deg page-left, for -90 /
+                # +90 deg there is no page-side follow — a tolerance there
+                # sits in the stack, never in the next column.
+                dx_left = current.x0 - cand.bbox.x1
+                _left = -0.35 * h <= dx_left <= 1.45 * h and dy_center <= 1.15 * h
+                right = _right if rot == 0.0 else (_left if rot == 180.0 else False)
+                # A stacked tolerance may overlap the union's edge by up to
+                # 0.6h (superscript/subscript spans share the line's height).
+                above = (
+                    -0.6 * h <= (current.y0 - cand.bbox.y1) <= 0.6 * h
+                    and _x_overlap_ratio(cand.bbox, current) >= 0.5
+                )
+                below = (
+                    -0.6 * h <= (cand.bbox.y0 - current.y1) <= 0.6 * h
+                    and _x_overlap_ratio(cand.bbox, current) >= 0.5
+                )
+                # Stacked tolerances follow the reading direction: above
+                # for 0 deg / -90 deg, below for 0 deg / +90 deg.
+                stacked = (above and rot in (0.0, -90.0, 180.0)) or (below and rot in (0.0, 90.0, 180.0))
+                if not (right or stacked):
+                    continue
+                # One stacked tolerance per dimension (a column of stacked
+                # tolerances belongs to the dimensions above it, not to this
+                # one) — unless it is the opposite half of a +/- pair.
+                via_stacked_only = stacked and not right
+                if via_stacked_only and cls in ("TOLNUM", "SIGN"):
+                    sign = cand.text.strip()[:1]
+                    if stacked_signs:
+                        first = stacked_signs[0]
+                        if not ((first == "+" and sign == "-") or (first == "-" and sign == "+")):
+                            continue
+                    stacked_signs.append(sign)
+                accept = False
+                if cls in ("TOLNUM", "SIGN"):
+                    accept = True
+                elif cls == "FIT" and base_is_dim_number and not _re.match(r"^M\d", cand.text.strip()):
+                    accept = True
+                elif cls == "NUM" and last_class in ("SIGN", "ROUGH"):
+                    accept = True
+                elif cls == "DECCONT":
+                    accept = True
+                elif cls == "ROUGH" and last_class == "PREFIX":
+                    accept = True
+                elif cls == "PREFIX" and last_class == "PREFIX":
+                    accept = True
+                if not accept:
+                    continue
+                if cand.span_id in singletons:
+                    # Steal a lone span back from its singleton cluster.
+                    dead.add(singletons.pop(cand.span_id))
                 group.append(cand)
                 used.add(cand.span_id)
-                current_bbox = current_bbox.union(cand.bbox)
+                current = current.union(cand.bbox)
+                last_class = cls
+                changed = True
+                break
 
         if len(group) == 1:
+            singletons[primary.span_id] = len(clustered)
             clustered.append(primary)
-        else:
-            # Sort sub-tokens: base first, then top-to-bottom for stacked +/- tolerances
-            base = group[0]
-            rest = sorted(group[1:], key=lambda s: (s.bbox.y0, s.bbox.x0))
-            merged_text_parts = [base.text]
-            for r in rest:
-                merged_text_parts.append(r.text)
-            merged_str = " ".join(merged_text_parts)
-            # Format stacked +tol -tol cleanly with slash if both are signed
-            if len(rest) == 2 and rest[0].text.startswith("+") and rest[1].text.startswith("-"):
-                merged_str = f"{base.text} {rest[0].text} / {rest[1].text}"
+            continue
 
-            clustered.append(
+        # Merged text in reading order; decimal continuations and single
+        # prefix letters attach without a space ('0' + '.625', 'R' + 'Z').
+        ordered_group = sorted(group, key=_reading_key(rot))
+        base = ordered_group[0]
+        rest = ordered_group[1:]
+        parts = [base.text]
+        for r in rest:
+            if r.text.startswith(".") or (len(parts[-1]) == 1 and parts[-1] in _PREFIX_CHARS):
+                parts[-1] = parts[-1] + r.text
+            else:
+                parts.append(r.text)
+        merged_str = " ".join(parts)
+        # Format stacked +tol -tol cleanly with slash if both are signed
+        if len(rest) == 2 and rest[0].text.startswith("+") and rest[1].text.startswith("-"):
+            merged_str = f"{base.text} {rest[0].text} / {rest[1].text}"
+
+        clustered.append(
+            TextSpan(
+                span_id=base.span_id,
+                text=merged_str,
+                bbox=current,
+                origin=base.origin,
+                font_name=base.font_name,
+                font_size=base.font_size,
+                rotation_deg=base.rotation_deg,
+                is_clustered=True,
+                constituent_texts=[g.text for g in group],
+            )
+        )
+
+    # Drop stolen singletons, then the tolerance-column post-pass.
+    clustered = [s for i, s in enumerate(clustered) if i not in dead]
+    clustered = _merge_tolerance_columns(clustered)
+    return clustered
+
+
+def _merge_tolerance_columns(clustered: list[TextSpan]) -> list[TextSpan]:
+    """Attach a lone tolerance token to the nearest dimension on its row."""
+    # A tolerance fragment is ONE sign + ONE number ('±1.2', '± 1.2').
+    # A merged pair ('+0.021 -0.000') is not a fragment and must not move.
+    tol_idx = [
+        i for i, s in enumerate(clustered)
+        if _re.match(r"^[±+\-]\s*\d+(\.\d+)?°?\s*$", s.text.strip())
+    ]
+    if not tol_idx:
+        return clustered
+    claimed_dim: set[str] = set()
+    merged: dict[int, tuple[str, BBox, str]] = {}
+    drop: set[int] = set()
+    for ti in tol_idx:
+        tol = clustered[ti]
+        h = max(tol.font_size, tol.bbox.height, 4.0)
+        best_i: int | None = None
+        best_d = float("inf")
+        for i, dim in enumerate(clustered):
+            if i == ti or dim.span_id in claimed_dim:
+                continue
+            if not _has_digit(dim.text) or _token_class(dim.text) == "TOLNUM":
+                continue
+            if abs(dim.rotation_deg - tol.rotation_deg) > 5.0:
+                continue
+            if "±" in dim.text or _re.search(r"[+-]\d+\.?\d*\s*$", dim.text):
+                continue
+            dy = abs(dim.bbox.center.y - tol.bbox.center.y)
+            dx = tol.bbox.x0 - dim.bbox.x1
+            if dy <= 1.5 * h and 0.0 <= dx <= 6.0 * h:
+                d = (dx * dx + dy * dy) ** 0.5
+                if d < best_d:
+                    best_d, best_i = d, i
+        if best_i is not None:
+            dim = clustered[best_i]
+            merged[best_i] = (f"{dim.text} {tol.text}", dim.bbox.union(tol.bbox), tol.text)
+            claimed_dim.add(dim.span_id)
+            drop.add(ti)
+    if not merged:
+        return clustered
+    out: list[TextSpan] = []
+    for i, s in enumerate(clustered):
+        if i in drop:
+            continue
+        if i in merged:
+            text, bbox, extra = merged[i]
+            out.append(
                 TextSpan(
-                    span_id=base.span_id,
-                    text=merged_str,
-                    bbox=current_bbox,
-                    origin=base.origin,
-                    font_name=base.font_name,
-                    font_size=base.font_size,
-                    rotation_deg=base.rotation_deg,
-                    is_clustered=True,
-                    constituent_texts=[g.text for g in group],
+                    s.span_id, text, bbox, s.origin, s.font_name, s.font_size,
+                    s.rotation_deg, True, s.constituent_texts + [extra],
                 )
             )
-    return clustered
+        else:
+            out.append(s)
+    return out
 
 
 def _detect_filled_triangle_arrow(items: list) -> Arrowhead | None:

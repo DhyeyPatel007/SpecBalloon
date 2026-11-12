@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import uuid
 from contextlib import asynccontextmanager
@@ -360,8 +361,12 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     p_tol, m_tol = lim.plus_tol, lim.minus_tol
                     designator = "Critical"
                     feature_desc = f"ISO 286-1 Fit ({dim.fit_class})"
-                elif dim.kind == "THREAD" and dim.thread_pitch:
-                    t_lims = limits_math.calculate_iso_965_thread_limits(dim.nominal, dim.thread_pitch, dim.thread_class or "6H")
+                elif dim.kind == "THREAD":
+                    # The grammar always sets a pitch (bare threads get the
+                    # ISO 261 coarse pitch), but fall back defensively so a
+                    # pitchless record can never 500 the extraction.
+                    pitch = dim.thread_pitch or limits_math.coarse_pitch_mm(dim.nominal)
+                    t_lims = limits_math.calculate_iso_965_thread_limits(dim.nominal, pitch, dim.thread_class or "6H")
                     # Internal classes (6H) define the minor bore; external
                     # classes (6g) define the major diameter. The limits fn
                     # returns whichever the class defines — indexing
@@ -371,13 +376,29 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     lsl, usl = lim.lsl, lim.usl
                     p_tol, m_tol = lim.plus_tol, lim.minus_tol
                     designator = "Critical"
-                    feature_desc = f"Metric Thread M{dim.nominal}x{dim.thread_pitch}"
+                    feature_desc = f"Metric Thread M{dim.nominal}x{pitch}"
                 elif dim.kind == "SURFACE_ROUGHNESS":
                     lsl, usl = 0.0, float(dim.plus_tol or 1.6)
                     p_tol, m_tol = 0.0, 0.0
                     units = "µm"
                     designator = "Critical"
                     feature_desc = "Surface Roughness Ra"
+                elif dim.tolerance_kind == "MAX_LIMIT":
+                    # Inequality '≤ value' (not roughness — that branch is
+                    # above): the only stated bound is the maximum.
+                    lsl, usl = 0.0, dim.nominal
+                    p_tol, m_tol = 0.0, 0.0
+                    designator = "Major"
+                    feature_desc = f"Maximum Limit {dim.nominal}"
+                elif dim.tolerance_kind == "MIN_LIMIT":
+                    # Inequality '≥ value': no upper bound is stated. The
+                    # least-bad limits are a zero-width [value, value]
+                    # with a review reason (set on the record below) —
+                    # never fabricate a bound.
+                    lsl, usl = dim.nominal, dim.nominal
+                    p_tol, m_tol = 0.0, 0.0
+                    designator = "Major"
+                    feature_desc = f"Minimum Limit {dim.nominal}"
                 elif dim.kind == "CHAMFER":
                     lim = limits_math.calculate_iso_2768_limits(dim.nominal, "m", "RADIUS_CHAMFER")
                     lsl, usl = lim.lsl, lim.usl
@@ -406,8 +427,11 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     "usl": usl,
                     "units": units,
                     "kind": dim.kind,
+                    "prefix_symbol": dim.prefix_symbol,
+                    "tolerance_kind": dim.tolerance_kind,
                     "designator": designator,
                     "featureDescription": feature_desc,
+                    "review_reasons": ["Minimum limit only — no upper bound stated"] if dim.tolerance_kind == "MIN_LIMIT" else [],
                     # Confidence evidence class, same mapping as the test suite.
                     "grammar_match": (
                         "ISO_FIT_OR_THREAD"
@@ -418,9 +442,128 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     ),
                 }
 
-        # 2. Leader Association
-        associated = leader_association.associate_callouts_to_geometry(callout_nodes, v_model)
+        # 1b. Bare-integer rescue: the grammar rejects a bare integer
+        # ('5') because border-grid numbers look identical — but a bare
+        # integer ON a leader or dimension line is a real dimension, and a
+        # border number is not. So the rescue runs after association: only
+        # a bare integer with a non-UNMATCHED association becomes a
+        # record. Border and table numbers stay unparsed and unmatched.
+        _unparsed = [sp for sp in v_model.clustered_spans if sp.span_id not in parsed_records]
+        _rescue_candidates = [
+            leader_association.CalloutNode(sp.span_id, sp.text, sp.bbox, sp.rotation_deg)
+            for sp in _unparsed
+            if re.match(r"^\s*\d+\s*$", sp.text)
+        ]
+
+        # 2. Leader Association (parsed callouts and rescue candidates
+        # together, so a leader is claimed by the closest callout).
+        associated = leader_association.associate_callouts_to_geometry(
+            callout_nodes + _rescue_candidates, v_model
+        )
         assoc_by_id = {a.callout.callout_id: a for a in associated}
+        for _node in _rescue_candidates:
+            _assoc = assoc_by_id.get(_node.callout_id)
+            if _assoc is None or _assoc.association_kind == "UNMATCHED":
+                continue
+            _nom = float(_node.raw_text.strip())
+            _lim = limits_math.calculate_iso_2768_limits(_nom, "m", "LINEAR")
+            callout_nodes.append(_node)
+            parsed_records[_node.callout_id] = {
+                "nominal": _nom,
+                "plus_tol": _lim.plus_tol,
+                "minus_tol": _lim.minus_tol,
+                "lsl": _lim.lsl,
+                "usl": _lim.usl,
+                "units": "mm",
+                "kind": "LINEAR",
+                "prefix_symbol": "",
+                "tolerance_kind": "GENERAL_TOL",
+                "designator": "Minor",
+                "featureDescription": "General Linear Dimension",
+                "review_reasons": [],
+                "grammar_match": "GENERAL_UNTOLERANCED",
+            }
+
+        # 2a. Dual-unit echo filter: a parenthesised value that is just a
+        # neighbouring dimension converted between mm and inches (e.g.
+        # '(1.50)' next to 'Ø 38', since 38 / 25.4 = 1.496) is not a
+        # characteristic — drop it. A reference with no converting
+        # neighbour ('(25.25)', '(5.3)') is a real reference dimension
+        # and is kept. It runs after the rescue, because a rescued bare
+        # integer ('5') is what its echo ('(0.20)') converts from.
+        _nodes_by_id = {n.callout_id: n for n in callout_nodes}
+        _drop_echo: list[str] = []
+        for _cid, _rec in parsed_records.items():
+            if _rec.get("kind") != "REFERENCE":
+                continue
+            _node = _nodes_by_id.get(_cid)
+            if _node is None:
+                continue
+            _ref_nom = float(_rec.get("nominal", 0.0))
+            _best_gap: float | None = None
+            for _oid, _orec in parsed_records.items():
+                if _oid == _cid or _orec.get("kind") not in ("DIAMETER", "LINEAR", "RADIUS", "ISO_FIT", "ANGULAR"):
+                    continue
+                _onode = _nodes_by_id.get(_oid)
+                if _onode is None or abs(_onode.rotation_deg - _node.rotation_deg) > 5.0:
+                    continue
+                _dnom = float(_orec.get("nominal", 0.0))
+                # A 1.5% band, with an absolute floor for 2-decimal inch
+                # rounding: 5 mm is 0.1969 in, printed as 0.20 — the
+                # difference 0.0031 is larger than 1.5% of 0.20 (0.003).
+                _tol = max(0.015 * _ref_nom, 0.006)
+                _converts = (
+                    abs(_ref_nom - _dnom / 25.4) <= _tol
+                    or abs(_ref_nom - _dnom * 25.4) <= _tol
+                )
+                if not _converts:
+                    continue
+                _dx = max(_onode.bbox.x0 - _node.bbox.x1, _node.bbox.x0 - _onode.bbox.x1, 0.0)
+                _dy = max(_onode.bbox.y0 - _node.bbox.y1, _node.bbox.y0 - _onode.bbox.y1, 0.0)
+                _gap = (_dx * _dx + _dy * _dy) ** 0.5
+                if _gap <= 30.0 and (_best_gap is None or _gap < _best_gap):
+                    _best_gap = _gap
+            if _best_gap is not None:
+                _drop_echo.append(_cid)
+        for _cid in _drop_echo:
+            parsed_records.pop(_cid, None)
+        if _drop_echo:
+            callout_nodes[:] = [n for n in callout_nodes if n.callout_id not in set(_drop_echo)]
+
+        # 2b. Frame-cell duplicate filter: the clusterer sometimes prefixes
+        # a GD&T frame's symbol glyph onto its zone value (a phantom
+        # diameter next to the real frame). Drop the phantom when a
+        # GDT_FRAME record with the same zone sits within 40 pt. Only
+        # untoleranced diameters are eligible, so a real toleranced
+        # dimension that happens to share the zone value is never dropped.
+        _frame_zones = []
+        for _cid, _rec in parsed_records.items():
+            if _rec.get("kind") == "GDT_FRAME":
+                _fnode = _nodes_by_id.get(_cid)
+                if _fnode is not None:
+                    _frame_zones.append((float(_rec.get("usl", 0.0)), _fnode.bbox))
+        _drop_dup: list[str] = []
+        for _cid, _rec in parsed_records.items():
+            if _rec.get("kind") != "DIAMETER" or _rec.get("tolerance_kind") != "GENERAL_TOL":
+                continue
+            _node = _nodes_by_id.get(_cid)
+            if _node is None or not _node.raw_text:
+                continue
+            if not (0xE000 <= ord(_node.raw_text[0]) <= 0xF8FF):
+                continue
+            _nom = float(_rec.get("nominal", 0.0))
+            for _zone, _fbbox in _frame_zones:
+                if abs(_nom - _zone) > 0.01:
+                    continue
+                _dx = max(_fbbox.x0 - _node.bbox.x1, _node.bbox.x0 - _fbbox.x1, 0.0)
+                _dy = max(_fbbox.y0 - _node.bbox.y1, _node.bbox.y0 - _fbbox.y1, 0.0)
+                if (_dx * _dx + _dy * _dy) ** 0.5 <= 40.0:
+                    _drop_dup.append(_cid)
+                    break
+        for _cid in _drop_dup:
+            parsed_records.pop(_cid, None)
+        if _drop_dup:
+            callout_nodes[:] = [n for n in callout_nodes if n.callout_id not in set(_drop_dup)]
 
         # 3. Balloon Layout & Numbering
         placed_balloons = balloon_layout.layout_and_number_balloons(
@@ -430,6 +573,42 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
         )
         placed_by_id = {p.callout_id: p for p in placed_balloons}
 
+        # 3b. Table gate: a bare untoleranced number with no leader is a
+        # dimension only when it stands alone (or with one neighbour). A
+        # dense cluster of such numbers is a table, not balloonable
+        # geometry — drop the whole cluster. Toleranced, prefixed,
+        # angled, or leader-matched records are never gated, so a
+        # spread-out set of general dims (synthetic case 4) survives.
+        _bare_general = []
+        for _node in callout_nodes:
+            _rec = parsed_records.get(_node.callout_id, {})
+            _assoc = assoc_by_id.get(_node.callout_id)
+            if (
+                _rec.get("kind") in ("LINEAR", "DIAMETER", "RADIUS", "ANGULAR")
+                and _rec.get("tolerance_kind") == "GENERAL_TOL"
+                and _rec.get("prefix_symbol", "Ø") == ""
+                and _rec.get("units") != "deg"
+                and (_assoc.association_kind if _assoc else "UNMATCHED") == "UNMATCHED"
+            ):
+                _bare_general.append(_node.callout_id)
+        _gated: set[str] = set()
+        for _cid in _bare_general:
+            _node = _nodes_by_id.get(_cid)
+            if _node is None:
+                continue
+            _cx, _cy = _node.bbox.center.x, _node.bbox.center.y
+            _neighbours = 0
+            for _oid in _bare_general:
+                if _oid == _cid:
+                    continue
+                _onode = _nodes_by_id.get(_oid)
+                if _onode is None:
+                    continue
+                if ((_onode.bbox.center.x - _cx) ** 2 + (_onode.bbox.center.y - _cy) ** 2) ** 0.5 <= 80.0:
+                    _neighbours += 1
+            if _neighbours >= 2:
+                _gated.add(_cid)
+
         # 4. Confidence & Character Record Synthesis
         characteristics: list[dict[str, Any]] = []
         page0 = doc[0]
@@ -437,6 +616,9 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
 
         for node in callout_nodes:
             cid = node.callout_id
+            if cid in _gated:
+                # Table cell, not a balloonable feature.
+                continue
             rec = parsed_records.get(cid, {})
             placed = placed_by_id.get(cid)
             assoc = assoc_by_id.get(cid)
@@ -523,6 +705,7 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 "char_no": char_no,
                 "balloonNumber": char_no,
                 "zone": zone,
+                "kind": rec.get("kind", ""),
                 "designator": rec.get("designator", "Standard"),
                 "raw_callout": node.raw_text,
                 "rawCallout": node.raw_text,

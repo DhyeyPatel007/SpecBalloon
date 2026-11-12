@@ -186,7 +186,68 @@ def calculate_iso_2768_limits(
     )
 
 
-# ISO 965-1 Grade 6 Internal Minor Diameter Tolerance T_D1 (in mm) by pitch P
+# ISO 261 metric thread pitches (mm). Coarse pitch is the standard default
+# when a drawing writes a bare thread (e.g. "M4" with no pitch given).
+ISO_261_COARSE_PITCH_MM: dict[float, float] = {
+    2.0: 0.4, 2.5: 0.45, 3.0: 0.5, 4.0: 0.7, 5.0: 0.8, 6.0: 1.0,
+    8.0: 1.25, 10.0: 1.5, 12.0: 1.75, 14.0: 2.0, 16.0: 2.0, 18.0: 2.5,
+    20.0: 2.5, 22.0: 2.5, 24.0: 3.0, 27.0: 3.0, 30.0: 3.5, 33.0: 3.5,
+    36.0: 4.0, 39.0: 4.0, 42.0: 4.5, 45.0: 4.5, 48.0: 5.0, 52.0: 5.0,
+    56.0: 5.5, 60.0: 5.5, 64.0: 6.0, 68.0: 6.0,
+}
+
+# ISO 261 fine + coarse pitches per diameter, used to tell a real pitch
+# from a thread length: "M3 x 8" is a length (8 is no M3 pitch), while
+# "M6x1.0" is a pitch (1.0 is the M6 coarse pitch).
+ISO_261_STANDARD_PITCHES_MM: dict[float, frozenset[float]] = {
+    2.0: frozenset({0.4, 0.25}), 2.5: frozenset({0.45, 0.35}),
+    3.0: frozenset({0.5, 0.35}), 4.0: frozenset({0.7, 0.5}),
+    5.0: frozenset({0.8, 0.5}), 6.0: frozenset({1.0, 0.75, 0.5}),
+    8.0: frozenset({1.25, 1.0, 0.75, 0.5}),
+    10.0: frozenset({1.5, 1.25, 1.0, 0.75}),
+    12.0: frozenset({1.75, 1.5, 1.25, 1.0}),
+    14.0: frozenset({2.0, 1.5, 1.25, 1.0}),
+    16.0: frozenset({2.0, 1.5, 1.0, 0.75, 0.5}),
+    18.0: frozenset({2.5, 2.0, 1.5, 1.0}),
+    20.0: frozenset({2.5, 2.0, 1.5, 1.0, 0.75, 0.5}),
+    22.0: frozenset({2.5, 2.0, 1.5, 1.0, 0.75, 0.5}),
+    24.0: frozenset({3.0, 2.0, 1.5, 1.0, 0.75}),
+    27.0: frozenset({3.0, 2.0, 1.5, 1.0, 0.75}),
+    30.0: frozenset({3.5, 2.0, 1.5, 1.0, 0.75}),
+    33.0: frozenset({3.5, 2.0, 1.5, 1.0, 0.75}),
+    36.0: frozenset({4.0, 3.0, 2.0, 1.5, 1.0}),
+    39.0: frozenset({4.0, 3.0, 2.0, 1.5, 1.0}),
+    42.0: frozenset({4.5, 3.0, 2.0, 1.5, 1.0}),
+    45.0: frozenset({4.5, 3.0, 2.0, 1.5, 1.0}),
+    48.0: frozenset({5.0, 3.0, 2.0, 1.5, 1.0}),
+    52.0: frozenset({5.0, 4.0, 3.0, 2.0, 1.5, 1.0}),
+    56.0: frozenset({5.5, 4.0, 3.0, 2.0, 1.5, 1.0}),
+    60.0: frozenset({5.5, 4.0, 3.0, 2.0, 1.5, 1.0}),
+    64.0: frozenset({6.0, 4.0, 3.0, 2.0, 1.5, 1.0}),
+    68.0: frozenset({6.0, 4.0, 3.0, 2.0, 1.5, 1.0}),
+}
+
+
+def coarse_pitch_mm(major_dia_mm: float) -> float:
+    """ISO 261 coarse pitch for a metric thread diameter (bare 'M4' etc.)."""
+    if major_dia_mm in ISO_261_COARSE_PITCH_MM:
+        return ISO_261_COARSE_PITCH_MM[major_dia_mm]
+    # Nearest known diameter, else the coarsest sane default for the size.
+    known = sorted(ISO_261_COARSE_PITCH_MM)
+    nearest = min(known, key=lambda d: abs(d - major_dia_mm))
+    return ISO_261_COARSE_PITCH_MM[nearest]
+
+
+def is_standard_pitch_mm(major_dia_mm: float, pitch_mm: float) -> bool:
+    """True when a number after 'M<size> x' is a real ISO 261 pitch
+    for that diameter (and not a thread length like the 8 in 'M3 x 8')."""
+    pitches = ISO_261_STANDARD_PITCHES_MM.get(major_dia_mm)
+    if pitches is None:
+        return pitch_mm == coarse_pitch_mm(major_dia_mm)
+    return any(abs(pitch_mm - p) < 1e-9 for p in pitches)
+
+
+# ISO 965-1 TD1 (6H) tolerance for the minor diameter, by pitch (mm).
 ISO_965_TD1_6H_MM: dict[float, float] = {
     0.5: 0.140, 0.7: 0.190, 0.75: 0.190, 0.8: 0.200, 1.0: 0.236,
     1.25: 0.265, 1.5: 0.300, 1.75: 0.335, 2.0: 0.375, 2.5: 0.450, 3.0: 0.500,
