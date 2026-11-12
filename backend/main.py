@@ -136,7 +136,52 @@ async def health():
         "status": "healthy",
         "service": "specballoon-backend",
         "engine": "vector-metrology-v1",
+        # True when a Gemini key is configured, so the studio can tell
+        # the user whether Vision symbol resolution is available.
+        # The key value itself is never exposed.
+        "vision_configured": bool(os.getenv("GEMINI_API_KEY")),
     }
+
+
+# Vision symbol resolution: only for GD&T frames whose symbol the vector
+# pass could not read (missing font glyph -> GDT_UNKNOWN). Vision reads
+# ONLY the symbol glyph from the cropped raster patch; all numbers and
+# limits stay vector — the reconciler inside gemini_vision rejects any
+# LLM number that disagrees with native PDF text.
+VISION_MIN_CONFIDENCE = 0.75
+MAX_VISION_CALLS_PER_EXTRACTION = 5
+
+
+async def _vision_resolve_symbol(
+    crop_b64: str, vector_text: str
+) -> gemini_vision.VisionPatchExtraction | None:
+    """Ask Gemini Vision to read an unknown GD&T symbol from a patch crop.
+
+    Returns the reconciled extraction when vision has usable evidence
+    (status OK with a confident GD&T symbol, or REJECTED_CONFLICT where
+    the numbers disagreed with vector text). Returns None when vision
+    cannot help — no key, API error, non-GD&T read, or low confidence —
+    and the caller keeps the vector result unchanged in all those cases.
+    """
+    if not crop_b64:
+        return None
+    try:
+        vis = await gemini_vision.analyze_cropped_patch_with_gemini(
+            crop_b64, vector_text_in_bbox=vector_text
+        )
+    except Exception:
+        return None
+    if vis.status == "REJECTED_CONFLICT":
+        return vis
+    if vis.status != "OK":
+        return None
+    if not vis.characteristic_type or not vis.characteristic_type.startswith("GDT_"):
+        return None
+    if not vis.gdt_symbol:
+        return None
+    if vis.vision_confidence < VISION_MIN_CONFIDENCE:
+        return None
+    return vis
 
 
 @app.post("/api/v1/drawings")
@@ -378,6 +423,7 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
         # 4. Confidence & Character Record Synthesis
         characteristics: list[dict[str, Any]] = []
         page0 = doc[0]
+        vision_calls = 0
 
         for node in callout_nodes:
             cid = node.callout_id
@@ -391,6 +437,50 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
             except Exception:
                 crop_b64 = ""
 
+            # Vision symbol resolution — GD&T frames whose symbol the
+            # vector pass could not read (missing font glyph). Vision
+            # resolves the symbol ONLY; numbers and limits stay vector.
+            # Every failure mode keeps the vector result unchanged.
+            vision_used = False
+            vision_conf = None
+            vision_conflict = False
+            vision_symbol = None
+            if (
+                rec.get("kind") == "GDT_FRAME"
+                and rec.get("needs_review")
+                and any("unreadable" in r.lower() for r in rec.get("review_reasons", []))
+                and vision_calls < MAX_VISION_CALLS_PER_EXTRACTION
+            ):
+                vision_calls += 1
+                vis = await _vision_resolve_symbol(crop_b64, node.raw_text)
+                if vis is not None and vis.status == "OK":
+                    resolved_type = vis.characteristic_type
+                    rec["featureDescription"] = (
+                        f"{resolved_type.replace('GDT_', '').title()} GD&T Control"
+                    )
+                    rec["designator"] = (
+                        "Critical" if resolved_type == "GDT_POSITION" else "Major"
+                    )
+                    rec["needs_review"] = False
+                    rec["review_reasons"] = [
+                        r for r in rec.get("review_reasons", [])
+                        if "unreadable" not in r.lower()
+                    ]
+                    vision_used = True
+                    vision_conf = vis.vision_confidence
+                    vision_symbol = vis.gdt_symbol
+                elif vis is not None and vis.status == "REJECTED_CONFLICT":
+                    # Vision's numbers disagreed with vector text: the
+                    # symbol is not trusted, vector result stands, and
+                    # the conflict is recorded for review.
+                    vision_used = True
+                    vision_conflict = True
+                    rec["review_reasons"] = list(
+                        dict.fromkeys(
+                            list(rec.get("review_reasons", [])) + list(vis.conflict_notes)
+                        )
+                    )
+
             # Confidence assessment
             lead_kind = assoc.association_kind if assoc else "UNMATCHED"
             lead_dist = assoc.distance_score_pt if assoc else 999.0
@@ -401,7 +491,9 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 leader_association=lead_kind,
                 leader_distance_pt=lead_dist,
                 rotation_deg=node.rotation_deg,
-                vision_used=False,
+                vision_used=vision_used,
+                vision_confidence=vision_conf,
+                vision_vector_conflict=vision_conflict,
             )
             conf_assessment = confidence.compute_honest_confidence(signals)
 
@@ -445,6 +537,9 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 "crop_base64": crop_b64,
                 "is_sample_data": False,
                 "isDemo": False,
+                "vision_used": vision_used,
+                "visionConfidence": vision_conf,
+                "visionGdtSymbol": vision_symbol,
             }
             characteristics.append(c_obj)
 

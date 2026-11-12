@@ -125,3 +125,156 @@ def test_external_thread_does_not_crash_extraction():
     thread = next(c for c in ext["characteristics"] if "M8" in c["raw_callout"])
     # 6g external: major diameter limits (ISO 965-1) 7.765 / 7.971
     assert abs(thread["lsl"] - 7.765) < 1e-3 and abs(thread["usl"] - 7.971) < 1e-3
+
+
+# ---- Vision symbol-resolution wiring -------------------------------------
+
+import os
+import gemini_vision
+
+
+def _extract_as4092_chars():
+    """Upload + extract the synthetic AS-4092-C drawing (17 chars, incl.
+    two unknown-symbol GD&T frames: |⌖|Ø0.08(M)|A|B| and |⟂|0.03|A|)."""
+    pdf_bytes = generate_synthetic_as4092_pdf()
+    up = client.post(
+        "/api/v1/drawings",
+        files={"file": ("as4092_rev_c.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+    )
+    assert up.status_code == 200
+    dwg_id = up.json()["id"]
+    ex = client.post(f"/api/v1/drawings/{dwg_id}/extract")
+    assert ex.status_code == 200, ex.text
+    return ex.json()["characteristics"]
+
+
+def _find_char(chars, needle):
+    for c in chars:
+        if needle in c.get("raw_callout", ""):
+            return c
+    raise AssertionError(f"no characteristic containing {needle!r}")
+
+
+async def _fake_vision_correct(crop_b64, vector_text_in_bbox=None, api_key=None):
+    # A correct vision read: resolves each unknown frame to its true symbol.
+    # (The synthetic AS-4092 frames are |⌖|Ø0.05(M)|A|B| and |⟂|0.02|A|.)
+    text = vector_text_in_bbox or ""
+    if "Ø0.05" in text:
+        return gemini_vision.VisionPatchExtraction(
+            status="OK", raw_callout=text, characteristic_type="GDT_POSITION",
+            nominal=0.0, plus_tol=0.05, minus_tol=0.0, gdt_symbol="⌖",
+            material_modifier="MMC", datums=["A", "B"], vision_confidence=0.91,
+        )
+    if "0.02" in text:
+        return gemini_vision.VisionPatchExtraction(
+            status="OK", raw_callout=text, characteristic_type="GDT_PERPENDICULARITY",
+            nominal=0.0, plus_tol=0.02, minus_tol=0.0, gdt_symbol="⟂",
+            material_modifier="RFS", datums=["A"], vision_confidence=0.88,
+        )
+    return gemini_vision.VisionPatchExtraction(status="ERROR", conflict_notes=["unexpected patch"])
+
+
+async def _fake_vision_unavailable(crop_b64, vector_text_in_bbox=None, api_key=None):
+    return gemini_vision.VisionPatchExtraction(
+        status="UNAVAILABLE",
+        conflict_notes=["GEMINI_API_KEY is not configured; skipped Vision patch OCR."],
+    )
+
+
+async def _fake_vision_error(crop_b64, vector_text_in_bbox=None, api_key=None):
+    raise RuntimeError("boom")
+
+
+async def _fake_vision_conflict(crop_b64, vector_text_in_bbox=None, api_key=None):
+    return gemini_vision.VisionPatchExtraction(
+        status="REJECTED_CONFLICT",
+        raw_callout=vector_text_in_bbox,
+        characteristic_type="GDT_POSITION",
+        nominal=0.0, plus_tol=0.08, minus_tol=0.0, gdt_symbol="⌖",
+        material_modifier="MMC", datums=["A", "B"], vision_confidence=0.91,
+        vector_conflict_detected=True,
+        conflict_notes=["Rejected Gemini zone 0.080 in favor of vector text 0.050"],
+    )
+
+
+async def _fake_vision_low_confidence(crop_b64, vector_text_in_bbox=None, api_key=None):
+    v = await _fake_vision_correct(crop_b64, vector_text_in_bbox, api_key)
+    if v.status == "OK":
+        v.vision_confidence = 0.50
+    return v
+
+
+def test_health_reports_vision_configured():
+    res = client.get("/api/v1/health")
+    assert res.status_code == 200
+    data = res.json()
+    assert isinstance(data["vision_configured"], bool)
+    assert data["vision_configured"] == bool(os.environ.get("GEMINI_API_KEY"))
+
+
+def test_vision_resolves_unknown_gdt_symbols(monkeypatch):
+    monkeypatch.setattr(
+        "main.gemini_vision.analyze_cropped_patch_with_gemini", _fake_vision_correct
+    )
+    chars = _extract_as4092_chars()
+    pos = _find_char(chars, "Ø0.05")
+    assert pos["featureDescription"] == "Position GD&T Control"
+    assert pos["designator"] == "Critical"
+    assert pos["vision_used"] is True
+    assert pos["visionGdtSymbol"] == "⌖"
+    assert pos["visionConfidence"] == 0.91
+    assert "unreadable" not in " ".join(pos["review_reasons"]).lower()
+    # Limits stay vector: zone 0.05 -> LSL 0 / USL 0.05
+    assert abs(pos["lsl"] - 0.0) < 1e-3 and abs(pos["usl"] - 0.05) < 1e-3
+    perp = _find_char(chars, "0.02")
+    assert perp["featureDescription"] == "Perpendicularity GD&T Control"
+    assert perp["visionGdtSymbol"] == "⟂"
+    assert perp["vision_used"] is True
+
+
+def test_vision_unavailable_keeps_vector_result(monkeypatch):
+    monkeypatch.setattr(
+        "main.gemini_vision.analyze_cropped_patch_with_gemini", _fake_vision_unavailable
+    )
+    chars = _extract_as4092_chars()
+    pos = _find_char(chars, "Ø0.05")
+    assert pos["featureDescription"] == "GD&T Control"
+    assert pos["needs_review"] is True
+    assert pos["vision_used"] is False
+    assert "unreadable" in " ".join(pos["review_reasons"]).lower()
+
+
+def test_vision_error_keeps_vector_result(monkeypatch):
+    monkeypatch.setattr(
+        "main.gemini_vision.analyze_cropped_patch_with_gemini", _fake_vision_error
+    )
+    chars = _extract_as4092_chars()
+    pos = _find_char(chars, "Ø0.05")
+    assert pos["needs_review"] is True
+    assert pos["vision_used"] is False
+    assert "unreadable" in " ".join(pos["review_reasons"]).lower()
+
+
+def test_vision_conflict_keeps_vector_result_and_records_it(monkeypatch):
+    monkeypatch.setattr(
+        "main.gemini_vision.analyze_cropped_patch_with_gemini", _fake_vision_conflict
+    )
+    chars = _extract_as4092_chars()
+    pos = _find_char(chars, "Ø0.05")
+    # Symbol is NOT trusted when vision's numbers disagreed with vector text.
+    assert pos["featureDescription"] == "GD&T Control"
+    assert pos["needs_review"] is True
+    assert pos["vision_used"] is True
+    reasons = " ".join(pos["review_reasons"])
+    assert "Rejected Gemini zone" in reasons
+
+
+def test_vision_low_confidence_keeps_vector_result(monkeypatch):
+    monkeypatch.setattr(
+        "main.gemini_vision.analyze_cropped_patch_with_gemini", _fake_vision_low_confidence
+    )
+    chars = _extract_as4092_chars()
+    pos = _find_char(chars, "Ø0.05")
+    assert pos["featureDescription"] == "GD&T Control"
+    assert pos["needs_review"] is True
+    assert pos["vision_used"] is False
