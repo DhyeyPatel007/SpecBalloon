@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 GdtSymbol = Literal[
-    "⌖", "⏥", "⏤", "◯", "⌭", "⌒", "⌓", "⟂", "∠", "//", "◎", "⌯", "↗", "⌰"
+    "⌖", "⏥", "⏤", "◯", "⌭", "⌒", "⌓", "⟂", "∠", "//", "◎", "⌯", "↗", "⌰", "UNKNOWN"
 ]
 GdtType = Literal[
     "GDT_POSITION",
@@ -23,6 +23,7 @@ GdtType = Literal[
     "GDT_SYMMETRY",
     "GDT_CIRCULAR_RUNOUT",
     "GDT_TOTAL_RUNOUT",
+    "GDT_UNKNOWN",
 ]
 MaterialModifier = Literal["MMC", "LMC", "RFS"]
 
@@ -52,6 +53,8 @@ class ParsedGdtFrame:
     lower_segment: GdtSegment | None  # Present for composite GD&T frames
     nominal: float = 0.0
     lsl: float = 0.0
+    needs_review: bool = False
+    review_reasons: tuple[str, ...] = ()
 
     @property
     def usl(self) -> float:
@@ -117,13 +120,36 @@ def _parse_single_segment(cells: list[str], inherited_symbol: tuple[GdtSymbol, G
         return None
 
     sym_info = SYMBOL_MAP.get(clean_cells[0].upper()) or SYMBOL_MAP.get(clean_cells[0])
+    is_unknown_symbol = False
+
     if sym_info is not None:
         tol_idx = 1
     elif inherited_symbol is not None:
         sym_info = inherited_symbol
         tol_idx = 0
     else:
-        return None
+        # Check for unreadable/missing GD&T symbol slot:
+        # Case 1: First cell is an unreadable glyph (e.g. \x00, ?, unmapped char), second cell is tolerance
+        if len(clean_cells) >= 2 and TOL_COMPARTMENT_RE.match(clean_cells[1]):
+            datums_candidate = clean_cells[2:]
+            # Must have at least one valid datum reference to infer frame
+            if datums_candidate and all(DATUM_CELL_RE.match(c) for c in datums_candidate):
+                sym_info = ("UNKNOWN", "GDT_UNKNOWN")
+                tol_idx = 1
+                is_unknown_symbol = True
+            else:
+                return None
+        # Case 2: Symbol compartment was completely empty/omitted, so clean_cells[0] is tolerance
+        elif len(clean_cells) >= 2 and TOL_COMPARTMENT_RE.match(clean_cells[0]):
+            datums_candidate = clean_cells[1:]
+            if datums_candidate and all(DATUM_CELL_RE.match(c) for c in datums_candidate):
+                sym_info = ("UNKNOWN", "GDT_UNKNOWN")
+                tol_idx = 0
+                is_unknown_symbol = True
+            else:
+                return None
+        else:
+            return None
 
     if tol_idx >= len(clean_cells):
         return None
@@ -150,6 +176,9 @@ def _parse_single_segment(cells: list[str], inherited_symbol: tuple[GdtSymbol, G
         d_mod_raw = (dm.group(2) or dm.group(3) or "").upper()
         d_mod: MaterialModifier = "MMC" if d_mod_raw in ("M", "Ⓜ") else ("LMC" if d_mod_raw in ("L", "Ⓛ") else "RFS")
         datums.append(DatumRef(letter=letter, modifier=d_mod))
+
+    if is_unknown_symbol and len(datums) == 0:
+        return None
 
     return GdtSegment(
         symbol=sym_info[0],
@@ -199,12 +228,25 @@ def parse_gdt_frame(raw_text: str) -> ParsedGdtFrame | None:
             inherited_symbol=(primary_seg.symbol, primary_seg.gdt_type),
         )
 
+    is_unknown = (
+        primary_seg.symbol == "UNKNOWN"
+        or (lower_seg is not None and lower_seg.symbol == "UNKNOWN")
+    )
+    needs_review = is_unknown
+    review_reasons = (
+        ("GD&T symbol unreadable in PDF — inferred from tolerance and datums",)
+        if is_unknown
+        else ()
+    )
+
     return ParsedGdtFrame(
         raw_frame=text,
         primary_segment=primary_seg,
         lower_segment=lower_seg,
         nominal=0.0,
         lsl=0.0,
+        needs_review=needs_review,
+        review_reasons=review_reasons,
     )
 
 

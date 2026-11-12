@@ -13,6 +13,14 @@ import {
   getGeneralTolerance,
   calculateISOThread,
 } from '../../utils/metrologyMath';
+import {
+  uploadDrawingApi,
+  extractDrawingApi,
+  getBalloonsApi,
+  patchBalloonApi,
+  exportExcelApi,
+  exportBalloonedPdfApi,
+} from '../../api';
 import { generateCropsFromSpec } from '../../utils/cadRenderer';
 import { soundEngine } from '../../utils/audioSynthesizer';
 import { StudioTopBar } from './StudioTopBar';
@@ -260,16 +268,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   // Load a benchmark sample drawing by ID
   const handleSelectSample = useCallback(
-    (sampleId: string) => {
+    async (sampleId: string) => {
       const sample = SAMPLE_DRAWINGS.find((d) => d.id === sampleId) || SAMPLE_DRAWINGS[0];
       pushUndoSnapshot(characteristics);
-      const withCrops = generateCropsFromSpec(sample, { inverted });
       setCurrentDrawing(sample);
       setSelectedStandard(sample.standard);
       setCustomImage(null);
       setActivePage(1);
       setIsSampleData(true);
 
+      try {
+        const backendBalloons = await extractDrawingApi(sample.id, true);
+        if (backendBalloons.length > 0) {
+          startLiveStreaming(backendBalloons, true);
+          return;
+        }
+      } catch {
+        // Fallback to local sample generator
+      }
+
+      const withCrops = generateCropsFromSpec(sample, { inverted });
       startLiveStreaming(withCrops, true);
     },
     [characteristics, inverted, startLiveStreaming]
@@ -279,15 +297,29 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     handleSelectSample('AS-4092-C');
   }, [handleSelectSample]);
 
-  // Upload and parse real vector PDF
+  // Upload and parse real vector PDF via SpecBalloon backend pipeline
   const handleUploadPdf = async (file: File) => {
     if (file.size > 10 * 1024 * 1024) {
       alert('File size exceeds the 10 MB limit.');
       return;
     }
 
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      alert('Only vector PDF files are supported.');
+      return;
+    }
+
+    setIsSampleData(false);
+
+    const uploadMsg: ChatMessage = {
+      id: `upload-${Date.now()}`,
+      sender: 'agent',
+      timestamp: 'Just now',
+      text: `Uploading "${file.name}" to SpecBalloon Metrology Engine… Parsing vector geometry, GD&T callouts & leader lines…`,
+    };
+    setMessages((prev) => [...prev, uploadMsg]);
+
     try {
-      setIsSampleData(false);
       const buffer = await file.arrayBuffer();
       const loadingTask = pdfjsLib.getDocument({ data: buffer.slice(0) });
       const pdfDoc = await loadingTask.promise;
@@ -300,19 +332,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       const page1 = await pdfDoc.getPage(1);
       const viewport = page1.getViewport({ scale: 1.0 });
 
+      // 1. POST /api/v1/drawings
+      const uploadRes = await uploadDrawingApi(file);
+      const drawingId = uploadRes.id;
+
       const newSpec: DrawingSpec = {
-        id: 'PDF-' + Date.now(),
-        partNumber: file.name.replace(/\.[^/.]+$/, '').toUpperCase(),
-        partName: 'Vector CAD Drawing',
-        revision: 'REV 1.0',
+        id: drawingId,
+        partNumber: uploadRes.partNumber || file.name.replace(/\.[^/.]+$/, '').toUpperCase(),
+        partName: uploadRes.partName || 'Vector CAD Drawing',
+        revision: uploadRes.revision || 'REV 1.0',
         standard: selectedStandard,
-        drawingWidth: Math.round(viewport.width),
-        drawingHeight: Math.round(viewport.height),
+        drawingWidth: uploadRes.width || Math.round(viewport.width),
+        drawingHeight: uploadRes.height || Math.round(viewport.height),
         scale: '1:1',
         sheetZoneRows: ['A', 'B', 'C', 'D'],
         sheetZoneCols: ['1', '2', '3', '4', '5', '6', '7', '8'],
         characteristics: [],
-        pageCount: pdfDoc.numPages,
+        pageCount: uploadRes.pageCount || pdfDoc.numPages,
         pdfBuffer: buffer,
         isDemo: false,
       };
@@ -322,31 +358,30 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setCustomImage(null);
       setActivePage(1);
 
-      // Perform real client-side vector extraction
-      const extraction = await extractVectorDimensionsFromPdf(buffer, 1);
+      // 2. POST /api/v1/drawings/{id}/extract?demo=false
+      const extractedChars = await extractDrawingApi(drawingId, false);
 
-      if (extraction.characteristics.length > 0) {
-        startLiveStreaming(extraction.characteristics, false);
-      } else if (extraction.isScannedRaster) {
-        const warnMsg: ChatMessage = {
-          id: `warn-${Date.now()}`,
-          sender: 'agent',
-          timestamp: 'Just now',
-          text: 'Scanned raster drawing detected with no embedded vector text streams. Please configure a Gemini 2.5 Flash API key in Settings to run neural vision OCR on scans, or click points on the canvas to place balloons manually.',
-        };
-        setMessages((prev) => [...prev, warnMsg]);
+      if (extractedChars.length > 0) {
+        startLiveStreaming(extractedChars, false);
       } else {
         const emptyMsg: ChatMessage = {
           id: `empty-${Date.now()}`,
           sender: 'agent',
           timestamp: 'Just now',
-          text: 'No dimensions detected in vector text stream. You can click on the drawing canvas to manually place balloons.',
+          text: 'No dimensional characteristics detected in vector text streams. You can click on the drawing canvas to manually place balloons.',
         };
         setMessages((prev) => [...prev, emptyMsg]);
       }
-    } catch (err) {
-      console.error('Error parsing PDF:', err);
-      alert('Failed to parse vector PDF. Please ensure the file is a valid PDF.');
+    } catch (err: unknown) {
+      console.error('Drawing upload/extraction error:', err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      const failMsg: ChatMessage = {
+        id: `err-${Date.now()}`,
+        sender: 'agent',
+        timestamp: 'Just now',
+        text: `❌ Extraction Error: ${errorMsg}\n\nCould not process drawing via backend API. Please verify the backend is running at http://localhost:8000.`,
+      };
+      setMessages((prev) => [...prev, failMsg]);
     }
   };
 
@@ -372,6 +407,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     setCharacteristics((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
     );
+    patchBalloonApi(id, updates).catch((err) => {
+      console.debug('Backend balloon patch notice:', err);
+    });
   };
 
   const handleDeleteCharacteristic = (id: string) => {
@@ -398,13 +436,71 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     soundEngine.playKeyClick();
   };
 
-  const handleApproveAll = () => {
+  const handleExportExcel = async () => {
+    if (!currentDrawing || characteristics.length === 0) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          sender: 'agent',
+          timestamp: 'Just now',
+          text: 'No dimensions loaded to export. Drop a CAD drawing or open a sample benchmark drawing first.',
+        },
+      ]);
+      return;
+    }
+
+    try {
+      const blob = await exportExcelApi(currentDrawing.id, characteristics, {
+        partNumber: currentDrawing.partNumber,
+        partName: currentDrawing.partName,
+        revision: currentDrawing.revision,
+        standard: currentDrawing.standard,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `AS9102-RevC-${currentDrawing.partNumber || 'Export'}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          sender: 'agent',
+          timestamp: 'Just now',
+          text: 'Generated and downloaded authentic 4-sheet AS9102 Rev C Excel workbook via SpecBalloon Metrology Engine.',
+        },
+      ]);
+      soundEngine.playInSpecPass();
+    } catch (err) {
+      console.warn('Backend Excel export failed, using local generator:', err);
+      exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, characteristics);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          sender: 'agent',
+          timestamp: 'Just now',
+          text: 'Generated and downloaded 4-sheet AS9102 Rev C Excel workbook (local engine fallback).',
+        },
+      ]);
+      soundEngine.playInSpecPass();
+    }
+  };
+
+  const handleApproveAll = async () => {
     if (!currentDrawing || characteristics.length === 0) return;
     pushUndoSnapshot(characteristics);
     const approved = characteristics.map((c) => ({
       ...c,
       reviewed: true,
       confidence: 100,
+      status: 'in_spec' as const,
+      needs_review: false,
     }));
     setCharacteristics(approved);
 
@@ -416,12 +512,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     };
     setMessages((prev) => [...prev, approveMsg]);
 
-    try {
-      exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, approved);
-      soundEngine.playInSpecPass();
-    } catch (e) {
-      console.error('Export error:', e);
-    }
+    await handleExportExcel();
   };
 
   // Chat Conversational Control Surface
@@ -525,29 +616,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
     // 2. Export commands
     if (q.includes('export') && (q.includes('excel') || q.includes('as9102') || q.includes('fai'))) {
-      if (!currentDrawing || characteristics.length === 0) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `a-${Date.now()}`,
-            sender: 'agent',
-            timestamp: 'Just now',
-            text: 'No dimensions loaded to export. Drop a CAD drawing or open a sample benchmark drawing first.',
-          },
-        ]);
-        return;
-      }
-      exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, characteristics);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `a-${Date.now()}`,
-          sender: 'agent',
-          timestamp: 'Just now',
-          text: 'Generated and downloaded authentic 4-sheet AS9102 Rev C Excel workbook (Forms 1, 2, and 3).',
-        },
-      ]);
-      soundEngine.playInSpecPass();
+      handleExportExcel();
       return;
     }
 
@@ -783,6 +852,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const handleExportPdfDeck = async () => {
     if (!currentDrawing) return;
     try {
+      const blob = await exportBalloonedPdfApi(currentDrawing.id, characteristics);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Ballooned-${currentDrawing.partNumber || 'Drawing'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      soundEngine.playInSpecPass();
+    } catch (err) {
+      console.warn('Backend Ballooned PDF export notice, falling back to local renderer:', err);
       const canvasEl = document.querySelector('canvas') as HTMLCanvasElement | null;
       await exportMultiPagePdfDeck({
         drawing: currentDrawing,
@@ -792,8 +873,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         inspectorName: 'D. Vance (Lead QA)',
       });
       soundEngine.playInSpecPass();
-    } catch (err) {
-      console.error('PDF Deck export error:', err);
     }
   };
 
@@ -818,11 +897,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         darkMode={darkMode}
         onToggleTheme={onToggleTheme}
         onExitToLanding={onExitToLanding}
-        onExportExcel={() => {
-          if (currentDrawing) {
-            exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, characteristics);
-          }
-        }}
+        onExportExcel={handleExportExcel}
         onExportCsv={() => {
           if (currentDrawing) {
             exportAS9102CSV(currentDrawing.partNumber, currentDrawing.revision, characteristics);
@@ -854,11 +929,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           onUpdateCharacteristic={handleUpdateCharacteristic}
           onDeleteCharacteristic={handleDeleteCharacteristic}
           onApproveAll={handleApproveAll}
-          onExportExcel={() => {
-            if (currentDrawing) {
-              exportAS9102Excel(currentDrawing.partNumber, currentDrawing.revision, characteristics);
-            }
-          }}
+          onExportExcel={handleExportExcel}
           messages={messages}
           onClearChat={() => {
             setMessages([

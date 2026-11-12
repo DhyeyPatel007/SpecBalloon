@@ -101,6 +101,9 @@ export interface Characteristic {
   pageNumber?: number;
   /** Explicit human review marker */
   reviewed?: boolean;
+  needs_review?: boolean;
+  review_reasons?: string[];
+  char_no?: number;
   /** Marker indicating synthetic/demo measurement data */
   isDemo?: boolean;
 

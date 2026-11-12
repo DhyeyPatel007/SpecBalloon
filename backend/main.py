@@ -282,7 +282,9 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                     "units": "mm",
                     "kind": "GDT_FRAME",
                     "designator": "Critical" if gdt.primary_segment.gdt_type == "GDT_POSITION" else "Major",
-                    "featureDescription": f"{gdt.primary_segment.gdt_type.replace('GDT_', '').title()} GD&T Control",
+                    "featureDescription": "GD&T Control" if gdt.primary_segment.gdt_type == "GDT_UNKNOWN" else f"{gdt.primary_segment.gdt_type.replace('GDT_', '').title()} GD&T Control",
+                    "needs_review": gdt.needs_review,
+                    "review_reasons": list(gdt.review_reasons),
                 }
                 continue
 
@@ -415,10 +417,10 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 "units": rec.get("units", "mm"),
                 "gauge": "Digital Micrometer / Caliper",
                 "instrument": "Digital Micrometer / Caliper",
-                "status": "needs_review" if conf_assessment.needs_review else "in_spec",
-                "confidence": round(conf_assessment.score * 100.0, 1),
-                "needs_review": conf_assessment.needs_review,
-                "review_reasons": list(conf_assessment.review_reasons),
+                "status": "needs_review" if (conf_assessment.needs_review or rec.get("needs_review", False)) else "in_spec",
+                "confidence": round((min(conf_assessment.score, 0.70) if rec.get("needs_review") else conf_assessment.score) * 100.0, 1),
+                "needs_review": bool(conf_assessment.needs_review or rec.get("needs_review", False)),
+                "review_reasons": list(dict.fromkeys(list(conf_assessment.review_reasons) + list(rec.get("review_reasons", [])))),
                 "bbox": {
                     "x": node.bbox.x0,
                     "y": node.bbox.y0,

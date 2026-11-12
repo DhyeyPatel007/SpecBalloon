@@ -88,11 +88,11 @@ export async function uploadDrawingApi(file: File): Promise<DrawingUploadRespons
 
 /**
  * POST /api/v1/drawings/{id}/extract
- * Triggers backend extraction pipeline, with synchronized local TypeScript metrology fallback
+ * Triggers backend extraction pipeline, with synchronized local TypeScript metrology fallback for samples
  */
-export async function extractDrawingApi(drawingId: string): Promise<Characteristic[]> {
+export async function extractDrawingApi(drawingId: string, demo: boolean = false): Promise<Characteristic[]> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/v1/drawings/${encodeURIComponent(drawingId)}/extract`, {
+    const res = await fetch(`${API_BASE_URL}/api/v1/drawings/${encodeURIComponent(drawingId)}/extract?demo=${demo}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -100,14 +100,22 @@ export async function extractDrawingApi(drawingId: string): Promise<Characterist
     if (res.ok) {
       const data = await res.json();
       return normalizeBackendBalloons(data.characteristics || data.balloons || data);
+    } else {
+      const errorText = await res.text().catch(() => res.statusText);
+      if (!demo) {
+        throw new BackendError(`Extraction failed (${res.status}): ${errorText}`, res.status);
+      }
     }
-  } catch {
-    // Graceful fallback to synchronized local Metrology Core
+  } catch (err) {
+    if (!demo) {
+      throw err instanceof BackendError ? err : new BackendError(`Backend connection failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    // Graceful fallback to synchronized local Metrology Core ONLY for samples
   }
 
-  // Local Metrology Core mirror - ONLY return sample data if this is an explicit sample drawing ID!
+  // Local Metrology Core mirror - ONLY return sample data if this is an explicit sample drawing ID or demo mode!
   const { SAMPLE_DRAWINGS } = await import('./data/sampleDrawings');
-  const found = SAMPLE_DRAWINGS.find(d => d.id === drawingId);
+  const found = SAMPLE_DRAWINGS.find(d => d.id === drawingId) || (demo ? SAMPLE_DRAWINGS[0] : null);
   if (found) {
     const { generateCropsFromSpec } = await import('./utils/cadRenderer');
     return generateCropsFromSpec(found);
@@ -155,11 +163,15 @@ export async function patchBalloonApi(balloonId: string, updates: Partial<Charac
 /**
  * POST /api/v1/drawings/{id}/exports/excel
  */
-export async function exportExcelApi(drawingId: string, characteristics: Characteristic[]): Promise<Blob> {
+export async function exportExcelApi(
+  drawingId: string,
+  characteristics: Characteristic[],
+  drawing?: Record<string, unknown>
+): Promise<Blob> {
   const res = await fetch(`${API_BASE_URL}/api/v1/drawings/${encodeURIComponent(drawingId)}/exports/excel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ characteristics }),
+    body: JSON.stringify({ characteristics, drawing }),
   });
 
   if (!res.ok) {
@@ -198,22 +210,27 @@ function normalizeBackendBalloons(rawList: unknown[]): Characteristic[] {
 
 function normalizeSingleBalloon(raw: Record<string, unknown>, fallbackSeq = 1): Characteristic {
   const id = typeof raw.id === 'string' ? raw.id : (raw.id ? String(raw.id) : (crypto?.randomUUID ? crypto.randomUUID() : `b-${Date.now()}-${fallbackSeq}`));
-  const rawCallout = String(raw.rawCallout || raw.specification || raw.requirement || '');
+  const rawCallout = String(raw.rawCallout || raw.raw_callout || raw.specification || raw.requirement || '');
   const nominalText = String(raw.nominal_text || raw.nominalText || rawCallout || '0.000');
   const nominalVal = typeof raw.nominal_value === 'number' ? raw.nominal_value : (typeof raw.nominal === 'number' ? raw.nominal : parseFloat(nominalText) || null);
   
-  const plusTol = typeof raw.plusTolerance === 'number' ? raw.plusTolerance : (typeof raw.plus_tolerance === 'number' ? raw.plus_tolerance : 0.05);
-  const minusTol = typeof raw.minusTolerance === 'number' ? raw.minusTolerance : (typeof raw.minus_tolerance === 'number' ? raw.minus_tolerance : 0.05);
+  const plusTol = typeof raw.plusTolerance === 'number' ? raw.plusTolerance : (typeof raw.plus_tol === 'number' ? raw.plus_tol : (typeof raw.plus_tolerance === 'number' ? raw.plus_tolerance : 0.05));
+  const minusTol = typeof raw.minusTolerance === 'number' ? raw.minusTolerance : (typeof raw.minus_tol === 'number' ? raw.minus_tol : (typeof raw.minus_tolerance === 'number' ? raw.minus_tolerance : 0.05));
 
-  const upperLimit = typeof raw.upper_limit === 'number' ? raw.upper_limit : (nominalVal !== null ? Number((nominalVal + plusTol).toFixed(4)) : null);
-  const lowerLimit = typeof raw.lower_limit === 'number' ? raw.lower_limit : (nominalVal !== null ? Number((nominalVal - minusTol).toFixed(4)) : null);
+  const lslVal = typeof raw.lsl === 'number' ? raw.lsl : (typeof raw.lower_limit === 'number' ? raw.lower_limit : (nominalVal !== null ? Number((nominalVal - minusTol).toFixed(4)) : 0));
+  const uslVal = typeof raw.usl === 'number' ? raw.usl : (typeof raw.upper_limit === 'number' ? raw.upper_limit : (nominalVal !== null ? Number((nominalVal + plusTol).toFixed(4)) : 0));
+
+  const upperLimit = typeof raw.upper_limit === 'number' ? raw.upper_limit : uslVal;
+  const lowerLimit = typeof raw.lower_limit === 'number' ? raw.lower_limit : lslVal;
 
   const confidence = typeof raw.confidence === 'number' ? raw.confidence : 85.0;
 
-  // Fix 2: Unverified or low confidence backend detections MUST default to 'needs_review'
-  let status: 'in_spec' | 'out_of_spec' | 'needs_review' = 'needs_review';
-  if (raw.status === 'in_spec' || raw.status === 'out_of_spec') {
+  // Unverified or low confidence backend detections default to 'needs_review'
+  let status: 'in_spec' | 'out_of_spec' | 'needs_review' = 'in_spec';
+  if (raw.status === 'in_spec' || raw.status === 'out_of_spec' || raw.status === 'needs_review') {
     status = raw.status;
+  } else if (raw.needs_review || confidence < 85) {
+    status = 'needs_review';
   }
 
   const rawBbox = (raw.bbox as Record<string, number>) || {};
@@ -230,9 +247,20 @@ function normalizeSingleBalloon(raw: Record<string, unknown>, fallbackSeq = 1): 
     y: rawPos.y ?? (bbox.y - 15),
   };
 
+  const cropDataUrl = typeof raw.crop_base64 === 'string' && raw.crop_base64
+    ? (raw.crop_base64.startsWith('data:') ? raw.crop_base64 : `data:image/png;base64,${raw.crop_base64}`)
+    : (typeof raw.cropDataUrl === 'string' ? raw.cropDataUrl : undefined);
+
+  const reviewReasons = Array.isArray(raw.review_reasons)
+    ? raw.review_reasons.map(String)
+    : (Array.isArray(raw.reviewReasons) ? raw.reviewReasons.map(String) : []);
+
+  const needsReview = Boolean(raw.needs_review ?? raw.needsReview ?? (status === 'needs_review'));
+
   return {
     id,
-    balloonNumber: typeof raw.balloonNumber === 'number' ? raw.balloonNumber : fallbackSeq,
+    balloonNumber: typeof raw.balloonNumber === 'number' ? raw.balloonNumber : (typeof raw.char_no === 'number' ? raw.char_no : fallbackSeq),
+    char_no: typeof raw.char_no === 'number' ? raw.char_no : fallbackSeq,
     zone: String(raw.zone || 'B2'),
     designator: (raw.designator as 'Critical' | 'Major' | 'Minor') || 'Minor',
     rawCallout,
@@ -245,18 +273,21 @@ function normalizeSingleBalloon(raw: Record<string, unknown>, fallbackSeq = 1): 
     minusTolerance: minusTol,
     upper_limit: upperLimit,
     lower_limit: lowerLimit,
-    lsl: lowerLimit ?? 0,
-    usl: upperLimit ?? 0,
+    lsl: lslVal,
+    usl: uslVal,
     units: (raw.units as 'mm' | 'in' | 'deg' | 'µm') || 'mm',
-    instrument: String(raw.instrument || 'Precision Digital Caliper'),
-    measuredValue: typeof raw.measuredValue === 'number' ? raw.measuredValue : null,
+    instrument: String(raw.instrument || raw.gauge || 'Precision Digital Caliper'),
+    measuredValue: typeof raw.measuredValue === 'number' ? raw.measuredValue : (typeof raw.measured_value === 'number' ? raw.measured_value : null),
     lotMeasurements: Array.isArray(raw.lotMeasurements) ? raw.lotMeasurements : [],
     status,
     confidence,
+    needs_review: needsReview,
+    review_reasons: reviewReasons,
     bbox,
     balloonPosition,
+    cropDataUrl,
     pageNumber: typeof raw.pageNumber === 'number' ? raw.pageNumber : 1,
     reviewed: Boolean(raw.reviewed),
-    isDemo: Boolean(raw.isDemo),
+    isDemo: Boolean(raw.isDemo ?? raw.is_sample_data),
   };
 }

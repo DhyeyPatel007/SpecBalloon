@@ -449,8 +449,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         balloonPosition: { x: 810, y: 580 }
       },
       {
-        id: 'demo-as4092c-08-del',
-        balloonNumber: 8,
+        id: 'demo-as4092c-16',
+        balloonNumber: 16,
         zone: 'B7',
         designator: 'Minor',
         rawCallout: 'Relief Groove Ø28.50 ±0.10',
@@ -479,8 +479,8 @@ export const SAMPLE_DRAWINGS: DrawingSpec[] = [
         balloonPosition: { x: 890, y: 270 }
       },
       {
-        id: 'demo-as4092c-16',
-        balloonNumber: 16,
+        id: 'demo-as4092c-17',
+        balloonNumber: 17,
         zone: 'C4',
         designator: 'Critical',
         rawCallout: 'M10×1.5 - 6H ↧ 18.0',
