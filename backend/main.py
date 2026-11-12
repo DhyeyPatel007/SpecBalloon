@@ -178,6 +178,7 @@ async def _vision_resolve_symbol(
         f"[vision] status={vis.status} "
         f"confidence={vis.vision_confidence:.2f} "
         f"type={vis.characteristic_type} symbol={vis.gdt_symbol!r} "
+        f"notes={vis.conflict_notes} "
         f"vector_text={vector_text!r}"
     )
     if vis.status == "REJECTED_CONFLICT":

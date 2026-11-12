@@ -158,6 +158,13 @@ def reconcile_vision_with_vector(
     )
 
 
+def _scrub_key(text: str) -> str:
+    """Strip any API-key query param from an error message before it is
+    logged or stored. httpx HTTPStatusError str() includes the full
+    request URL, which carries ?key=... — that must never reach logs."""
+    return re.sub(r"key=[^&\s\"']+", "key=[REDACTED]", text)
+
+
 async def analyze_cropped_patch_with_gemini(
     crop_base64_png: str,
     vector_text_in_bbox: str | None = None,
@@ -203,9 +210,11 @@ async def analyze_cropped_patch_with_gemini(
             parsed = json.loads(raw_json)
             return reconcile_vision_with_vector(parsed, vector_text_in_bbox)
     except Exception as exc:
+        # The exception text can embed the request URL (with ?key=...),
+        # so scrub it before storing — the note is logged downstream.
         return VisionPatchExtraction(
             status="ERROR",
-            conflict_notes=[f"Gemini Vision API error: {exc}"],
+            conflict_notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"],
         )
 
 
