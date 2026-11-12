@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "FILE_TOO_LARGE | INVALID_PDF | NO_VECTOR_OR_VISION | DRAWING_NOT_FOUND | EXTRACTION_ERROR",
+    "message": "Human-readable engineering explanation",
+    "details": {}
+  }
+}
+

@@ -31,3 +31,9 @@ desktop.ini
 .env.*
 !.env.example
 
+# Local SQLite databases & test caches
+*.db
+*.sqlite
+*.sqlite3
+.pytest_cache/
+

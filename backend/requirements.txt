@@ -1,6 +1,8 @@
-fastapi>=0.110.0
-uvicorn>=0.28.0
-pydantic>=2.6.0
-python-multipart>=0.0.9
-openpyxl>=3.1.2
-
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.2
+python-multipart==0.0.19
+PyMuPDF==1.24.14
+openpyxl==3.1.5
+httpx==0.28.0
+pytest==8.3.4

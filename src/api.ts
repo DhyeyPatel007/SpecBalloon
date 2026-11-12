@@ -99,7 +99,7 @@ export async function extractDrawingApi(drawingId: string): Promise<Characterist
 
     if (res.ok) {
       const data = await res.json();
-      return normalizeBackendBalloons(data.balloons || data);
+      return normalizeBackendBalloons(data.characteristics || data.balloons || data);
     }
   } catch {
     // Graceful fallback to synchronized local Metrology Core
@@ -130,7 +130,7 @@ export async function getBalloonsApi(drawingId: string): Promise<Characteristic[
   }
 
   const data = await res.json();
-  return normalizeBackendBalloons(data.balloons || data);
+  return normalizeBackendBalloons(data.characteristics || data.balloons || data);
 }
 
 /**

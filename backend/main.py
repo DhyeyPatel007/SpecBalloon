@@ -1,428 +1,618 @@
-import io
-import os
-import uuid
-from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, UploadFile, File, HTTPException, Body
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+# backend/main.py
+from __future__ import annotations
 
-from metrology import (
-    fmt3,
-    calculate_iso_286,
-    get_iso_2768_tolerance,
-    calculate_moving_range_spc
-)
-from ai_vision import analyze_crop_with_gemini
+import os
+import shutil
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+import fitz  # PyMuPDF
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, Field
+
+import balloon_layout
+import confidence
+import db
+import dimension_grammar
+import excel_export
+import gdt_parser
+import gemini_vision
+import leader_association
+import limits_math
+import sample_data
+import vector_pass
+
+UPLOAD_TMP_DIR = os.getenv("UPLOAD_TMP_DIR", "/tmp/specballoon_uploads")
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    os.makedirs(UPLOAD_TMP_DIR, exist_ok=True)
+    db.init_db()
+    yield
+
 
 app = FastAPI(
-    title="SpecBalloon Metrology Core API",
-    description="Autonomous 2D CAD Ballooning & AS9102/PPAP Metrology Engine",
-    version="2.4.0"
+    title="SpecBalloon Metrology API",
+    version="1.0.0",
+    description="Vector & Metrology Extraction Engine for AS9102 FAI Inspection",
+    lifespan=lifespan,
 )
 
-# Enable CORS for frontend applications
+# CORS Middleware
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins if origins else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
-# In-memory session store
-DRAWINGS_DB: Dict[str, Dict[str, Any]] = {}
-BALLOONS_DB: Dict[str, List[Dict[str, Any]]] = {}
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict) and "error" in detail:
+        return JSONResponse(status_code=exc.status_code, content=detail)
+    code = "REQUEST_ERROR"
+    if exc.status_code == 404:
+        code = "DRAWING_NOT_FOUND"
+    elif exc.status_code == 413:
+        code = "FILE_TOO_LARGE"
+    elif exc.status_code == 400:
+        code = "INVALID_PDF"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": str(detail) if detail else "An HTTP error occurred",
+                "details": {"status_code": exc.status_code},
+            }
+        },
+    )
 
 
-# Pydantic Schemas
-class BoundingBox(BaseModel):
-    x: float
-    y: float
-    width: float
-    height: float
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "EXTRACTION_ERROR",
+                "message": f"Internal server error: {str(exc)}",
+                "details": {"exception": type(exc).__name__},
+            }
+        },
+    )
 
 
-class Point(BaseModel):
-    x: float
-    y: float
+class CharacteristicUpdateRequest(BaseModel):
+    balloonNumber: int | None = None
+    char_no: int | None = None
+    zone: str | None = None
+    designator: str | None = None
+    rawCallout: str | None = None
+    raw_callout: str | None = None
+    nominal: float | None = None
+    plusTolerance: float | None = None
+    plus_tol: float | None = None
+    minusTolerance: float | None = None
+    minus_tol: float | None = None
+    lsl: float | None = None
+    usl: float | None = None
+    units: str | None = None
+    gauge: str | None = None
+    instrument: str | None = None
+    status: str | None = None
+    confidence: float | None = None
+    needs_review: bool | None = None
+    measuredValue: float | None = None
+    measured_value: float | None = None
+    review_reasons: list[str] | None = None
+    bbox: dict[str, Any] | None = None
+    balloonPosition: dict[str, Any] | None = None
 
 
-class CharacteristicModel(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    balloonNumber: int
-    zone: str = "B2"
-    designator: str = "Major"
-    rawCallout: str
-    featureDescription: str
-    nominal_text: str
-    nominal_value: Optional[float] = None
-    nominal: Optional[float] = None
-    toleranceType: str = "Bilateral"
-    plusTolerance: float = 0.05
-    minusTolerance: float = 0.05
-    upper_limit: Optional[float] = None
-    lower_limit: Optional[float] = None
-    lsl: float = 0.0
-    usl: float = 0.0
-    units: str = "mm"
-    instrument: str = "Precision Digital Caliper"
-    measuredValue: Optional[float] = None
-    lotMeasurements: List[float] = Field(default_factory=list)
-    status: str = "in_spec"
-    confidence: float = 99.0
-    bbox: BoundingBox
-    balloonPosition: Point
-    pageNumber: int = 1
-    reviewed: bool = False
-    isDemo: bool = False
-
-
-class DrawingUploadResponse(BaseModel):
-    id: str
-    partNumber: str
-    partName: str
-    revision: str
-    pageCount: int
-    width: int
-    height: int
-
-
-@app.get("/health")
-def health_check():
-    """Health & Readiness probe for Metrology Engine."""
-    return {
-        "status": "ok",
-        "engine": "SpecBalloon Metrology Core",
-        "dpi": 300,
-        "version": "2.4.0",
-        "standards": ["ISO 286-1", "ISO 2768-m", "ASME Y14.5", "AS9102 Rev C"]
-    }
+class ExcelExportRequest(BaseModel):
+    drawing: dict[str, Any] = Field(default_factory=dict)
+    characteristics: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @app.get("/")
-def root():
+@app.get("/health")
+@app.get("/api/v1/health")
+async def health():
     return {
-        "app": "SpecBalloon Metrology Core API",
-        "docs": "/docs",
-        "status": "ready"
+        "status": "healthy",
+        "service": "specballoon-backend",
+        "engine": "vector-metrology-v1",
     }
 
 
-@app.get("/api/v1/vision/status")
-def get_vision_status():
-    """Returns Gemini 2.5 Flash Vision & Neuro-Symbolic Pipeline status."""
-    has_api_key = bool(os.getenv("GEMINI_API_KEY", "").startswith("AIzaSy"))
-    return {
-        "model": "gemini-2.5-flash",
-        "configured": has_api_key,
-        "temperature": 0.0,
-        "pipeline": {
-            "stage_1": "Gemini 2.5 Flash Vision (Spatial Detection & GD&T OCR)",
-            "stage_2": "Deterministic ISO 286 / ASME Y14.5 Math Solver"
-        },
-        "standards": ["ISO 286-1", "ISO 2768-m", "ASME Y14.5"]
-    }
-
-
-@app.post("/api/v1/vision/analyze-crop")
-def analyze_crop_endpoint(payload: Dict[str, Any] = Body(...)):
-    """
-    Analyzes single base64 cropped callout using Gemini 2.5 Flash Vision.
-    Applies deterministic metrology guardrails immediately.
-    """
-    image_base64 = payload.get("image", "")
-    api_key = payload.get("apiKey")
-    if not image_base64:
-        raise HTTPException(status_code=400, detail="Missing 'image' base64 payload")
-    
-    result = analyze_crop_with_gemini(image_base64, api_key=api_key)
-    return result
-
-
-@app.post("/api/v1/drawings", response_model=DrawingUploadResponse)
+@app.post("/api/v1/drawings")
 async def upload_drawing(file: UploadFile = File(...)):
-    """
-    Accepts vector PDF (or CAD drawing image), validates size & page limits.
-    """
-    contents = await file.read()
-    if len(contents) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File size exceeds the 10 MB limit.")
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "INVALID_PDF",
+                    "message": "Only PDF files are supported. Please upload a vector 2D CAD drawing in PDF format.",
+                    "details": {"filename": file.filename},
+                }
+            },
+        )
 
-    drawing_id = f"DRW-{uuid.uuid4().hex[:8].upper()}"
-    base_name = os.path.splitext(file.filename)[0].upper()
+    drawing_id = f"dwg_{uuid.uuid4().hex[:12]}"
+    os.makedirs(UPLOAD_TMP_DIR, exist_ok=True)
+    temp_path = os.path.join(UPLOAD_TMP_DIR, f"{drawing_id}.pdf")
 
-    metadata = {
+    size = 0
+    try:
+        with open(temp_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail={
+                            "error": {
+                                "code": "FILE_TOO_LARGE",
+                                "message": f"Drawing exceeds the 10 MB limit ({size / (1024*1024):.1f} MB uploaded).",
+                                "details": {"max_bytes": MAX_FILE_SIZE, "uploaded_bytes": size},
+                            }
+                        },
+                    )
+                buffer.write(chunk)
+    except Exception:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        raise
+
+    try:
+        doc = fitz.open(temp_path)
+        page_count = len(doc)
+        if page_count < 1:
+            raise ValueError("PDF contains no pages")
+        page0 = doc[0]
+        width = float(page0.rect.width)
+        height = float(page0.rect.height)
+        doc.close()
+    except Exception as e:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "INVALID_PDF",
+                    "message": f"Could not open or parse PDF: {str(e)}",
+                    "details": {},
+                }
+            },
+        )
+
+    clean_name = Path(file.filename).stem
+    drawing_record = {
         "id": drawing_id,
-        "partNumber": base_name,
-        "partName": "Precision Machined Component",
-        "revision": "REV 1.0",
-        "pageCount": 1,
-        "width": 1200,
-        "height": 800,
-        "fileSize": len(contents),
-        "fileBytes": contents,
-        "contentType": file.content_type
+        "part_number": clean_name.upper(),
+        "part_name": f"{clean_name} Component",
+        "revision": "REV A",
+        "page_count": page_count,
+        "width": width,
+        "height": height,
+        "is_sample": False,
     }
-    DRAWINGS_DB[drawing_id] = metadata
+    db.save_drawing(drawing_record)
 
-    return DrawingUploadResponse(
-        id=drawing_id,
-        partNumber=metadata["partNumber"],
-        partName=metadata["partName"],
-        revision=metadata["revision"],
-        pageCount=metadata["pageCount"],
-        width=metadata["width"],
-        height=metadata["height"]
-    )
+    return drawing_record
 
 
-@app.post("/api/v1/drawings/{drawing_id}/extract")
-def extract_drawing_characteristics(drawing_id: str):
-    """
-    High-accuracy Metrology Extraction Pipeline.
-    Runs text detection, ISO 286/2768 calculations, GD&T parsing, and multi-sample SPC baselining.
-    Extracts real vector text items from uploaded PDF via pypdf when available.
-    """
-    # If sample drawing requested, return standard benchmark data
-    if drawing_id.startswith("AS-4092") or drawing_id in ("DEMO", "SAMPLE"):
-        from sample_data import SAMPLE_BALLOONS
-        BALLOONS_DB[drawing_id] = SAMPLE_BALLOONS
-        return {"balloons": SAMPLE_BALLOONS}
+@app.post("/api/v1/drawings/{id}/extract")
+async def extract_drawing(id: str, demo: bool = Query(default=False)):
+    # If demo requested or demo drawing ID
+    if demo or id == "demo-as4092c" or id == "AS-4092-C":
+        db.save_drawing(sample_data.SAMPLE_DRAWING_METADATA)
+        db.save_characteristics(id, sample_data.SAMPLE_BALLOONS)
+        return {
+            "drawing_id": id,
+            "characteristics": sample_data.SAMPLE_BALLOONS,
+            "count": len(sample_data.SAMPLE_BALLOONS),
+            "is_sample_data": True,
+        }
 
-    drawing_meta = DRAWINGS_DB.get(drawing_id)
-    file_bytes = drawing_meta.get("fileBytes") if drawing_meta else None
+    temp_path = os.path.join(UPLOAD_TMP_DIR, f"{id}.pdf")
+    if not os.path.exists(temp_path):
+        existing_chars = db.get_characteristics(id)
+        if existing_chars:
+            return {
+                "drawing_id": id,
+                "characteristics": existing_chars,
+                "count": len(existing_chars),
+                "is_sample_data": False,
+            }
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "DRAWING_NOT_FOUND",
+                    "message": f"Drawing '{id}' was not found or has already been processed.",
+                    "details": {"drawing_id": id},
+                }
+            },
+        )
 
-    extracted: List[Dict[str, Any]] = []
+    try:
+        doc = fitz.open(temp_path)
+        v_model = vector_pass.run_vector_pass(doc, page_index=0)
 
-    if file_bytes:
-        try:
-            from pypdf import PdfReader
-            import re
+        callout_nodes: list[leader_association.CalloutNode] = []
+        parsed_records: dict[str, dict[str, Any]] = {}
 
-            reader = PdfReader(io.BytesIO(file_bytes))
-            if len(reader.pages) > 0:
-                page = reader.pages[0]
-                text_spans: List[Dict[str, Any]] = []
+        # 1. Grammar & GD&T Pass
+        for sp in v_model.clustered_spans:
+            gdt = gdt_parser.parse_gdt_frame(sp.text)
+            if gdt:
+                cid = sp.span_id
+                callout_nodes.append(
+                    leader_association.CalloutNode(cid, sp.text, sp.bbox, sp.rotation_deg)
+                )
+                parsed_records[cid] = {
+                    "nominal": gdt.nominal,
+                    "plus_tol": gdt.usl,
+                    "minus_tol": 0.0,
+                    "lsl": gdt.lsl,
+                    "usl": gdt.usl,
+                    "units": "mm",
+                    "kind": "GDT_FRAME",
+                    "designator": "Critical" if gdt.primary_segment.gdt_type == "GDT_POSITION" else "Major",
+                    "featureDescription": f"{gdt.primary_segment.gdt_type.replace('GDT_', '').title()} GD&T Control",
+                }
+                continue
 
-                def visitor_body(text, cm, tm, fontDict, fontSize):
-                    t = text.strip()
-                    if t and re.search(r"\d", t):
-                        text_spans.append({
-                            "text": t,
-                            "x": tm[4],
-                            "y": tm[5],
-                            "size": fontSize
-                        })
+            dim = dimension_grammar.parse_dimension_callout(sp.text)
+            if dim:
+                cid = sp.span_id
+                callout_nodes.append(
+                    leader_association.CalloutNode(cid, sp.text, sp.bbox, sp.rotation_deg, dim.quantity)
+                )
+                designator = "Standard"
+                feature_desc = "Dimensional Feature"
+                units = dim.units
 
-                page.extract_text(visitor_text=visitor_body)
-
-                balloon_counter = 1
-                for span in text_spans:
-                    t = span["text"]
-                    if len(t) > 30 or not re.search(r"\d", t):
-                        continue
-
-                    # Basic dimension parse
-                    nom = float(re.findall(r"\d+(?:\.\d+)?", t)[0])
-                    extracted.append({
-                        "id": f"char-{drawing_id}-{balloon_counter:02d}",
-                        "balloonNumber": balloon_counter,
-                        "zone": "B2",
-                        "designator": "Major",
-                        "rawCallout": t,
-                        "featureDescription": f"Extracted Dimension ({t})",
-                        "nominal_text": t,
-                        "nominal_value": nom,
-                        "nominal": nom,
-                        "toleranceType": "Bilateral",
-                        "plusTolerance": 0.05,
-                        "minusTolerance": 0.05,
-                        "lsl": nom - 0.05,
-                        "lower_limit": nom - 0.05,
-                        "usl": nom + 0.05,
-                        "upper_limit": nom + 0.05,
-                        "units": "mm",
-                        "instrument": "Digital Caliper",
-                        "measuredValue": nom,
-                        "lotMeasurements": [nom, nom, nom],
-                        "status": "in_spec",
-                        "confidence": 88.5,
-                        "bbox": {"x": int(span["x"]), "y": int(max(0, 800 - span["y"])), "width": 80, "height": 22},
-                        "balloonPosition": {"x": int(span["x"] - 25), "y": int(max(0, 800 - span["y"] - 15))},
-                        "reviewed": False,
-                        "isDemo": False
-                    })
-                    balloon_counter += 1
-        except Exception as e:
-            print("pypdf extraction error:", e)
-
-    BALLOONS_DB[drawing_id] = extracted
-    return {"balloons": extracted}
-
-    BALLOONS_DB[drawing_id] = extracted
-    return {"balloons": extracted}
-
-
-@app.get("/api/v1/drawings/{drawing_id}/balloons")
-def get_drawing_balloons(drawing_id: str):
-    balloons = BALLOONS_DB.get(drawing_id, [])
-    return {"balloons": balloons}
-
-
-@app.patch("/api/v1/balloons/{balloon_id}")
-def update_balloon(balloon_id: str, updates: Dict[str, Any] = Body(...)):
-    for drawing_id, balloons in BALLOONS_DB.items():
-        for b in balloons:
-            if b["id"] == balloon_id:
-                b.update(updates)
-                return b
-    raise HTTPException(status_code=404, detail="Balloon not found")
-
-
-@app.post("/api/v1/drawings/{drawing_id}/exports/excel")
-def export_as9102_excel(drawing_id: str, payload: Dict[str, Any] = Body(...)):
-    """
-    Generates authentic AS9102 Rev C Form 3 Excel (.xlsx) workbook with full formatting.
-    """
-    characteristics = payload.get("characteristics", [])
-    if not characteristics:
-        characteristics = BALLOONS_DB.get(drawing_id, [])
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "AS9102 Form 3"
-
-    # Styling definitions
-    header_fill = PatternFill(start_color="0284C7", end_color="0284C7", fill_type="solid")
-    header_font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
-    title_font = Font(name="Arial", size=13, bold=True, color="0F172A")
-    meta_font = Font(name="Arial", size=9, bold=False, color="475569")
-    regular_font = Font(name="Arial", size=9, color="000000")
-    bold_font = Font(name="Arial", size=9, bold=True, color="000000")
-    pass_fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
-    fail_fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
-    warn_fill = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")
-
-    thin_border = Border(
-        left=Side(style='thin', color='E2E8F0'),
-        right=Side(style='thin', color='E2E8F0'),
-        top=Side(style='thin', color='E2E8F0'),
-        bottom=Side(style='thin', color='E2E8F0')
-    )
-
-    # Header Title Block
-    ws.merge_cells("A1:N1")
-    ws["A1"] = "SAE AS9102 Rev C — Form 3: Characteristic Accountability, Verification and Compatibility Evaluation"
-    ws["A1"].font = title_font
-    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
-
-    drawing_info = DRAWINGS_DB.get(drawing_id, {})
-    part_num = drawing_info.get("partNumber", "AS-4092-C")
-    rev = drawing_info.get("revision", "REV C")
-
-    ws["A2"] = f"Part Number: {part_num}    |    Revision: {rev}    |    Inspection Standard: AS9102 Rev C / ISO 286"
-    ws["A2"].font = meta_font
-
-    headers = [
-        "Char #", "Zone", "Designator", "Requirement / Specification",
-        "Nominal", "+Tol", "-Tol", "Lower Limit", "Upper Limit",
-        "Units", "Tool / Gauge", "Measured", "Cpk", "Status"
-    ]
-
-    # Write headers
-    row_idx = 4
-    for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=row_idx, column=col_idx, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center" if col_idx in [1, 2, 10, 14] else "left", vertical="center")
-        cell.border = thin_border
-
-    # Write characteristics data
-    for item in characteristics:
-        row_idx += 1
-        b_num = item.get("balloonNumber", 1)
-        zone = item.get("zone", "B2")
-        desig = item.get("designator", "Minor")
-        callout = item.get("rawCallout", "")
-        nom_txt = item.get("nominal_text") or fmt3(item.get("nominal_value") or item.get("nominal"))
-        plus = item.get("plusTolerance", 0.05)
-        minus = item.get("minusTolerance", 0.05)
-        lsl = item.get("lower_limit") if item.get("lower_limit") is not None else item.get("lsl", 0.0)
-        usl = item.get("upper_limit") if item.get("upper_limit") is not None else item.get("usl", 0.0)
-        units = item.get("units", "mm")
-        instrument = item.get("instrument", "Precision Caliper")
-        measured = item.get("measuredValue")
-        measured_txt = fmt3(measured) if measured is not None else "NEEDS_REVIEW"
-        status = item.get("status", "in_spec").upper()
-        if status == "IN_SPEC":
-            status_txt = "PASS"
-        elif status == "OUT_OF_SPEC":
-            status_txt = "FAIL"
-        else:
-            status_txt = "REVIEW"
-
-        # SPC
-        lot = item.get("lotMeasurements", [])
-        spc = calculate_moving_range_spc(float(lsl), float(usl), [float(x) for x in lot]) if lot else None
-        cpk_txt = f"{spc['cpk']:.2f}" if spc else "1.33"
-
-        row_data = [
-            b_num, zone, desig, callout,
-            nom_txt, f"+{fmt3(plus)}", f"-{fmt3(minus)}", fmt3(lsl), fmt3(usl),
-            units, instrument, measured_txt, cpk_txt, status_txt
-        ]
-
-        for col_idx, val in enumerate(row_data, 1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=val)
-            cell.font = bold_font if col_idx in [1, 5, 12, 14] else regular_font
-            cell.alignment = Alignment(horizontal="center" if col_idx in [1, 2, 10, 13, 14] else "left", vertical="center")
-            cell.border = thin_border
-
-            # Color status
-            if col_idx == 14:
-                if status_txt == "PASS":
-                    cell.fill = pass_fill
-                elif status_txt == "FAIL":
-                    cell.fill = fail_fill
+                if dim.kind == "ISO_FIT" and dim.fit_class:
+                    lim = limits_math.calculate_iso_286_limits(dim.nominal, dim.fit_class)
+                    lsl, usl = lim.lsl, lim.usl
+                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                    designator = "Critical"
+                    feature_desc = f"ISO 286-1 Fit ({dim.fit_class})"
+                elif dim.kind == "THREAD" and dim.thread_pitch:
+                    t_lims = limits_math.calculate_iso_965_thread_limits(dim.nominal, dim.thread_pitch, dim.thread_class or "6H")
+                    lim = t_lims["minor_diameter"]
+                    lsl, usl = lim.lsl, lim.usl
+                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                    designator = "Critical"
+                    feature_desc = f"Metric Thread M{dim.nominal}x{dim.thread_pitch}"
+                elif dim.kind == "SURFACE_ROUGHNESS":
+                    lsl, usl = 0.0, float(dim.plus_tol or 1.6)
+                    p_tol, m_tol = 0.0, 0.0
+                    units = "µm"
+                    designator = "Critical"
+                    feature_desc = "Surface Roughness Ra"
+                elif dim.kind == "CHAMFER":
+                    lim = limits_math.calculate_iso_2768_limits(dim.nominal, "m", "RADIUS_CHAMFER")
+                    lsl, usl = lim.lsl, lim.usl
+                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                    designator = "Minor"
+                    feature_desc = "Edge Chamfer"
+                elif dim.tolerance_kind == "GENERAL_TOL":
+                    lim = limits_math.calculate_iso_2768_limits(dim.nominal, "m", "LINEAR")
+                    lsl, usl = lim.lsl, lim.usl
+                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                    designator = "Minor"
+                    feature_desc = "General Linear Dimension"
                 else:
-                    cell.fill = warn_fill
+                    p_tol = float(dim.plus_tol or 0.0)
+                    m_tol = abs(float(dim.minus_tol or 0.0))
+                    lsl = round(dim.nominal - m_tol, 4) if dim.minus_tol is not None else round(dim.nominal + float(dim.minus_tol or 0.0), 4)
+                    usl = round(dim.nominal + p_tol, 4)
+                    designator = "Major" if (p_tol <= 0.05 and m_tol <= 0.05) else "Standard"
+                    feature_desc = f"Diameter Ø{dim.nominal}" if dim.prefix_symbol in ("Ø", "⌀") else f"Linear Dimension {dim.nominal}"
 
-    # Auto-adjust column widths
-    for col in ws.columns:
-        max_len = max(len(str(cell.value or '')) for cell in col)
-        col_letter = openpyxl.utils.get_column_letter(col[0].column)
-        ws.column_dimensions[col_letter].width = max(max_len + 3, 10)
+                parsed_records[cid] = {
+                    "nominal": dim.nominal,
+                    "plus_tol": p_tol,
+                    "minus_tol": m_tol,
+                    "lsl": lsl,
+                    "usl": usl,
+                    "units": units,
+                    "kind": dim.kind,
+                    "designator": designator,
+                    "featureDescription": feature_desc,
+                }
 
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
+        # 2. Leader Association
+        associated = leader_association.associate_callouts_to_geometry(callout_nodes, v_model)
+        assoc_by_id = {a.callout.callout_id: a for a in associated}
 
-    filename = f"SpecBalloon_{part_num}_AS9102.xlsx"
-    return StreamingResponse(
-        output,
+        # 3. Balloon Layout & Numbering
+        placed_balloons = balloon_layout.layout_and_number_balloons(
+            [(n.callout_id, n.bbox) for n in callout_nodes],
+            v_model.width_pt,
+            v_model.height_pt,
+        )
+        placed_by_id = {p.callout_id: p for p in placed_balloons}
+
+        # 4. Confidence & Character Record Synthesis
+        characteristics: list[dict[str, Any]] = []
+        page0 = doc[0]
+
+        for node in callout_nodes:
+            cid = node.callout_id
+            rec = parsed_records.get(cid, {})
+            placed = placed_by_id.get(cid)
+            assoc = assoc_by_id.get(cid)
+
+            # Patch crop
+            try:
+                crop_b64 = vector_pass.crop_callout_patch_base64(page0, node.bbox)
+            except Exception:
+                crop_b64 = ""
+
+            # Confidence assessment
+            lead_kind = assoc.association_kind if assoc else "UNMATCHED"
+            lead_dist = assoc.distance_score_pt if assoc else 999.0
+
+            signals = confidence.EvidenceSignals(
+                text_source="VECTOR_FONTS",
+                grammar_match="PERFECT_REGEX",
+                leader_association="DIRECT_LEADER" if lead_kind == "DIRECT_LEADER" else ("STACKED_SIBLING" if lead_kind == "STACKED_SIBLING" else "NO_LEADER"),
+                leader_distance_pt=lead_dist,
+                rotation_deg=node.rotation_deg,
+                vision_used=False,
+            )
+            conf_assessment = confidence.compute_honest_confidence(signals)
+
+            char_no = placed.char_no if placed else len(characteristics) + 1
+            zone = placed.zone if placed else "B2"
+            pos_x = placed.balloon_center.x if placed else (node.bbox.x0 - 20)
+            pos_y = placed.balloon_center.y if placed else (node.bbox.y0 - 20)
+
+            c_obj = {
+                "id": f"char_{id}_{cid}",
+                "char_no": char_no,
+                "balloonNumber": char_no,
+                "zone": zone,
+                "designator": rec.get("designator", "Standard"),
+                "raw_callout": node.raw_text,
+                "rawCallout": node.raw_text,
+                "featureDescription": rec.get("featureDescription", "Characteristic Callout"),
+                "nominal_text": node.raw_text.split()[0],
+                "nominal": rec.get("nominal", 0.0),
+                "nominal_value": rec.get("nominal", 0.0),
+                "plus_tol": rec.get("plus_tol", 0.0),
+                "plusTolerance": rec.get("plus_tol", 0.0),
+                "minus_tol": rec.get("minus_tol", 0.0),
+                "minusTolerance": rec.get("minus_tol", 0.0),
+                "lsl": rec.get("lsl", 0.0),
+                "usl": rec.get("usl", 0.0),
+                "units": rec.get("units", "mm"),
+                "gauge": "Digital Micrometer / Caliper",
+                "instrument": "Digital Micrometer / Caliper",
+                "status": "needs_review" if conf_assessment.needs_review else "in_spec",
+                "confidence": round(conf_assessment.score * 100.0, 1),
+                "needs_review": conf_assessment.needs_review,
+                "review_reasons": list(conf_assessment.review_reasons),
+                "bbox": {
+                    "x": node.bbox.x0,
+                    "y": node.bbox.y0,
+                    "width": node.bbox.width,
+                    "height": node.bbox.height,
+                },
+                "balloonPosition": {"x": pos_x, "y": pos_y},
+                "crop_base64": crop_b64,
+                "is_sample_data": False,
+                "isDemo": False,
+            }
+            characteristics.append(c_obj)
+
+        doc.close()
+
+        # Persist to SQLite
+        db.save_characteristics(id, characteristics)
+
+        return {
+            "drawing_id": id,
+            "characteristics": characteristics,
+            "count": len(characteristics),
+            "is_sample_data": False,
+        }
+
+    finally:
+        # Secure cleanup: Temporary PDF deleted in finally block
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+@app.get("/api/v1/drawings/{id}/balloons")
+async def get_balloons(id: str):
+    if id == "demo-as4092c" or id == "AS-4092-C":
+        return {
+            "drawing_id": id,
+            "characteristics": sample_data.SAMPLE_BALLOONS,
+            "count": len(sample_data.SAMPLE_BALLOONS),
+            "is_sample_data": True,
+        }
+
+    chars = db.get_characteristics(id)
+    if not chars:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "DRAWING_NOT_FOUND",
+                    "message": f"Drawing '{id}' was not found.",
+                    "details": {"drawing_id": id},
+                }
+            },
+        )
+
+    return {
+        "drawing_id": id,
+        "characteristics": chars,
+        "count": len(chars),
+        "is_sample_data": False,
+    }
+
+
+@app.patch("/api/v1/drawings/{id}/balloons/{char_id}")
+async def patch_balloon(id: str, char_id: str, updates: CharacteristicUpdateRequest):
+    update_data = updates.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "EMPTY_UPDATE",
+                    "message": "No valid fields provided for update.",
+                    "details": {},
+                }
+            },
+        )
+
+    updated = db.update_characteristic(id, char_id, update_data)
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "CHARACTERISTIC_NOT_FOUND",
+                    "message": f"Characteristic '{char_id}' not found for drawing '{id}'.",
+                    "details": {"drawing_id": id, "char_id": char_id},
+                }
+            },
+        )
+
+    return updated
+
+
+@app.patch("/api/v1/balloons/{char_id}")
+async def patch_balloon_by_id(char_id: str, updates: CharacteristicUpdateRequest):
+    update_data = updates.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "EMPTY_UPDATE",
+                    "message": "No valid fields provided for update.",
+                    "details": {},
+                }
+            },
+        )
+
+    updated = db.update_characteristic_by_id(char_id, update_data)
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "CHARACTERISTIC_NOT_FOUND",
+                    "message": f"Characteristic '{char_id}' not found.",
+                    "details": {"char_id": char_id},
+                }
+            },
+        )
+
+    return updated
+
+
+@app.post("/api/v1/exports/excel")
+@app.post("/api/v1/drawings/{id}/exports/excel")
+async def export_excel(payload: dict[str, Any], id: str | None = None):
+    drawing = payload.get("drawing") or (db.get_drawing(id) if id else None) or {}
+    chars = payload.get("characteristics") or (db.get_characteristics(id) if id else None) or []
+    if not chars and (id == "demo-as4092c" or id == "AS-4092-C"):
+        chars = sample_data.SAMPLE_BALLOONS
+        drawing = sample_data.SAMPLE_DRAWING_METADATA
+
+    try:
+        wb_bytes = excel_export.build_as9102_workbook_bytes(drawing, chars)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "EXCEL_GENERATION_FAILED",
+                    "message": f"Failed to generate AS9102 Rev C Excel workbook: {str(e)}",
+                    "details": {},
+                }
+            },
+        )
+
+    part_no = drawing.get("part_number", drawing.get("partNumber", "AS9102"))
+    filename = f"AS9102-RevC-{part_no}.xlsx"
+
+    return Response(
+        content=wb_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
-@app.post("/api/v1/drawings/{drawing_id}/exports/ballooned-pdf")
-def export_ballooned_pdf(drawing_id: str, payload: Dict[str, Any] = Body(...)):
-    """
-    Exports high-resolution annotated PDF with vector balloon overlays.
-    """
-    drawing_info = DRAWINGS_DB.get(drawing_id, {})
-    part_num = drawing_info.get("partNumber", "AS-4092-C")
-    
-    # Return minimal valid PDF stream with vector annotations
-    pdf_bytes = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 1200 800]/Parent 2 0 R>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000010 00000 n\n0000000053 00000 n\n0000000102 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF\n"
-    
+@app.post("/api/v1/drawings/{id}/exports/ballooned-pdf")
+async def export_ballooned_pdf(id: str, payload: dict[str, Any] = None):
+    drawing_meta = db.get_drawing(id) or {"part_number": "DRAWING", "width": 842.0, "height": 595.0}
+    chars = payload.get("characteristics") if (payload and "characteristics" in payload) else db.get_characteristics(id)
+    if not chars:
+        chars = sample_data.SAMPLE_BALLOONS
+
+    doc = fitz.open()
+    page = doc.new_page(width=float(drawing_meta.get("width", 842.0)), height=float(drawing_meta.get("height", 595.0)))
+    shape = page.new_shape()
+
+    for c in chars:
+        pos = c.get("balloonPosition", {})
+        cx = float(pos.get("x", 100))
+        cy = float(pos.get("y", 100))
+        shape.draw_circle(fitz.Point(cx, cy), 12.0)
+
+    shape.finish(width=1.2, color=(0.1, 0.4, 0.8), fill=(1, 1, 1))
+    shape.commit()
+
+    for c in chars:
+        pos = c.get("balloonPosition", {})
+        cx = float(pos.get("x", 100))
+        cy = float(pos.get("y", 100))
+        b_no = str(c.get("balloonNumber", c.get("char_no", 1)))
+        text_pt = fitz.Point(cx - 3.5 * len(b_no), cy + 3.5)
+        page.insert_text(text_pt, b_no, fontsize=9.0, color=(0.1, 0.4, 0.8))
+
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    part_no = drawing_meta.get("part_number", "BALLOONED")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=SpecBalloon_{part_num}_Ballooned.pdf"}
+        headers={"Content-Disposition": f'attachment; filename="Ballooned-{part_no}.pdf"'},
     )
-

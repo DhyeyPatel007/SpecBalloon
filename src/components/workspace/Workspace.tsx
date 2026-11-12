@@ -802,7 +802,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   return (
     <div
       data-ide-theme={darkMode ? 'dark-carbon' : 'light-studio'}
-      className="h-screen w-screen overflow-hidden flex flex-col bg-slate-900 select-none text-slate-100"
+      className={`h-screen w-screen overflow-hidden flex flex-col select-none transition-colors ${
+        darkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}
     >
       {/* 1. App Bar / Top Menu (48px) */}
       <StudioTopBar
@@ -869,15 +871,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             ]);
           }}
           isSampleData={isSampleData}
+          darkMode={darkMode}
         />
 
         {/* Right Column: CAD Canvas Stage (~70% Viewport) with 24px Precision Blueprint Grid */}
         <div
-          className="flex-1 relative bg-slate-900 overflow-hidden flex items-center justify-center"
+          className={`flex-1 relative overflow-hidden flex items-center justify-center transition-colors ${
+            darkMode ? 'bg-slate-900' : 'bg-slate-100/90'
+          }`}
           style={{
             backgroundSize: '24px 24px',
-            backgroundImage:
-              'linear-gradient(to right, rgba(56, 189, 248, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(56, 189, 248, 0.05) 1px, transparent 1px)',
+            backgroundImage: darkMode
+              ? 'linear-gradient(to right, rgba(56, 189, 248, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(56, 189, 248, 0.05) 1px, transparent 1px)'
+              : 'linear-gradient(to right, rgba(15, 23, 42, 0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(15, 23, 42, 0.06) 1px, transparent 1px)',
           }}
         >
           {hasDrawing && currentDrawing ? (
@@ -905,7 +911,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 );
                 setCharacteristics(sorted.map((c, i) => ({ ...c, balloonNumber: i + 1 })));
               }}
-              inverted={inverted}
+              inverted={darkMode ? true : inverted}
               onToggleInvert={() => setInverted((prev) => !prev)}
               customImage={customImage}
               onDropPdfFile={handleUploadPdf}
@@ -924,32 +930,49 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             <EmptyCanvasStartPage
               onUploadPdf={handleUploadPdf}
               onSelectSample={handleSelectSample}
+              darkMode={darkMode}
             />
           )}
 
           {/* Floating Canvas Zoom Controls */}
-          <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1 p-1 rounded-lg bg-slate-950/90 border border-slate-800 shadow-xl font-mono text-xs">
+          <div
+            className={`absolute bottom-4 right-4 z-20 flex items-center gap-1 p-1 rounded-lg shadow-xl font-mono text-xs border transition-colors ${
+              darkMode
+                ? 'bg-slate-950/90 border-slate-800 text-slate-300'
+                : 'bg-white/95 border-slate-300 text-slate-700 shadow-md'
+            }`}
+          >
             <button
               onClick={() => setZoom((z) => Math.max(0.2, Number((z - 0.15).toFixed(2))))}
-              className="p-1.5 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className={`p-1.5 rounded transition-colors cursor-pointer ${
+                darkMode ? 'hover:bg-slate-800 text-slate-300 hover:text-white' : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+              }`}
               title="Zoom Out (-)"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2 text-[11px] text-slate-400 tabular-nums">
+            <span
+              className={`px-2 text-[11px] tabular-nums ${
+                darkMode ? 'text-slate-400' : 'text-slate-600'
+              }`}
+            >
               {Math.round(zoom * 100)}%
             </span>
             <button
               onClick={() => setZoom((z) => Math.min(4.0, Number((z + 0.15).toFixed(2))))}
-              className="p-1.5 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className={`p-1.5 rounded transition-colors cursor-pointer ${
+                darkMode ? 'hover:bg-slate-800 text-slate-300 hover:text-white' : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+              }`}
               title="Zoom In (+)"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
-            <div className="h-3 w-px bg-slate-800 mx-0.5" />
+            <div className={`h-3 w-px mx-0.5 ${darkMode ? 'bg-slate-800' : 'bg-slate-300'}`} />
             <button
               onClick={() => setZoom(1.0)}
-              className="px-2 py-1 rounded hover:bg-slate-800 text-[10.5px] text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className={`px-2 py-1 rounded text-[10.5px] transition-colors cursor-pointer ${
+                darkMode ? 'hover:bg-slate-800 text-slate-300 hover:text-white' : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+              }`}
               title="Reset Zoom to 100%"
             >
               1:1
@@ -995,6 +1018,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         cursorCoords={cursorCoords}
         onToggleProperties={() => setIsPropertiesOpen((prev) => !prev)}
         isPropertiesOpen={isPropertiesOpen}
+        darkMode={darkMode}
       />
     </div>
   );
