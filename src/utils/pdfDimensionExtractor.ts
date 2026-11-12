@@ -156,13 +156,18 @@ export async function extractVectorDimensionsFromPdf(
       const pitch = m && m[2] ? parseFloat(m[2]) : 1.0;
       const t = calculateISOThread(nomDia, pitch);
       if (t) {
+        // Thread verdicts are judged on the ISO 965 pitch diameter (D2), the
+        // dimension a plug/ring gauge actually checks. Minor-diameter limits
+        // must never be used as the row limits for a pitch-diameter value.
+        const d2Lsl = t.pitchD2Lsl ?? t.minorD1Lsl;
+        const d2Usl = t.pitchD2Usl ?? t.minorD1Usl;
         parsed = {
           nominal_text: text,
           nominal_value: t.nominalDiameter,
-          plusTolerance: Number((t.minorD1Usl - t.nominalDiameter).toFixed(3)),
-          minusTolerance: Number((t.nominalDiameter - t.minorD1Lsl).toFixed(3)),
-          lower_limit: t.minorD1Lsl,
-          upper_limit: t.minorD1Usl,
+          plusTolerance: Number((d2Usl - t.pitchDiameterD2).toFixed(3)),
+          minusTolerance: Number((t.pitchDiameterD2 - d2Lsl).toFixed(3)),
+          lower_limit: d2Lsl,
+          upper_limit: d2Usl,
           toleranceType: 'Thread',
           instrument: `Thread Go/No-Go Plug Gage (${text})`,
           threadData: t,
