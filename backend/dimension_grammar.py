@@ -3,10 +3,83 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
+import dataclasses
 
 import limits_math
 from vector_pass import normalize_pua_for_clustering
+
+try:
+    from geometry_first_clustering import parse_special_range_or_angular_callout
+except ImportError:
+    from backend.geometry_first_clustering import parse_special_range_or_angular_callout
+
+_KIND_MAP = {
+    "DIAMETER": "DIAMETER",
+    "RADIUS": "RADIUS",
+    "LINEAR": "LINEAR",
+    "ANGULAR": "ANGULAR",
+    "SURFACE_FINISH": "SURFACE_ROUGHNESS",
+    "SURFACE_ROUGHNESS": "SURFACE_ROUGHNESS",
+}
+
+_TOL_KIND_MAP = {
+    "MIN_MAX_RANGE": "LIMIT_STACK",
+    "LIMIT_STACK": "LIMIT_STACK",
+    "GENERAL_TOL": "GENERAL_TOL",
+}
+
+_UNITS_MAP = {
+    "MM": "mm",
+    "DEG": "deg",
+    "UM": "um",
+}
+
+
+def adapt_special_callout_to_parsed_dimension(raw_text: str) -> Optional["ParsedDimension"]:
+    """
+    Adapter converting `parse_special_range_or_angular_callout(raw_text)` dict
+    into the repo's frozen `ParsedDimension` dataclass (`dimension_grammar.py`).
+    Call at the top of `parse_dimension_callout(raw_text, ...)` before `CHAMFER_RE`.
+    """
+    spec = parse_special_range_or_angular_callout(raw_text)
+    if spec is None:
+        return None
+
+    dim_kind = _KIND_MAP.get(spec["kind"], "LINEAR")
+    tol_kind = _TOL_KIND_MAP.get(spec["tolerance_kind"], "LIMIT_STACK")
+    units = _UNITS_MAP.get(str(spec.get("units", "MM")).upper(), "mm")
+
+    nominal = float(spec["nominal"])
+    lsl = float(spec["lsl"]) if spec.get("lsl") is not None else None
+    usl = float(spec["usl"]) if spec.get("usl") is not None else None
+    plus_tol = round(usl - nominal, 4) if usl is not None else None
+    minus_tol = round(lsl - nominal, 4) if lsl is not None else None
+
+    # NOTE: ParsedDimension has NO lsl/usl fields — limits travel as plus_tol/minus_tol.
+    # The field is `prefix_symbol`, NOT `prefix`. thread_pitch / thread_class /
+    # chamfer_angle_deg are REQUIRED (no defaults) — they must be present as None.
+    candidate_kwargs = {
+        "raw_callout": spec["raw_callout"],
+        "kind": dim_kind,
+        "tolerance_kind": tol_kind,
+        "nominal": nominal,
+        "plus_tol": plus_tol,
+        "minus_tol": minus_tol,
+        "prefix_symbol": spec.get("prefix") or "",
+        "quantity": int(spec.get("quantity", 1)),
+        "units": units,
+        "fit_class": None,
+        "thread_pitch": None,
+        "thread_class": None,
+        "chamfer_angle_deg": None,
+        "is_reference": False,
+    }
+
+    # Filter strictly to the fields defined on `ParsedDimension` at baf6ad1
+    valid_field_names = {f.name for f in dataclasses.fields(ParsedDimension)}
+    filtered_kwargs = {k: v for k, v in candidate_kwargs.items() if k in valid_field_names}
+    return ParsedDimension(**filtered_kwargs)
 
 # 1. Roughness Range Regex: matches 'Rz 6.3…16', 'Rz 6.3...16', 'Ra 0.8-1.6 µm'
 SURFACE_RANGE_RE = re.compile(
@@ -304,6 +377,10 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
         g in text for g in ("⌖", "⏥", "⏤", "◯", "⌭", "⌒", "⌓", "⟂", "∠", "//", "◎", "⌯", "↗", "⌰")
     ):
         return None
+
+    special_dim = adapt_special_callout_to_parsed_dimension(raw_text)
+    if special_dim is not None:
+        return special_dim
 
     # Working copy for parsing: normalise dashes, private-use glyphs and
     # inch fractions. raw_callout keeps the display text (the return sites

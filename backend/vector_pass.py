@@ -1171,258 +1171,168 @@ def extract_vector_boxed_gdt_frames(
     return assembled_frames, consumed_ids
 
 
+try:
+    from geometry_first_clustering import (
+        BBox as TupleBBox,
+        Segment as TupleSegment,
+        cluster_spans_geometry_guided,
+        find_fcf_locked_span_ids,
+        _extract_rect_bboxes,
+    )
+except ImportError:
+    from backend.geometry_first_clustering import (
+        BBox as TupleBBox,
+        Segment as TupleSegment,
+        cluster_spans_geometry_guided,
+        find_fcf_locked_span_ids,
+        _extract_rect_bboxes,
+    )
+
+
+def _span_to_dict(sp: "TextSpan") -> dict[str, Any]:
+    """Convert repo `TextSpan` dataclass into the dict format for `cluster_spans_geometry_guided`."""
+    b = sp.bbox
+    t = sp.text.replace("\xad", "-").replace("\xa0", " ")
+    return {
+        "id": sp.span_id,
+        "text": t,
+        "bbox": (float(b.x0), float(b.y0), float(b.x1), float(b.y1)),
+        "angle_deg": float(getattr(sp, "rotation_deg", 0.0) or 0.0),
+        "size": float(getattr(sp, "font_size", 8.0) or 8.0),
+    }
+
+
+def _rect_to_tuple(r: Any) -> Optional[TupleBBox]:
+    """Convert repo `BBox` dataclass (or dict/tuple) into `(x0, y0, x1, y1)`."""
+    if hasattr(r, "x0") and hasattr(r, "y0") and hasattr(r, "x1") and hasattr(r, "y1"):
+        return (float(r.x0), float(r.y0), float(r.x1), float(r.y1))
+    if hasattr(r, "bbox"):
+        b = r.bbox
+        return (float(b.x0), float(b.y0), float(b.x1), float(b.y1))
+    if isinstance(r, dict) and "bbox" in r:
+        b = r["bbox"]
+        return (float(b[0]), float(b[1]), float(b[2]), float(b[3]))
+    if isinstance(r, (tuple, list)) and len(r) >= 4:
+        return (float(r[0]), float(r[1]), float(r[2]), float(r[3]))
+    return None
+
+
+def _seg_to_tuple(s: Any) -> Optional[TupleSegment]:
+    """Convert repo `LineSegment` dataclass (`p1: Point2D, p2: Point2D`) into `(x0, y0, x1, y1)`."""
+    if hasattr(s, "p1") and hasattr(s, "p2"):
+        return (float(s.p1.x), float(s.p1.y), float(s.p2.x), float(s.p2.y))
+    if hasattr(s, "x0") and hasattr(s, "y0") and hasattr(s, "x1") and hasattr(s, "y1"):
+        return (float(s.x0), float(s.y0), float(s.x1), float(s.y1))
+    if isinstance(s, (tuple, list)) and len(s) >= 4:
+        return (float(s[0]), float(s[1]), float(s[2]), float(s[3]))
+    return None
+
+
+def _cluster_dict_to_span(
+    cluster: dict[str, Any],
+    span_by_id: dict[Any, "TextSpan"],
+    fallback_span: "TextSpan",
+) -> "TextSpan":
+    """
+    Reconstruct a repo `TextSpan` dataclass from a cluster dict, preserving the
+    seed span's `span_id`, `origin`, `font_name`, `font_size`, and `rotation_deg`.
+    """
+    span_ids = cluster.get("span_ids") or []
+    seed_span = next(
+        (span_by_id[sid] for sid in span_ids if sid in span_by_id),
+        fallback_span,
+    )
+    bx0, by0, bx1, by1 = cluster["bbox"]
+    merged_bbox = BBox(x0=float(bx0), y0=float(by0), x1=float(bx1), y1=float(by1))
+    raw_callout = cluster["raw_callout"]
+    # Normalize stacked bilateral tolerances '+0.10/-0.05' -> '+0.10 / -0.05'
+    # so that repo assertions like '4.7 +0.10 / -0.05' match and spacing is consistent
+    formatted_callout = re.sub(
+        r"([+-]\d*(?:\.\d+)?)\s*/\s*([+-]?\d*(?:\.\d+)?)",
+        r"\1 / \2",
+        raw_callout,
+    )
+    return TextSpan(
+        span_id=seed_span.span_id,
+        text=formatted_callout,
+        bbox=merged_bbox,
+        origin=seed_span.origin,
+        font_name=seed_span.font_name,
+        font_size=seed_span.font_size,
+        rotation_deg=seed_span.rotation_deg,
+        is_clustered=True,
+        constituent_texts=[formatted_callout],
+    )
+
+
 def cluster_spans_rotation_aware(
-    spans: list[TextSpan],
-    rectangles: list[BBox] | None = None,
-    segments: list[LineSegment] | None = None,
-    circles: list[tuple[Point2D, float]] | None = None,
-) -> list[TextSpan]:
+    raw_spans: Sequence["TextSpan"],
+    rectangles: Optional[Sequence[Any]] = None,
+    segments: Optional[Sequence[Any]] = None,
+    circles: Optional[Sequence[Any]] = None,
+) -> list["TextSpan"]:
     """
-    Two-Phase Rotation-Aware & Mutual-Nearest Clustering Engine:
-    - Phase 0: Extract vector-boxed and symbol-headed GD&T frames so internal '0.05', '0.005',
-      and datum letters never leak into the dimension pass.
-    - Phase 1 (Core Stem Assembly along baseline u_hat):
-      Joins split prefixes ('4X', 'Ø', 'R', 'M', 'Ra', 'Rz', '≥', '≤') + base number ('57', '10', '67')
-      + immediate baseline suffixes ('°', fit classes 'f7', 'f8', 'H6 Ⓔ', range '...16') at ANY rotation angle!
-    - Phase 2 (Mutual-Nearest Tolerance Attachment):
-      Each tolerance token (or vertically stacked +tol / -tol pair at the same u-column) attaches ONLY to its
-      closest valid parent stem to the baseline-left, measuring u_gap strictly from the base stem's u_max
-      so stacked lower tolerances ('-0.05', '-0.4') are NEVER dropped and neighboring tolerances are NEVER stolen!
+    Drop-in replacement for `cluster_spans_rotation_aware` in `backend/vector_pass.py` (line 1174)
+    matching the exact call signature at commit `baf6ad1`. `circles` is accepted and unused.
     """
+    if not raw_spans:
+        return []
+
     rects = rectangles or []
     segs = segments or []
     circs = circles or []
+
     # Phase 0: Boxed & Row GD&T Frame Extraction
-    gdt_frames, consumed = extract_vector_boxed_gdt_frames(spans, rects, segs, circs)
-    pool = [
-        replace(s, text=normalize_glyphs(s.text))
-        for s in spans
-        if s.span_id not in consumed and normalize_glyphs(s.text)
-    ]
-    # Classify remaining tokens
-    def _tok_kind(t: str) -> str:
-        if not t:
-            return "OTHER"
-        if re.match(r"^[Mm]\d", t):
-            return "OTHER"  # Muse FIX: thread (M4 / M10x1.5), NEVER a fit class
-        if t in ("°", "µm", "um"):
-            return "UNIT_SUFFIX"
-        if t in ("Ⓔ", "Ⓜ", "Ⓛ", "(E)", "(M)", "(L)"):
-            return "ENVELOPE"
-        if PREFIX_RE.match(t):
-            return "PREFIX"
-        if FIT_RE.match(t):
-            return "FIT"
-        if TOL_RE.match(t):
-            return "TOL"
-        if RANGE_CONT_RE.match(t):
-            return "RANGE_CONT"
-        if NUM_RE.match(t):
-            return "NUM"
-        return "OTHER"
-    # Phase 1: Assemble Core Stems ([PREFIX]* + NUM + [UNIT_SUFFIX | FIT | ENVELOPE | RANGE_CONT]*)
-    used_in_stem: set[str] = set()
-    stems: list[TextSpan] = []
-    # Sort NUM tokens first so every number forms a stem
-    num_spans = [s for s in pool if _tok_kind(s.text) == "NUM"]
-    for num_sp in num_spans:
-        if num_sp.span_id in used_in_stem:
-            continue
-        used_in_stem.add(num_sp.span_id)
-        u_hat, v_hat = _baseline_frame(num_sp.rotation_deg)
-        h = max(num_sp.font_size, min(num_sp.bbox.width, num_sp.bbox.height), 5.0)
-        u_min_base, u_max_base, _, _, _, _ = _project_bbox(num_sp.bbox, num_sp.origin, u_hat, v_hat)
-        left_prefixes: list[tuple[float, TextSpan]] = []
-        right_suffixes: list[tuple[float, TextSpan]] = []
-        for cand in pool:
-            if cand.span_id in used_in_stem:
-                continue
-            if not _angles_compatible(num_sp.rotation_deg, cand.rotation_deg):
-                continue
-            ck = _tok_kind(cand.text)
-            if ck not in ("PREFIX", "UNIT_SUFFIX", "FIT", "ENVELOPE", "RANGE_CONT"):
-                continue
-            cu_min, cu_max, _, _, _, cv_c = _project_bbox(cand.bbox, num_sp.origin, u_hat, v_hat)
-            if abs(cv_c) > 0.65 * h:
-                continue
-            # Left prefix ('4X', 'Ø', 'R', 'Ra', 'Rz', '≥') immediately before number along -u_hat
-            if ck == "PREFIX" and -2.2 * h <= (u_min_base - cu_max) <= 1.8 * h and cu_min < u_min_base:
-                left_prefixes.append((cu_min, cand))
-            # Immediate baseline suffix ('°', 'f7', 'f8', 'H6', 'Ⓔ', '…16') immediately after number along +u_hat
-            elif ck in ("UNIT_SUFFIX", "FIT", "ENVELOPE", "RANGE_CONT") and -0.35 * h <= (cu_min - u_max_base) <= 2.2 * h:
-                right_suffixes.append((cu_min, cand))
-        left_prefixes.sort(key=lambda x: x[0])
-        right_suffixes.sort(key=lambda x: x[0])
-        # Only keep the closest FIT token (plus any trailing ENVELOPE token)
-        kept_left = [sp for _, sp in left_prefixes[-2:]]
-        kept_right: list[TextSpan] = []
-        has_fit = False
-        for _, rsp in right_suffixes:
-            rk = _tok_kind(rsp.text)
-            if rk == "FIT":
-                if not has_fit:
-                    kept_right.append(rsp)
-                    has_fit = True
-            else:
-                kept_right.append(rsp)
-        all_parts = kept_left + [num_sp] + kept_right
-        union_box = num_sp.bbox
-        raw_list: list[str] = []
-        for p in all_parts:
-            used_in_stem.add(p.span_id)
-            union_box = union_box.union(p.bbox)
-            raw_list.extend(p.constituent_texts or [p.text])
-        # Join nicely (no space before '°', space before fit classes like 'Ø 10 f7')
-        stem_str = ""
-        for p in all_parts:
-            pt = p.text
-            if not stem_str:
-                stem_str = pt
-            elif pt == "°" or pt.startswith("…") or pt.startswith(".."):
-                stem_str += pt
-            else:
-                stem_str += " " + pt
-        stems.append(
-            replace(
-                num_sp,
-                text=stem_str.strip(),
-                bbox=union_box,
-                is_clustered=len(all_parts) > 1,
-                constituent_texts=raw_list,
-            )
-        )
-    # Muse FIX: a thread composite ('M10x1.5 - 6H') classifies OTHER, not NUM, so Phase 1
-    # never attaches its quantity prefix ('4X', '2 x') to it — the prefix would be left as a
-    # stray span and the thread record would lose its quantity (synthetic case1 regression).
-    # Claim a left quantity prefix onto thread-OTHER primaries first.
-    for s in pool:
-        if s.span_id not in used_in_stem and _tok_kind(s.text) == "OTHER" and re.match(r"^[Mm]\d", s.text):
-            u_hat, v_hat = _baseline_frame(s.rotation_deg)
-            h = max(s.font_size, min(s.bbox.width, s.bbox.height), 5.0)
-            s_u_min, _, _, _, _, _ = _project_bbox(s.bbox, s.origin, u_hat, v_hat)
-            left_qty: list[tuple[float, TextSpan]] = []
-            for cand in pool:
-                if cand.span_id in used_in_stem or cand.span_id == s.span_id:
-                    continue
-                if not _angles_compatible(s.rotation_deg, cand.rotation_deg):
-                    continue
-                if _tok_kind(cand.text) != "PREFIX":
-                    continue
-                cu_min, cu_max, _, _, _, cv_c = _project_bbox(cand.bbox, s.origin, u_hat, v_hat)
-                if abs(cv_c) > 0.65 * h:
-                    continue
-                if -2.2 * h <= (s_u_min - cu_max) <= 1.8 * h and cu_min < s_u_min:
-                    left_qty.append((cu_min, cand))
-            left_qty.sort(key=lambda x: x[0])
-            parts = [sp for _, sp in left_qty] + [s]
-            union_box = s.bbox
-            raw_list: list[str] = []
-            for p in parts:
-                used_in_stem.add(p.span_id)
-                union_box = union_box.union(p.bbox)
-                raw_list.extend(p.constituent_texts or [p.text])
-            stems.append(
-                replace(
-                    s,
-                    text=" ".join(p.text for p in parts).strip(),
-                    bbox=union_box,
-                    is_clustered=len(parts) > 1,
-                    constituent_texts=raw_list,
-                )
-            )
-    # Also keep already-complete composite spans (e.g. single spans that already contain 'Ø 2 ±0.05' or 'M10x1.5 - 6H')
-    for s in pool:
-        if s.span_id not in used_in_stem and _tok_kind(s.text) == "OTHER":
-            stems.append(s)
-            used_in_stem.add(s.span_id)
-    # Phase 2: Mutual-Nearest Bipartite Assignment for Standalone TOL Tokens ('±0.05', '+0.10', '-0.05', '+0.2', '-0.4')
-    tol_spans = [s for s in pool if s.span_id not in used_in_stem and _tok_kind(s.text) == "TOL"]
-    # Map each tol_span to its SINGLE closest valid parent stem to the baseline-left
-    stem_claimed_tols: dict[str, list[tuple[float, float, TextSpan]]] = {st.span_id: [] for st in stems}
-    for tsp in tol_spans:
-        best_stem: TextSpan | None = None
-        best_score = 9999.0
-        best_u_min = 0.0
-        best_v_c = 0.0
-        for st in stems:
-            # Do not attach tolerances onto comments, notes (>25 chars), or already-toleranced stems
-            if len(st.text) > 25 or st.text.startswith("(") or "±" in st.text:
-                continue
-            if not _angles_compatible(st.rotation_deg, tsp.rotation_deg):
-                continue
-            u_hat, v_hat = _baseline_frame(st.rotation_deg)
-            h = max(st.font_size, min(st.bbox.width, st.bbox.height), 5.0)
-            _, st_u_max, _, _, _, _ = _project_bbox(st.bbox, st.origin, u_hat, v_hat)
-            tu_min, _, _, _, _, tv_c = _project_bbox(tsp.bbox, st.origin, u_hat, v_hat)
-            # CRITICAL FIX: Measure u_gap strictly from the base stem's trailing edge st_u_max!
-            u_gap = tu_min - st_u_max
-            if not (-0.35 * h <= u_gap <= 1.75 * h):
-                continue
-            if abs(tv_c) > 1.20 * h:
-                continue
-            # Anisotropic distance score (strongly penalizes cross-row stealing)
-            score = math.hypot(max(0.0, u_gap), 2.2 * tv_c)
-            if score < best_score:
-                best_score = score
-                best_stem = st
-                best_u_min = tu_min
-                best_v_c = tv_c
-        if best_stem is not None:
-            stem_claimed_tols[best_stem.span_id].append((best_v_c, best_u_min, tsp))
-            used_in_stem.add(tsp.span_id)
-    # Assemble final stems with their mutually-assigned tolerances
+    gdt_frames, gdt_consumed = extract_vector_boxed_gdt_frames(list(raw_spans), rects, segs, circs)
+
+    span_by_id = {sp.span_id: sp for sp in raw_spans}
+    span_dicts = [_span_to_dict(sp) for sp in raw_spans if sp.span_id not in gdt_consumed]
+    rect_tuples = [rt for r in rects if (rt := _rect_to_tuple(r)) is not None]
+    seg_tuples = [st for s in segs if (st := _seg_to_tuple(st_item := s)) is not None]
+
+    clustered_dicts = cluster_spans_geometry_guided(
+        spans=span_dicts,
+        rects=rect_tuples,
+        segments=seg_tuples,
+    )
+
+    consumed_ids: set[Any] = set(gdt_consumed)
+    for c in clustered_dicts:
+        consumed_ids.update(c.get("span_ids", []))
+
     final_spans: list[TextSpan] = list(gdt_frames)
-    for st in stems:
-        assigned = stem_claimed_tols.get(st.span_id, [])
-        if not assigned:
-            final_spans.append(st)
-            continue
-        # Sort by v_c (top-to-bottom perpendicular to baseline: +tol on top, -tol on bottom)
-        assigned.sort(key=lambda item: item[0])
-        chosen_tols: list[TextSpan] = []
-        if len(assigned) == 1:
-            chosen_tols = [assigned[0][2]]
-        else:
-            # Keep a stacked +/- pair if both sit in the same u-column (|Δu_min| <= 12 pt)
-            first_v, first_u, first_sp = assigned[0]
-            chosen_tols = [first_sp]
-            for v_c, u_min, cand_sp in assigned[1:]:
-                if abs(u_min - first_u) <= 14.0 and abs(v_c - first_v) >= 2.0:
-                    if not first_sp.text.startswith("±") and not cand_sp.text.startswith("±"):
-                        chosen_tols.append(cand_sp)
-                        break
-        # EXPLICIT TOLERANCE BEATS FIT RULE: if stem had a trailing fit class ('1 h9') AND now has explicit tolerance ('+0.2'),
-        # strip the trailing fit token from stem text so explicit tolerance wins!
-        base_text = st.text
-        m_strip_fit = re.match(r"^([Ø⌀R]?\s*\d+(?:\.\d+)?)\s+([a-zA-Z]{1,2}\d{1,2})$", base_text)
-        if m_strip_fit:
-            base_text = m_strip_fit.group(1)
-        union_b = st.bbox
-        c_texts = list(st.constituent_texts or [st.text])
-        for tsp in chosen_tols:
-            union_b = union_b.union(tsp.bbox)
-            c_texts.append(tsp.text)
-        if len(chosen_tols) == 2:
-            # Ensure '+' is listed first and '-' second
-            t1, t2 = chosen_tols[0].text, chosen_tols[1].text
-            if t1.startswith("-") and t2.startswith("+"):
-                t1, t2 = t2, t1
-            tol_str = f"{t1} / {t2}"
-        else:
-            tol_str = chosen_tols[0].text
-        final_spans.append(
-            replace(
-                st,
-                text=f"{base_text} {tol_str}".strip(),
-                bbox=union_b,
-                is_clustered=True,
-                constituent_texts=c_texts,
-            )
-        )
-    # Append any unclaimed leftover spans
-    for s in pool:
-        if s.span_id not in used_in_stem:
-            final_spans.append(s)
+    for c in clustered_dicts:
+        final_spans.append(_cluster_dict_to_span(c, span_by_id, raw_spans[0]))
+
+    # Retain standalone unclustered spans that are valid callouts or GD&T frames
+    # (e.g. pipe GD&T frames, chamfers, or prefixed dims) while suppressing orphan tolerance fragments
+    try:
+        from dimension_grammar import parse_dimension_callout
+        from gdt_parser import parse_gdt_frame
+    except ImportError:
+        from backend.dimension_grammar import parse_dimension_callout
+        from backend.gdt_parser import parse_gdt_frame
+
+    fcf_boxes = _extract_rect_bboxes(rect_tuples)
+    locked_ids = find_fcf_locked_span_ids(span_dicts, fcf_boxes)
+    for s in raw_spans:
+        if s.span_id not in consumed_ids and s.span_id not in locked_ids:
+            norm_t = s.text.replace("\xad", "-").replace("\xa0", " ")
+            if parse_gdt_frame(norm_t) or parse_dimension_callout(norm_t):
+                final_spans.append(
+                    TextSpan(
+                        span_id=s.span_id,
+                        text=norm_t,
+                        bbox=s.bbox,
+                        origin=s.origin,
+                        font_name=s.font_name,
+                        font_size=s.font_size,
+                        rotation_deg=s.rotation_deg,
+                        is_clustered=False,
+                        constituent_texts=[norm_t],
+                    )
+                )
+
     return final_spans
 
 
