@@ -182,6 +182,7 @@ async def analyze_cropped_patch_with_gemini(
     crop_base64_png: str,
     vector_text_in_bbox: str | None = None,
     api_key: str | None = None,
+    prompt: str | None = None,
 ) -> VisionPatchExtraction:
     resolved_key = (api_key or os.getenv("GEMINI_API_KEY") or "").strip()
     if not resolved_key:
@@ -196,16 +197,28 @@ async def analyze_cropped_patch_with_gemini(
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{_vision_model()}:generateContent?key={resolved_key}"
     )
-    prompt = (
+    active_prompt = prompt or (
         "You are an ASME Y14.5 / ISO 1101 engineering blueprint OCR parser. "
         "Read ONLY the cropped callout or GD&T Feature Control Frame in this image patch. "
         "For GD&T frames or surface roughness (Ra), set nominal=0, minus_tol=0, and plus_tol=tolerance zone."
     )
+    if prompt is not None:
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "raw_callout": {"type": "STRING"},
+                "confidence": {"type": "NUMBER"},
+            },
+            "required": ["raw_callout", "confidence"],
+        }
+    else:
+        schema = GEMINI_PATCH_RESPONSE_SCHEMA
+
     payload = {
         "contents": [
             {
                 "parts": [
-                    {"text": prompt},
+                    {"text": active_prompt},
                     {"inline_data": {"mime_type": "image/png", "data": b64_clean}},
                 ]
             }
@@ -213,7 +226,7 @@ async def analyze_cropped_patch_with_gemini(
         "generationConfig": {
             "temperature": 0.0,
             "responseMimeType": "application/json",
-            "responseSchema": GEMINI_PATCH_RESPONSE_SCHEMA,
+            "responseSchema": schema,
         },
     }
 
@@ -224,6 +237,14 @@ async def analyze_cropped_patch_with_gemini(
             body = resp.json()
             raw_json = body["candidates"][0]["content"]["parts"][0]["text"]
             parsed = json.loads(raw_json)
+            if prompt is not None:
+                raw_call = str(parsed.get("raw_callout", "")).strip()
+                conf = float(parsed.get("confidence", 0.75))
+                return VisionPatchExtraction(
+                    status="OK",
+                    raw_callout=raw_call,
+                    vision_confidence=min(0.95, max(0.10, conf)),
+                )
             return reconcile_vision_with_vector(parsed, vector_text_in_bbox)
     except Exception as exc:
         # The exception text can embed the request URL (with ?key=...),
@@ -287,7 +308,7 @@ def analyze_symbol_compartment_strokes(
             continue
         if sym_cell.contains_point(seg.midpoint, tol=1.5):
             ang = abs(seg.angle_deg) % 180.0
-            if 22.0 <= ang <= 68.0:
+            if (22.0 <= ang <= 68.0) or (112.0 <= ang <= 158.0):
                 has_diag = True
             elif ang <= 10.0:
                 has_horiz = True
@@ -354,6 +375,173 @@ def verify_vision_symbol_second_check(
     glyph = NAME_TO_GLYPH.get(resolved_type, "⌖")
     capped_confidence = round(min(0.70, max(0.45, vision_confidence * 0.72)), 3)
     return resolved_type, glyph, capped_confidence, notes
+
+
+async def rescue_stroked_dimension_callouts(
+    page: Any,
+    unmatched_dim_entities: Sequence[Any],
+    unclaimed_short_stroke_clusters: Sequence[Any],
+    page_index: int = 0,
+    general_tol_class: str = "m",
+    api_key: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """
+    Rescues callouts printed as vector outlines with zero text spans (e.g. real03 'Ø 59', '(20.7)').
+    For each cluster (<= 4 per page), if its center is within 18 pt of an unmatched dimension-line midpoint,
+    crop + call vision with prompt.
+    """
+    if not unmatched_dim_entities or not unclaimed_short_stroke_clusters:
+        return []
+
+    try:
+        from vector_pass import BBox, Point2D, crop_callout_patch_base64
+    except ImportError:
+        from backend.vector_pass import BBox, Point2D, crop_callout_patch_base64
+
+    try:
+        from dimension_grammar import parse_dimension_callout, parse_special_dimension_cases
+        from limits_math import calculate_iso_2768_limits, calculate_iso_286_limits
+    except ImportError:
+        from backend.dimension_grammar import parse_dimension_callout, parse_special_dimension_cases
+        from backend.limits_math import calculate_iso_2768_limits, calculate_iso_286_limits
+
+    prompt = (
+        "Read the exact engineering dimension callout rendered as vector strokes in this patch. "
+        "Preserve any diameter symbol (Ø), radius (R), or reference parentheses like (20.7) or (Ø 27). "
+        'Return strict JSON: {"raw_callout": "<string>", "confidence": <0.0-1.0>}.'
+    )
+
+    rescued: list[dict[str, Any]] = []
+    calls = 0
+
+    for cluster in unclaimed_short_stroke_clusters:
+        if calls >= 4:
+            break
+
+        # Extract cluster bbox
+        if isinstance(cluster, dict) and "bbox" in cluster:
+            b = cluster["bbox"]
+            cb = BBox(float(b[0]), float(b[1]), float(b[2]), float(b[3]))
+        elif hasattr(cluster, "bbox"):
+            cb = cluster.bbox
+        elif hasattr(cluster, "x0"):
+            cb = cluster
+        elif isinstance(cluster, (list, tuple)) and len(cluster) > 0 and hasattr(cluster[0], "p1"):
+            min_x = min(min(s.p1.x, s.p2.x) for s in cluster)
+            min_y = min(min(s.p1.y, s.p2.y) for s in cluster)
+            max_x = max(max(s.p1.x, s.p2.x) for s in cluster)
+            max_y = max(max(s.p1.y, s.p2.y) for s in cluster)
+            cb = BBox(min_x, min_y, max_x, max_y)
+        elif isinstance(cluster, (list, tuple)) and len(cluster) >= 4 and isinstance(cluster[0], (int, float)):
+            cb = BBox(float(cluster[0]), float(cluster[1]), float(cluster[2]), float(cluster[3]))
+        else:
+            continue
+
+        cx, cy = (cb.x0 + cb.x1) * 0.5, (cb.y0 + cb.y1) * 0.5
+
+        # Check if center is within 18 pt of an unmatched dimension-line midpoint
+        matched_dl = None
+        for dl in unmatched_dim_entities:
+            mid = dl.midpoint if hasattr(dl, "midpoint") else Point2D(dl[0], dl[1])
+            if math.hypot(cx - mid.x, cy - mid.y) <= 18.0:
+                matched_dl = dl
+                break
+
+        if not matched_dl:
+            continue
+
+        calls += 1
+        try:
+            crop_b64 = crop_callout_patch_base64(page, cb, dpi=300, pad_pt=8.0)
+        except Exception:
+            continue
+
+        vis = await analyze_cropped_patch_with_gemini(
+            crop_base64_png=crop_b64,
+            prompt=prompt,
+            api_key=api_key,
+        )
+
+        if vis.status != "OK" or not vis.raw_callout:
+            continue
+
+        raw = vis.raw_callout.strip()
+        vision_conf = vis.vision_confidence or 0.70
+
+        if raw.startswith("(") and raw.endswith(")"):
+            inner = raw[1:-1].strip()
+            num_match = re.search(r"(\d+(?:\.\d+)?)", inner)
+            nom = float(num_match.group(1)) if num_match else 0.0
+            kind = "REFERENCE"
+            tol_kind = "BASIC_REF"
+            lsl, usl = None, None
+            plus_tol, minus_tol = 0.0, 0.0
+        else:
+            pd = parse_special_dimension_cases(raw)
+            if pd is None:
+                pd = parse_dimension_callout(raw)
+            if pd is None:
+                continue
+
+            nom = float(pd.nominal) if pd.nominal is not None else 0.0
+            kind = pd.kind
+            tol_kind = pd.tolerance_kind
+            lsl, usl = None, None
+            plus_tol = float(pd.plus_tol) if pd.plus_tol is not None else 0.0
+            minus_tol = float(pd.minus_tol) if pd.minus_tol is not None else 0.0
+
+            if pd.tolerance_kind == "ISO_FIT" and pd.fit_class:
+                lim = calculate_iso_286_limits(nom, pd.fit_class)
+                if lim:
+                    lsl, usl = float(lim.lsl), float(lim.usl)
+            elif pd.tolerance_kind == "MAX_LIMIT":
+                lsl, usl = 0.0, nom
+            elif pd.tolerance_kind == "MIN_LIMIT":
+                lsl, usl = nom, None
+            elif pd.plus_tol is not None and pd.minus_tol is not None:
+                lsl = round(nom + float(pd.minus_tol), 4)
+                usl = round(nom + float(pd.plus_tol), 4)
+            elif pd.tolerance_kind == "GENERAL_TOL" and pd.kind in ("LINEAR", "DIAMETER", "RADIUS"):
+                lim = calculate_iso_2768_limits(nom, general_tol_class)
+                if lim:
+                    lsl, usl = float(lim.lsl), float(lim.usl)
+
+        rec = {
+            "raw_callout": raw,
+            "rawCallout": raw,
+            "kind": kind,
+            "tolerance_kind": tol_kind,
+            "nominal": nom,
+            "nominal_value": nom,
+            "nominal_text": str(nom),
+            "plus_tol": plus_tol,
+            "plusTolerance": plus_tol,
+            "minus_tol": minus_tol,
+            "minusTolerance": minus_tol,
+            "lsl": lsl,
+            "usl": usl,
+            "units": "mm",
+            "bbox": {
+                "x": float(cb.x0),
+                "y": float(cb.y0),
+                "width": float(cb.width),
+                "height": float(cb.height),
+            },
+            "extraction_source": "vision_stroked_rescue",
+            "confidence": round(min(vision_conf, 0.72) * 100.0, 1),
+            "needs_review": True,
+            "review_reason": "Stroked vector-outline callout rescued via Vision OCR — verify before sign-off",
+            "review_reasons": ["Stroked vector-outline callout rescued via Vision OCR — verify before sign-off"],
+            "page_index": page_index,
+            "sheet": page_index + 1,
+            "is_sample_data": False,
+            "isDemo": False,
+            "geometry_matched": True,
+        }
+        rescued.append(rec)
+
+    return rescued
+
 
 
 def test_gemini_vision() -> None:

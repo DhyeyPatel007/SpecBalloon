@@ -99,7 +99,12 @@ export async function extractDrawingApi(drawingId: string, demo: boolean = false
 
     if (res.ok) {
       const data = await res.json();
-      return normalizeBackendBalloons(data.characteristics || data.balloons || data);
+      const balloons = normalizeBackendBalloons(data.characteristics || data.balloons || data);
+      if (data.warning_banner) {
+        (balloons as any).warning_banner = data.warning_banner;
+        (balloons as any).extraction_mode = data.extraction_mode;
+      }
+      return balloons;
     } else {
       const errorText = await res.text().catch(() => res.statusText);
       if (!demo) {

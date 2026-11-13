@@ -316,9 +316,9 @@ MIN_MAX_RE = re.compile(
 )
 ASYM_TOL_RE = re.compile(
     r"^\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)\s*"
-    r"\(\s*\+?(\d+(?:\.\d+)?)\s*/\s*([+-]?\d+(?:\.\d+)?)\s*\)\s*$"
+    r"\(\s*([+-]?\d+(?:\.\d+)?)\s*/\s*([+-]?\d+(?:\.\d+)?)\s*\)\s*$"
     r"|^\s*([Ø⌀R]?)\s*(\d+(?:\.\d+)?)(°?)\s+"
-    r"\+(\d+(?:\.\d+)?)\s*(?:/|\s+)\s*([+-]?\d+(?:\.\d+)?)\s*$"
+    r"([+-]?\d+(?:\.\d+)?)\s*(?:/|\s+)\s*([+-]?\d+(?:\.\d+)?)\s*$"
 )
 # One-sided tolerance: only an upper or only a lower deviation is stated
 # ('3.4 -0.2' -> +0.0 / -0.2; '7.4 +0.2' -> +0.2 / -0.0).
@@ -599,9 +599,10 @@ def parse_dimension_callout(raw_text: str) -> ParsedDimension | None:
         )
         pref = _norm_prefix(pref_raw or "")
         nom = float(nom_s)
-        p_tol = abs(float(p_s))
-        m_val = float(m_s)
-        m_tol = -abs(m_val) if m_val <= 0 else m_val
+        t1 = float(p_s)
+        t2 = float(m_s)
+        p_tol = max(t1, t2)
+        m_tol = min(t1, t2)
         kind: DimensionKind = "ANGULAR" if deg_s else ("DIAMETER" if pref == "Ø" else ("RADIUS" if pref == "R" else "LINEAR"))
         return ParsedDimension(
             raw_callout=text,

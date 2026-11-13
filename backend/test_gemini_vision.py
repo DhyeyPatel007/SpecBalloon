@@ -70,3 +70,15 @@ def test_vision_second_check() -> None:
     assert conf <= 0.70
     assert any("diagonal stroke" in n for n in notes)
 
+
+def test_diagonal_stroke_angle_bidirectional() -> None:
+    frame_box = BBox(100, 100, 150, 114)
+    # 45 deg segment and 135 deg segment
+    segs = [
+        LineSegment(Point2D(105, 105), Point2D(110, 110), 0.7),
+        LineSegment(Point2D(115, 110), Point2D(110, 105), 0.7),
+    ]
+    topo = analyze_symbol_compartment_strokes(frame_box, segs, [])
+    assert topo.has_diagonal_stroke is True
+
+

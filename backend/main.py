@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import copy
+import math
 import os
 import re
 import shutil
@@ -404,7 +405,7 @@ async def health():
 # limits stay vector — the reconciler inside gemini_vision rejects any
 # LLM number that disagrees with native PDF text.
 VISION_MIN_CONFIDENCE = 0.75
-MAX_VISION_CALLS_PER_EXTRACTION = 5
+MAX_VISION_CALLS_PER_PAGE = 8
 
 
 async def _vision_resolve_symbol(
@@ -801,39 +802,12 @@ def _extract_page_characteristics(
     )
     placed_by_id = {p.callout_id: p for p in placed_balloons}
 
-    # 3b. Table gate
-    leader_matched_ids = {
-        a.callout.callout_id
-        for a in associated
-        if a.association_kind != "UNMATCHED"
-    }
-    all_leader_ids = set(leader_matched_ids)
-    for lid in leader_matched_ids:
-        if "_p" in lid:
-            all_leader_ids.add(lid.split("_p")[0])
-
-    _table_span_ids = find_table_cell_span_ids(
-        v_model.clustered_spans,
-        v_model,
-        all_leader_ids,
-    )
-    if v_model.raw_spans:
-        _table_span_ids.update(
-            find_table_cell_span_ids(
-                v_model.raw_spans,
-                v_model,
-                all_leader_ids,
-            )
-        )
-
     # 4. Confidence & Characteristic Record Synthesis
     page_characteristics: list[dict[str, Any]] = []
+    page_fcf_calls = 0
 
     for node in callout_nodes:
         cid = node.callout_id
-        base_id = cid.split("_p")[0] if "_p" in cid else cid
-        if cid in _table_span_ids or base_id in _table_span_ids:
-            continue
         rec = parsed_records.get(cid, {})
         placed = placed_by_id.get(cid)
         assoc = assoc_by_id.get(cid)
@@ -852,9 +826,11 @@ def _extract_page_characteristics(
             rec.get("kind") == "GDT_FRAME"
             and rec.get("needs_review")
             and any("unreadable" in r.lower() for r in rec.get("review_reasons", []))
-            and vision_calls_state["calls"] < MAX_VISION_CALLS_PER_EXTRACTION
+            and page_fcf_calls < 4
         ):
-            vision_calls_state["calls"] += 1
+            page_fcf_calls += 1
+            if vision_calls_state is not None:
+                vision_calls_state["calls"] = vision_calls_state.get("calls", 0) + 1
             vis = _run_coroutine_sync(_vision_resolve_symbol(crop_b64, node.raw_text))
             if vis is not None and vis.status == "OK":
                 resolved_type = vis.characteristic_type
@@ -916,6 +892,13 @@ def _extract_page_characteristics(
         lead_kind = assoc.association_kind if assoc else "UNMATCHED"
         lead_dist = assoc.distance_score_pt if assoc else 999.0
 
+        node_center = node.bbox.center
+        local_neighbour_count = sum(
+            1 for other in callout_nodes
+            if other.callout_id != node.callout_id
+            and math.hypot(other.bbox.center.x - node_center.x, other.bbox.center.y - node_center.y) <= 35.0
+        )
+
         signals = confidence.EvidenceSignals(
             text_source="CLUSTERED_VECTOR",
             grammar_match=rec.get("grammar_match", "EXACT_EXPLICIT_TOL"),
@@ -925,6 +908,7 @@ def _extract_page_characteristics(
             vision_used=vision_used,
             vision_confidence=vision_conf,
             vision_vector_conflict=vision_conflict,
+            local_neighbour_count=local_neighbour_count,
         )
         conf_assessment = confidence.compute_honest_confidence(signals)
 
@@ -988,6 +972,187 @@ def _extract_page_characteristics(
             "visionGdtSymbol": vision_symbol,
         }
         page_characteristics.append(c_obj)
+
+    # 4b. Stroked-Callout Vision OCR Rescue
+    all_spans_for_shaft = list(v_model.raw_spans) + list(v_model.clustered_spans)
+    unmatched_dim_entities = []
+    for dl in v_model.dimension_lines:
+        has_near_span = any(
+            sp.bbox.min_distance_to_point(dl.midpoint) <= 18.0
+            for sp in all_spans_for_shaft
+        )
+        if not has_near_span:
+            unmatched_dim_entities.append(dl)
+
+    short_segs = [
+        s for s in v_model.line_segments
+        if s.length < 12.0
+        and any(s.midpoint.distance_to(dl.midpoint) <= 15.0 for dl in v_model.dimension_lines)
+    ]
+
+    unclaimed_short_stroke_clusters = []
+    used_segs = set()
+    for i, s1 in enumerate(short_segs):
+        if i in used_segs:
+            continue
+        cluster = [s1]
+        used_segs.add(i)
+        for j, s2 in enumerate(short_segs):
+            if j in used_segs:
+                continue
+            if any(s2.midpoint.distance_to(m.midpoint) <= 8.0 for m in cluster):
+                cluster.append(s2)
+                used_segs.add(j)
+
+        if len(cluster) >= 6:
+            min_x = min(min(s.p1.x, s.p2.x) for s in cluster)
+            min_y = min(min(s.p1.y, s.p2.y) for s in cluster)
+            max_x = max(max(s.p1.x, s.p2.x) for s in cluster)
+            max_y = max(max(s.p1.y, s.p2.y) for s in cluster)
+            bw, bh = max_x - min_x, max_y - min_y
+            if 8.0 <= bw <= 65.0 and 5.0 <= bh <= 28.0:
+                unclaimed_short_stroke_clusters.append(cluster)
+
+    if unmatched_dim_entities and unclaimed_short_stroke_clusters:
+        try:
+            rescued_items = _run_coroutine_sync(
+                gemini_vision.rescue_stroked_dimension_callouts(
+                    page,
+                    unmatched_dim_entities,
+                    unclaimed_short_stroke_clusters,
+                    page_index=page_idx,
+                    general_tol_class=general_tol_class,
+                )
+            )
+            for r_item in rescued_items or []:
+                r_cid = f"rescued_{page_idx}_{len(page_characteristics) + 1}"
+                char_no = len(page_characteristics) + 1
+                rb = r_item.get("bbox", {})
+                r_x0 = rb.get("x", 100.0)
+                r_y0 = rb.get("y", 100.0)
+                r_w = rb.get("width", 30.0)
+                r_h = rb.get("height", 12.0)
+                r_center = Point2D(r_x0 + r_w * 0.5, r_y0 + r_h * 0.5)
+                r_zone = balloon_layout.compute_sheet_zone(r_center, v_model.width_pt, v_model.height_pt)
+
+                r_obj = {
+                    "id": f"char_{drawing_id}_{r_cid}",
+                    "span_id": r_cid,
+                    "span_ids": [r_cid],
+                    "callout_id": r_cid,
+                    "char_no": char_no,
+                    "balloonNumber": char_no,
+                    "page_index": page_idx,
+                    "sheet": page_idx + 1,
+                    "location": f"SH {page_idx + 1} - {r_zone}",
+                    "zone": r_zone,
+                    "kind": r_item.get("kind", "LINEAR"),
+                    "designator": "Standard",
+                    "raw_callout": r_item.get("raw_callout", ""),
+                    "rawCallout": r_item.get("raw_callout", ""),
+                    "featureDescription": "Rescued Dimension",
+                    "nominal_text": str(r_item.get("nominal", 0.0)),
+                    "nominal": r_item.get("nominal", 0.0),
+                    "nominal_value": r_item.get("nominal", 0.0),
+                    "plus_tol": r_item.get("plus_tol", 0.0) or 0.0,
+                    "plusTolerance": r_item.get("plus_tol", 0.0) or 0.0,
+                    "minus_tol": r_item.get("minus_tol", 0.0) or 0.0,
+                    "minusTolerance": r_item.get("minus_tol", 0.0) or 0.0,
+                    "lsl": r_item.get("lsl", 0.0) or 0.0,
+                    "usl": r_item.get("usl", 0.0) or 0.0,
+                    "units": r_item.get("units", "mm"),
+                    "gauge": "Digital Micrometer / Caliper",
+                    "instrument": "Digital Micrometer / Caliper",
+                    "status": "needs_review",
+                    "confidence": r_item.get("confidence", 72.0),
+                    "needs_review": True,
+                    "review_reasons": r_item.get("review_reasons", [
+                        "Stroked vector-outline callout rescued via Vision OCR — verify before sign-off"
+                    ]),
+                    "bbox": rb,
+                    "balloonPosition": {"x": r_x0 - 20, "y": r_y0 - 20},
+                    "crop_base64": "",
+                    "is_sample_data": False,
+                    "isDemo": False,
+                    "extraction_source": "vision_stroked_rescue",
+                    "geometry_matched": True,
+                }
+                page_characteristics.append(r_obj)
+        except Exception as rescue_err:
+            print(f"[vision] stroked rescue error: {rescue_err}")
+
+    # 4c. Structured Table Characteristics
+    for tbl_rec in getattr(v_model, "table_records", []):
+        t_bbox = tbl_rec.get("bbox")
+        if isinstance(t_bbox, tuple) and len(t_bbox) >= 4:
+            tb_x0, tb_y0, tb_x1, tb_y1 = t_bbox[:4]
+            tb_w, tb_h = tb_x1 - tb_x0, tb_y1 - tb_y0
+            t_center = Point2D((tb_x0 + tb_x1) * 0.5, (tb_y0 + tb_y1) * 0.5)
+        elif hasattr(t_bbox, "x0"):
+            tb_x0, tb_y0 = t_bbox.x0, t_bbox.y0
+            tb_w, tb_h = t_bbox.width, t_bbox.height
+            t_center = t_bbox.center
+        else:
+            tb_x0, tb_y0, tb_w, tb_h = 100.0, 100.0, 40.0, 15.0
+            t_center = Point2D(120.0, 107.5)
+
+        t_zone = balloon_layout.compute_sheet_zone(t_center, v_model.width_pt, v_model.height_pt)
+        t_cid = f"table_{page_idx}_{len(page_characteristics) + 1}"
+        char_no = len(page_characteristics) + 1
+        t_raw = tbl_rec.get("raw_callout", "")
+        nom = tbl_rec.get("nominal", 0.0)
+        p_tol = tbl_rec.get("plus_tol", 0.0)
+        m_tol = tbl_rec.get("minus_tol", 0.0)
+        lsl = tbl_rec.get("lsl", 0.0)
+        usl = tbl_rec.get("usl", 0.0)
+
+        tbl_char = {
+            "id": f"char_{drawing_id}_{t_cid}",
+            "span_id": t_cid,
+            "span_ids": tbl_rec.get("span_ids", [t_cid]),
+            "callout_id": t_cid,
+            "char_no": char_no,
+            "balloonNumber": char_no,
+            "page_index": page_idx,
+            "sheet": page_idx + 1,
+            "location": f"SH {page_idx + 1} - {t_zone}",
+            "zone": t_zone,
+            "kind": tbl_rec.get("kind", "LINEAR"),
+            "designator": "Standard",
+            "raw_callout": t_raw,
+            "rawCallout": t_raw,
+            "featureDescription": "Table Dimension",
+            "nominal_text": str(nom) if nom is not None else "",
+            "nominal": nom if nom is not None else 0.0,
+            "nominal_value": nom if nom is not None else 0.0,
+            "plus_tol": p_tol if p_tol is not None else 0.0,
+            "plusTolerance": p_tol if p_tol is not None else 0.0,
+            "minus_tol": m_tol if m_tol is not None else 0.0,
+            "minusTolerance": m_tol if m_tol is not None else 0.0,
+            "lsl": lsl if lsl is not None else 0.0,
+            "usl": usl if usl is not None else 0.0,
+            "units": tbl_rec.get("units", "mm"),
+            "gauge": "Digital Micrometer / Caliper",
+            "instrument": "Digital Micrometer / Caliper",
+            "status": "in_spec",
+            "confidence": 95.0,
+            "needs_review": False,
+            "review_reasons": [],
+            "bbox": {
+                "x": tb_x0,
+                "y": tb_y0,
+                "width": tb_w,
+                "height": tb_h,
+            },
+            "balloonPosition": {"x": tb_x0 - 20, "y": tb_y0 - 20},
+            "crop_base64": "",
+            "is_sample_data": False,
+            "isDemo": False,
+            "is_table_cell": True,
+            "note": "table",
+            "geometry_matched": True,
+        }
+        page_characteristics.append(tbl_char)
 
     page_meta = {
         "page_index": page_idx,
@@ -1087,6 +1252,21 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
     try:
         doc = fitz.open(temp_path)
         characteristics, pages_meta = extract_all_pages(doc, id)
+
+        if len(characteristics) == 0:
+            is_raster = any(len(doc[p].get_images()) > 0 for p in range(min(len(doc), 5)))
+            doc.close()
+            return {
+                "drawing_id": id,
+                "characteristics": [],
+                "balloons": [],
+                "count": 0,
+                "pages": pages_meta,
+                "is_sample_data": False,
+                "extraction_mode": "raster_or_empty_warning",
+                "warning_banner": "No vector dimensional callouts detected (page contains rasterized/scanned imagery or non-dimensional tables). The PDF is rendered below for manual inspection.",
+            }
+
         doc.close()
 
         # Persist to SQLite
@@ -1095,6 +1275,7 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
         return {
             "drawing_id": id,
             "characteristics": characteristics,
+            "balloons": characteristics,
             "count": len(characteristics),
             "pages": pages_meta,
             "is_sample_data": False,

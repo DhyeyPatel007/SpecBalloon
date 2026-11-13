@@ -23,4 +23,4 @@ def test_balloon_layout_placement():
     assert len(placed) == 2
     assert placed[0].char_no == 1
     assert placed[1].char_no == 2
-    assert placed[0].balloon_center.distance_to(placed[1].balloon_center) > 20.0
+    assert placed[0].balloon_center.distance_to(placed[1].balloon_center) >= 23.95

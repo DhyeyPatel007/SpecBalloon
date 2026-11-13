@@ -15,8 +15,63 @@ def test_high_confidence():
         rotation_deg=0.0,
     )
     res = compute_honest_confidence(signals)
-    assert res.score >= 0.90
+    assert 0.92 <= res.score <= 0.96
     assert not res.needs_review
+
+
+def test_explicit_unmatched_confidence():
+    signals = EvidenceSignals(
+        text_source="NATIVE_VECTOR",
+        grammar_match="EXACT_EXPLICIT_TOL",
+        leader_association="UNMATCHED",
+        leader_distance_pt=999.0,
+        rotation_deg=0.0,
+    )
+    res = compute_honest_confidence(signals)
+    assert res.score == 0.88
+    assert not res.needs_review
+
+
+def test_general_matched_confidence():
+    signals = EvidenceSignals(
+        text_source="NATIVE_VECTOR",
+        grammar_match="GENERAL_UNTOLERANCED",
+        leader_association="LEADER_SHOULDER",
+        leader_distance_pt=2.5,
+        rotation_deg=0.0,
+    )
+    res = compute_honest_confidence(signals)
+    assert res.score == 0.86
+    assert not res.needs_review
+
+
+def test_general_unmatched_isolated_confidence():
+    signals = EvidenceSignals(
+        text_source="NATIVE_VECTOR",
+        grammar_match="GENERAL_UNTOLERANCED",
+        leader_association="UNMATCHED",
+        leader_distance_pt=999.0,
+        rotation_deg=0.0,
+        local_neighbour_count=1,
+    )
+    res = compute_honest_confidence(signals)
+    assert res.score == 0.82
+    assert not res.needs_review
+
+
+def test_general_unmatched_crowded_confidence():
+    signals = EvidenceSignals(
+        text_source="NATIVE_VECTOR",
+        grammar_match="GENERAL_UNTOLERANCED",
+        leader_association="UNMATCHED",
+        leader_distance_pt=999.0,
+        rotation_deg=0.0,
+        local_neighbour_count=4,
+    )
+    res = compute_honest_confidence(signals)
+    assert res.score == 0.74
+    assert res.needs_review
+    assert any("dense zone" in r for r in res.review_reasons)
 
 
 def test_low_confidence_needs_review():
@@ -31,3 +86,4 @@ def test_low_confidence_needs_review():
     res = compute_honest_confidence(signals)
     assert res.score < 0.65
     assert res.needs_review
+

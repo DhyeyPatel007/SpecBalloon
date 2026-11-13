@@ -160,4 +160,25 @@ def test_grammar_and_gdt_upgrades() -> None:
     assert d_max and d_max.tolerance_kind == "MAX_LIMIT" and d_max.lsl_override == 0.0 and d_max.usl_override == 1.7
 
 
+def test_asymmetric_tolerance_regressions() -> None:
+    p_neg = parse_dimension_callout("Ø 6 -0.02/-0.05")
+    assert p_neg is not None
+    assert p_neg.nominal == 6.0
+    assert p_neg.plus_tol == -0.02
+    assert p_neg.minus_tol == -0.05
+
+    p_std = parse_dimension_callout("6 +0.1/-0.05")
+    assert p_std is not None
+    assert p_std.nominal == 6.0
+    assert p_std.plus_tol == 0.1
+    assert p_std.minus_tol == -0.05
+
+    p_single = parse_dimension_callout("3.4 -0.2")
+    assert p_single is not None
+    assert p_single.nominal == 3.4
+    assert p_single.plus_tol == 0.0
+    assert p_single.minus_tol == -0.2
+
+
+
 

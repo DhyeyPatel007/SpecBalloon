@@ -82,6 +82,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [activePage, setActivePage] = useState(1);
   const [cursorCoords, setCursorCoords] = useState<Point | null>(null);
   const [isPropertiesOpen, setIsPropertiesOpen] = useState(false);
+  const [warningBanner, setWarningBanner] = useState<string | null>(null);
 
   // Streaming Engine State
   const [isStreaming, setIsStreaming] = useState(false);
@@ -277,6 +278,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setCustomImage(null);
       setActivePage(1);
       setIsSampleData(true);
+      setWarningBanner(null);
 
       try {
         const backendBalloons = await extractDrawingApi(sample.id, true);
@@ -358,9 +360,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setCurrentDrawing(newSpec);
       setCustomImage(null);
       setActivePage(1);
+      setWarningBanner(null);
 
       // 2. POST /api/v1/drawings/{id}/extract?demo=false
       const extractedChars = await extractDrawingApi(drawingId, false);
+      const banner = (extractedChars as any)?.warning_banner;
+      if (banner) {
+        setWarningBanner(banner);
+      }
 
       if (extractedChars.length > 0) {
         startLiveStreaming(extractedChars, false);
@@ -369,7 +376,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           id: `empty-${Date.now()}`,
           sender: 'agent',
           timestamp: 'Just now',
-          text: 'No dimensional characteristics detected in vector text streams. You can click on the drawing canvas to manually place balloons.',
+          text: banner || 'No dimensional characteristics detected in vector text streams. You can click on the drawing canvas to manually place balloons.',
         };
         setMessages((prev) => [...prev, emptyMsg]);
       }
@@ -881,7 +888,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
-  const hasDrawing = Boolean(currentDrawing && (characteristics.length > 0 || isStreaming));
+  const hasDrawing = Boolean(currentDrawing);
 
   return (
     <div
@@ -962,6 +969,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               : 'linear-gradient(to right, rgba(15, 23, 42, 0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(15, 23, 42, 0.06) 1px, transparent 1px)',
           }}
         >
+          {warningBanner && (
+            <div className="absolute top-4 left-4 right-4 z-30 flex items-center gap-3 px-4 py-2.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs backdrop-blur-md shadow-lg">
+              <span className="font-semibold text-amber-400 shrink-0">⚠️ Notice:</span>
+              <span className="flex-1 font-sans">{warningBanner}</span>
+              <button
+                onClick={() => setWarningBanner(null)}
+                className="text-amber-400 hover:text-amber-100 text-sm font-bold ml-2 px-1"
+                aria-label="Dismiss banner"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {hasDrawing && currentDrawing ? (
             <CadCanvasViewport
               currentDrawing={currentDrawing}

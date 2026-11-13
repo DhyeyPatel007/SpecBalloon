@@ -134,6 +134,8 @@ class PageVectorModel:
     arrowheads: list[Arrowhead]
     leader_lines: list[LeaderLine]
     dimension_lines: list[DimensionLine]
+    table_records: list[dict] = field(default_factory=list)
+    locked_table_span_ids: set = field(default_factory=set)
 
 
 TITLE_BLOCK_BOILERPLATE = {
@@ -1270,6 +1272,7 @@ def cluster_spans_rotation_aware(
     rectangles: Optional[Sequence[Any]] = None,
     segments: Optional[Sequence[Any]] = None,
     circles: Optional[Sequence[Any]] = None,
+    locked_table_span_ids: Optional[Set[Any]] = None,
 ) -> list["TextSpan"]:
     """
     Drop-in replacement for `cluster_spans_rotation_aware` in `backend/vector_pass.py` (line 1174)
@@ -1294,6 +1297,7 @@ def cluster_spans_rotation_aware(
         spans=span_dicts,
         rects=rect_tuples,
         segments=seg_tuples,
+        locked_span_ids=locked_table_span_ids,
     )
 
     consumed_ids: set[Any] = set(gdt_consumed)
@@ -1315,6 +1319,8 @@ def cluster_spans_rotation_aware(
 
     fcf_boxes = _extract_rect_bboxes(rect_tuples)
     locked_ids = find_fcf_locked_span_ids(span_dicts, fcf_boxes)
+    if locked_table_span_ids:
+        locked_ids = set(locked_ids) | set(locked_table_span_ids)
     for s in raw_spans:
         if s.span_id not in consumed_ids and s.span_id not in locked_ids:
             norm_t = s.text.replace("\xad", "-").replace("\xa0", " ")
@@ -1380,11 +1386,24 @@ def run_vector_pass(doc: fitz.Document, page_index: int = 0) -> PageVectorModel:
     arrowheads.extend(_detect_open_vee_arrows(segments))
     leaders, dim_lines = _build_leaders_and_dimension_lines(segments, arrowheads)
 
+    try:
+        from table_extractor import extract_structured_dimension_tables
+    except ImportError:
+        from backend.table_extractor import extract_structured_dimension_tables
+
+    locked_table_span_ids, table_records = extract_structured_dimension_tables(
+        raw_spans,
+        rectangles,
+        segments,
+        page_index=page_index,
+    )
+
     clustered_spans = cluster_spans_rotation_aware(
         raw_spans,
         rectangles=rectangles,
         segments=segments,
         circles=circles,
+        locked_table_span_ids=locked_table_span_ids,
     )
 
     return PageVectorModel(
@@ -1399,6 +1418,8 @@ def run_vector_pass(doc: fitz.Document, page_index: int = 0) -> PageVectorModel:
         arrowheads=arrowheads,
         leader_lines=leaders,
         dimension_lines=dim_lines,
+        table_records=table_records,
+        locked_table_span_ids=locked_table_span_ids,
     )
 
 

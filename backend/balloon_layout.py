@@ -94,10 +94,10 @@ def layout_and_number_balloons(
         positions.append(Point2D(init_x, init_y))
         anchors.append(bc)
 
-    # 3. Force-Directed Collision Solver (40 deterministic iterations)
-    min_balloon_dist = balloon_radius * 2.4
+    # 3. Force-Directed Collision Solver (30 deterministic iterations)
+    min_balloon_dist = max(24.0, balloon_radius * 2.4)
     margin = 28.0
-    for _step in range(40):
+    for _step in range(30):
         forces_x = [0.0] * len(positions)
         forces_y = [0.0] * len(positions)
 
@@ -138,8 +138,8 @@ def layout_and_number_balloons(
             ny = max(margin, min(page_height - margin, positions[i].y + forces_y[i]))
             positions[i] = Point2D(round(nx, 2), round(ny, 2))
 
-    # 4. Uncross any intersecting short balloon-to-callout leader segments by swapping positions
-    for _pass in range(3):
+    # 4. Pairwise 2-opt tether-uncrossing pass
+    for _pass in range(10):
         swapped = False
         for i in range(len(positions)):
             for j in range(i + 1, len(positions)):
@@ -194,7 +194,7 @@ def test_balloon_layout() -> None:
     for i in range(len(placed)):
         for j in range(i + 1, len(placed)):
             dist = placed[i].balloon_center.distance_to(placed[j].balloon_center)
-            assert dist >= 19.5, f"Balloons {i+1} and {j+1} overlap: dist={dist}"
+            assert dist >= 23.95, f"Balloons {i+1} and {j+1} overlap: dist={dist}"
 
         # Verify no balloon center lies inside any text bounding box
         for _, tbox in sample_boxes:
