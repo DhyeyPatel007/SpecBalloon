@@ -286,7 +286,16 @@ function normalizeSingleBalloon(raw: Record<string, unknown>, fallbackSeq = 1): 
     bbox,
     balloonPosition,
     cropDataUrl,
-    pageNumber: typeof raw.pageNumber === 'number' ? raw.pageNumber : 1,
+    pageNumber: typeof raw.sheet === 'number'
+      ? raw.sheet
+      : (typeof raw.pageNumber === 'number'
+        ? raw.pageNumber
+        : (typeof raw.page_index === 'number'
+          ? raw.page_index + 1
+          : 1)),
+    sheet: typeof raw.sheet === 'number' ? raw.sheet : undefined,
+    page_index: typeof raw.page_index === 'number' ? raw.page_index : undefined,
+    location: typeof raw.location === 'string' ? raw.location : undefined,
     reviewed: Boolean(raw.reviewed),
     isDemo: Boolean(raw.isDemo ?? raw.is_sample_data),
   };

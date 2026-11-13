@@ -54,7 +54,7 @@ interface StudioChatPanelProps {
 }
 
 export const StudioChatPanel: React.FC<StudioChatPanelProps> = ({
-  currentDrawing: _currentDrawing,
+  currentDrawing,
   characteristics,
   activeBalloon: _activeBalloon,
   isStreaming,
@@ -457,9 +457,16 @@ export const StudioChatPanel: React.FC<StudioChatPanelProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-[#0047AB] dark:text-[#38BDF8]">
-                          Tag #{item.balloonNumber} ({item.zone})
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-[#0047AB] dark:text-[#38BDF8]">
+                            Tag #{item.balloonNumber} ({item.zone})
+                          </span>
+                          {(currentDrawing.pageCount && currentDrawing.pageCount > 1) ? (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-semibold">
+                              SH {item.pageNumber ?? 1}
+                            </span>
+                          ) : null}
+                        </div>
                         <span className="text-amber-500 dark:text-amber-400 font-semibold text-[10px]">
                           {Math.round(normalizeConfidencePct(item.confidence))}% confidence
                         </span>
@@ -539,6 +546,11 @@ export const StudioChatPanel: React.FC<StudioChatPanelProps> = ({
                     >
                       ZONE {char.zone}
                     </span>
+                    {(currentDrawing.pageCount && currentDrawing.pageCount > 1) ? (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-semibold">
+                        SH {char.pageNumber ?? 1}
+                      </span>
+                    ) : null}
                   </div>
                   <span
                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${

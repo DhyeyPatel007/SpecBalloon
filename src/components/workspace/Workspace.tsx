@@ -391,6 +391,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     setActiveBalloonId(id);
     const target = characteristics.find((c) => c.id === id);
     if (target) {
+      const targetPage = target.pageNumber ?? 1;
+      if (targetPage !== activePage) {
+        setActivePage(targetPage);
+      }
       const cardMsg: ChatMessage = {
         id: `card-${id}-${Date.now()}`,
         sender: 'agent',

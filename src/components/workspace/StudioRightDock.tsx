@@ -273,6 +273,11 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
                             <span className="text-[10px] text-[var(--text-muted)] font-mono ml-2">
                               Zone {item.zone}
                             </span>
+                            {(drawing.pageCount && drawing.pageCount > 1) ? (
+                              <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-semibold">
+                                SH {item.pageNumber ?? 1}
+                              </span>
+                            ) : null}
                           </div>
                         </div>
 

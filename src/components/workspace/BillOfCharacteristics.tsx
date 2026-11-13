@@ -390,7 +390,18 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
                           `#${char.balloonNumber < 10 ? `0${char.balloonNumber}` : char.balloonNumber}`
                         )}
                       </td>
-                      <td className="p-2 text-center text-text-secondary font-mono">{char.zone}</td>
+                      <td className="p-2 text-center text-text-secondary font-mono">
+                        {(drawing.pageCount && drawing.pageCount > 1) ? (
+                          <span className="flex items-center justify-center gap-1">
+                            <span className="px-1 py-0.5 rounded text-[9px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-semibold">
+                              SH {char.pageNumber ?? 1}
+                            </span>
+                            <span>{char.zone}</span>
+                          </span>
+                        ) : (
+                          char.zone
+                        )}
+                      </td>
                       <td className="p-2">
                         <span
                           className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${

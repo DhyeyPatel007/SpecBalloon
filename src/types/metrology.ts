@@ -99,6 +99,9 @@ export interface Characteristic {
   mmcBonus?: string;
   /** PDF Page index (1-based, max 5 pages) */
   pageNumber?: number;
+  sheet?: number;
+  page_index?: number;
+  location?: string;
   /** Explicit human review marker */
   reviewed?: boolean;
   needs_review?: boolean;

@@ -202,7 +202,10 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   const simRef = useRef<ForceDirectedSimulator | null>(null);
 
   useEffect(() => {
-    const physicsBalloons: PhysicsBalloon[] = characteristics.map((c) => {
+    const activeCharacteristics = characteristics.filter(
+      (c) => (c.pageNumber ?? 1) === activePage
+    );
+    const physicsBalloons: PhysicsBalloon[] = activeCharacteristics.map((c) => {
       const coords = getDisplacedBalloonCoords(c);
       return {
         id: c.id,
@@ -222,7 +225,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     } else {
       simRef.current.setBalloons(physicsBalloons);
     }
-  }, [characteristics]);
+  }, [characteristics, activePage]);
 
   const computeZone = (x: number, y: number): string => {
     const margin = 24;
@@ -487,6 +490,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     }
 
     characteristics.forEach((char) => {
+      if ((char.pageNumber ?? 1) !== activePage) return;
       const isSelected = char.id === activeBalloonId;
       const coords = getDisplacedBalloonCoords(char);
       const bX = coords.bx;
@@ -703,6 +707,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     const scaleY = minimap.height / (currentDrawing.drawingHeight || 800);
 
     characteristics.forEach((char) => {
+      if ((char.pageNumber ?? 1) !== activePage) return;
       const isSel = char.id === activeBalloonId;
       mCtx.fillStyle = isSel
         ? '#0066CC'
@@ -770,6 +775,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
 
     // 1. Balloon or Translucent Highlight Pill Hit Test
     const clickedChar = characteristics.find((c) => {
+      if ((c.pageNumber ?? 1) !== activePage) return false;
       // Check circular balloon (16px radius)
       const bCoords = getDisplacedBalloonCoords(c);
       const dx = bCoords.bx - coords.x;
