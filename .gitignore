@@ -36,4 +36,5 @@ desktop.ini
 *.sqlite
 *.sqlite3
 .pytest_cache/
+backend/benchmarks/drafts/
 

@@ -1,0 +1,41 @@
+[
+  {
+    "text": "|\u2316|\u00d8 0.05|A|B|",
+    "nominal": 0.0,
+    "plus_tol": 0.05,
+    "minus_tol": 0.0,
+    "lsl": 0.0,
+    "usl": 0.05,
+    "kind": "GDT_FRAME",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "|\u27c2|0.02|A|",
+    "nominal": 0.0,
+    "plus_tol": 0.05,
+    "minus_tol": 0.0,
+    "lsl": 0.0,
+    "usl": 0.05,
+    "kind": "GDT_FRAME",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "100.0 \u00b10.1",
+    "nominal": 100.0,
+    "plus_tol": 0.1,
+    "minus_tol": 0.1,
+    "lsl": 99.9,
+    "usl": 100.1,
+    "kind": "LINEAR",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  }
+]

@@ -8,10 +8,17 @@ All LSL/USL limits are computed deterministically via `dimension_grammar` + `lim
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 import unittest
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
+
+_backend_dir = str(Path(__file__).resolve().parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 try:
     from geometry_first_clustering import BBox, bbox_center, bbox_iou_or_containment, normalize_callout_text
@@ -307,6 +314,27 @@ def default_limits_resolver(parse_expr: str, general_tol_class: str = "m") -> Op
                 "nominal": nom,
                 "lsl": 0.0 if mode == "MAX" else nom,
                 "usl": nom if mode == "MAX" else None,
+                "units": "mm",
+            }
+        # Check inequality symbols e.g. '≤ 0.4', '≥ 5.5', '<= 0.4', '>= 5.5'
+        if m_ineq := re.match(r"^(?:≤|<=)\s*(\d+(?:\.\d+)?)$", rest):
+            nom = float(m_ineq.group(1))
+            return {
+                "kind": "RADIUS" if is_rad else "LINEAR",
+                "tolerance_kind": "MAX_LIMIT",
+                "nominal": nom,
+                "lsl": 0.0,
+                "usl": nom,
+                "units": "mm",
+            }
+        if m_ineq := re.match(r"^(?:≥|>=)\s*(\d+(?:\.\d+)?)$", rest):
+            nom = float(m_ineq.group(1))
+            return {
+                "kind": "RADIUS" if is_rad else "LINEAR",
+                "tolerance_kind": "MIN_LIMIT",
+                "nominal": nom,
+                "lsl": nom,
+                "usl": None,
                 "units": "mm",
             }
         return None

@@ -1,0 +1,188 @@
+{
+  "synthetic5": [
+    {
+      "drawing_id": "case1_as4092",
+      "certain_gt_count": 17,
+      "uncertain_gt_count": 0,
+      "total_extracted": 17,
+      "correct": 15,
+      "wrong_limits": 0,
+      "missed": 2,
+      "extra": 2,
+      "non_table": {
+        "certain": 17,
+        "correct": 15,
+        "wrong_limits": 0,
+        "missed": 2,
+        "recall": 0.8823529411764706
+      },
+      "table": {
+        "certain": 0,
+        "correct": 0,
+        "recall": 1.0
+      },
+      "review_needed": 2,
+      "review_rate": 0.11764705882352941,
+      "triage": [
+        {
+          "type": "MISS_CLUSTER_OR_LOCK",
+          "gt_text": "|\u2316|\u00d80.05(M)|A|B|",
+          "page": 0
+        },
+        {
+          "type": "MISS_CLUSTER_OR_LOCK",
+          "gt_text": "|\u27c2|0.02|A|",
+          "page": 0
+        },
+        {
+          "type": "EXTRA_FRAGMENT",
+          "extracted_text": "|\u0000|\u00d80.05(M)|A|B|"
+        },
+        {
+          "type": "EXTRA_FRAGMENT",
+          "extracted_text": "|\u0000|0.02|A|"
+        }
+      ]
+    },
+    {
+      "drawing_id": "case2_threads",
+      "certain_gt_count": 4,
+      "uncertain_gt_count": 0,
+      "total_extracted": 4,
+      "correct": 2,
+      "wrong_limits": 2,
+      "missed": 0,
+      "extra": 0,
+      "non_table": {
+        "certain": 4,
+        "correct": 2,
+        "wrong_limits": 2,
+        "missed": 0,
+        "recall": 0.5
+      },
+      "table": {
+        "certain": 0,
+        "correct": 0,
+        "recall": 1.0
+      },
+      "review_needed": 0,
+      "review_rate": 0.0,
+      "triage": [
+        {
+          "type": "WRONG_LIMITS_OR_KIND",
+          "gt_text": "M8x1.25 - 6g",
+          "expected_limits": [
+            null,
+            null
+          ],
+          "actual_limits": [
+            7.765,
+            7.971
+          ]
+        },
+        {
+          "type": "WRONG_LIMITS_OR_KIND",
+          "gt_text": "4X M10x1.5 - 6H",
+          "expected_limits": [
+            null,
+            null
+          ],
+          "actual_limits": [
+            8.376,
+            8.676
+          ]
+        }
+      ]
+    },
+    {
+      "drawing_id": "case3_gdt",
+      "certain_gt_count": 3,
+      "uncertain_gt_count": 0,
+      "total_extracted": 3,
+      "correct": 2,
+      "wrong_limits": 1,
+      "missed": 0,
+      "extra": 0,
+      "non_table": {
+        "certain": 3,
+        "correct": 2,
+        "wrong_limits": 1,
+        "missed": 0,
+        "recall": 0.6666666666666666
+      },
+      "table": {
+        "certain": 0,
+        "correct": 0,
+        "recall": 1.0
+      },
+      "review_needed": 2,
+      "review_rate": 0.6666666666666666,
+      "triage": [
+        {
+          "type": "WRONG_LIMITS_OR_KIND",
+          "gt_text": "|\u27c2|0.02|A|",
+          "expected_limits": [
+            0.0,
+            0.05
+          ],
+          "actual_limits": [
+            0.0,
+            0.02
+          ]
+        }
+      ]
+    },
+    {
+      "drawing_id": "case4_multipage",
+      "certain_gt_count": 4,
+      "uncertain_gt_count": 0,
+      "total_extracted": 4,
+      "correct": 4,
+      "wrong_limits": 0,
+      "missed": 0,
+      "extra": 0,
+      "non_table": {
+        "certain": 4,
+        "correct": 4,
+        "wrong_limits": 0,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "table": {
+        "certain": 0,
+        "correct": 0,
+        "recall": 1.0
+      },
+      "review_needed": 0,
+      "review_rate": 0.0,
+      "triage": []
+    },
+    {
+      "drawing_id": "case5_tables",
+      "certain_gt_count": 3,
+      "uncertain_gt_count": 0,
+      "total_extracted": 3,
+      "correct": 3,
+      "wrong_limits": 0,
+      "missed": 0,
+      "extra": 0,
+      "non_table": {
+        "certain": 1,
+        "correct": 1,
+        "wrong_limits": 0,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "table": {
+        "certain": 2,
+        "correct": 2,
+        "recall": 1.0
+      },
+      "review_needed": 0,
+      "review_rate": 0.0,
+      "triage": []
+    }
+  ],
+  "old5": [],
+  "new5": []
+}

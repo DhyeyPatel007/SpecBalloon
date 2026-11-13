@@ -1,0 +1,54 @@
+[
+  {
+    "text": "M8x1.25 - 6g",
+    "nominal": 8.0,
+    "plus_tol": null,
+    "minus_tol": null,
+    "lsl": null,
+    "usl": null,
+    "kind": "THREAD",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "4X M10x1.5 - 6H",
+    "nominal": 10.0,
+    "plus_tol": null,
+    "minus_tol": null,
+    "lsl": null,
+    "usl": null,
+    "kind": "THREAD",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "\u00d830.00 H7",
+    "nominal": 30.0,
+    "plus_tol": 0.0,
+    "minus_tol": 0.0,
+    "lsl": 30.0,
+    "usl": 30.021,
+    "kind": "ISO_FIT",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "\u00d850.00 f7",
+    "nominal": 50.0,
+    "plus_tol": 0.0,
+    "minus_tol": 0.0,
+    "lsl": 49.95,
+    "usl": 49.975,
+    "kind": "ISO_FIT",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  }
+]

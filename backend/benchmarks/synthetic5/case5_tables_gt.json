@@ -1,0 +1,41 @@
+[
+  {
+    "text": "d1 Pin \u00d8-0.02/-0.05 \u2014 6",
+    "nominal": 6.0,
+    "plus_tol": -0.02,
+    "minus_tol": -0.05,
+    "lsl": 5.95,
+    "usl": 5.98,
+    "kind": "DIAMETER",
+    "note": "table",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "d1 h9 \u2014 12",
+    "nominal": 12.0,
+    "plus_tol": 0.0,
+    "minus_tol": -0.043,
+    "lsl": 11.957,
+    "usl": 12.0,
+    "kind": "ISO_FIT",
+    "note": "table",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "\u00d8 40 \u00b10.2",
+    "nominal": 40.0,
+    "plus_tol": 0.2,
+    "minus_tol": -0.2,
+    "lsl": 39.8,
+    "usl": 40.2,
+    "kind": "DIAMETER",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  }
+]

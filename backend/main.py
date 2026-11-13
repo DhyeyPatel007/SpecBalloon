@@ -30,7 +30,7 @@ import leader_association
 import limits_math
 import sample_data
 import vector_pass
-from vector_pass import BBox, PageVectorModel, TextSpan, normalize_pua_for_clustering
+from vector_pass import BBox, PageVectorModel, Point2D, TextSpan, normalize_pua_for_clustering
 
 COMPOUND_DIM_GDT_RE = re.compile(
     r"^(.+?\d+(?:\.\d+)?(?:\s*(?:±|\+/-|[+-])\s*\d+(?:\.\d+)?)?)\s*[,;]?\s*"
@@ -1170,7 +1170,7 @@ MAX_PAGES_PER_DOCUMENT = 5
 
 def extract_all_pages(
     doc: "fitz.Document",
-    drawing_id: str,
+    drawing_id: str = "doc",
     general_tol_class: str = "m",
 ) -> tuple[list[dict], list[dict]]:
     """Loop pages 0 .. min(len(doc), 5) - 1, run isolated per-page extraction,

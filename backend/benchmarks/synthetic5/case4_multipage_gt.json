@@ -1,0 +1,54 @@
+[
+  {
+    "text": "\u00d840.0 \u00b10.2",
+    "nominal": 40.0,
+    "plus_tol": 0.2,
+    "minus_tol": -0.2,
+    "lsl": 39.8,
+    "usl": 40.2,
+    "kind": "DIAMETER",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "25.0 \u00b10.1",
+    "nominal": 25.0,
+    "plus_tol": 0.1,
+    "minus_tol": -0.1,
+    "lsl": 24.9,
+    "usl": 25.1,
+    "kind": "LINEAR",
+    "note": "",
+    "page_index": 0,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "50.0 \u00b10.05",
+    "nominal": 50.0,
+    "plus_tol": 0.05,
+    "minus_tol": -0.05,
+    "lsl": 49.95,
+    "usl": 50.05,
+    "kind": "LINEAR",
+    "note": "",
+    "page_index": 1,
+    "uncertain": false,
+    "uncertain_reason": null
+  },
+  {
+    "text": "R10.0 \u00b10.2",
+    "nominal": 10.0,
+    "plus_tol": 0.2,
+    "minus_tol": -0.2,
+    "lsl": 9.8,
+    "usl": 10.2,
+    "kind": "RADIUS",
+    "note": "",
+    "page_index": 1,
+    "uncertain": false,
+    "uncertain_reason": null
+  }
+]
