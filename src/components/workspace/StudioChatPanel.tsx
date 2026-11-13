@@ -13,6 +13,7 @@ import {
   Crosshair,
 } from 'lucide-react';
 import { Characteristic, DrawingSpec } from '../../types/metrology';
+import { normalizeConfidencePct } from '../../lib/reviewUtils';
 
 export interface ChatMessage {
   id: string;
@@ -460,7 +461,7 @@ export const StudioChatPanel: React.FC<StudioChatPanelProps> = ({
                           Tag #{item.balloonNumber} ({item.zone})
                         </span>
                         <span className="text-amber-500 dark:text-amber-400 font-semibold text-[10px]">
-                          {Math.round(item.confidence)}% confidence
+                          {Math.round(normalizeConfidencePct(item.confidence))}% confidence
                         </span>
                       </div>
                       <div

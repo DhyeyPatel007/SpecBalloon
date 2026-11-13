@@ -46,6 +46,7 @@ import {
   calculateAQLSampling,
   calculateDynamicMmcBonus
 } from '../../utils/metrologyMath';
+import { isCharacteristicFlagged } from '../../lib/reviewUtils';
 
 interface BillOfCharacteristicsProps {
   drawing: DrawingSpec;
@@ -140,7 +141,11 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
   const [tableFilter, setTableFilter] = useState<'all' | 'in_spec' | 'needs_review' | 'out_of_spec'>('all');
 
   const filtered = characteristics.filter((c) => {
-    if (tableFilter !== 'all' && c.status !== tableFilter) return false;
+    if (tableFilter === 'needs_review') {
+      if (!isCharacteristicFlagged(c)) return false;
+    } else if (tableFilter !== 'all' && c.status !== tableFilter) {
+      return false;
+    }
     const matchesSearch =
       c.rawCallout.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.zone.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -152,7 +157,7 @@ export const BillOfCharacteristics: React.FC<BillOfCharacteristicsProps> = ({
   });
 
   const inSpecCount = characteristics.filter((c) => c.status === 'in_spec').length;
-  const needsReviewCount = characteristics.filter((c) => c.status === 'needs_review').length;
+  const needsReviewCount = characteristics.filter((c) => isCharacteristicFlagged(c)).length;
   const outOfSpecCount = characteristics.filter((c) => c.status === 'out_of_spec').length;
   const passRate = characteristics.length > 0 ? (inSpecCount / characteristics.length) * 100 : 100;
 

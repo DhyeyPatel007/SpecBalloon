@@ -11,6 +11,7 @@ import {
   Crosshair
 } from 'lucide-react';
 import { Characteristic, DrawingSpec } from '../../types/metrology';
+import { isCharacteristicFlagged } from '../../lib/reviewUtils';
 
 interface ModelSheetTreeProps {
   drawing: DrawingSpec;
@@ -64,7 +65,7 @@ export const ModelSheetTree: React.FC<ModelSheetTreeProps> = ({
   const statusCounts = {
     total: characteristics.length,
     inSpec: characteristics.filter((c) => c.status === 'in_spec').length,
-    needsReview: characteristics.filter((c) => c.status === 'needs_review').length,
+    needsReview: characteristics.filter((c) => isCharacteristicFlagged(c)).length,
     outOfSpec: characteristics.filter((c) => c.status === 'out_of_spec').length,
   };
 

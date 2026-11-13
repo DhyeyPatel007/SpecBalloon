@@ -27,7 +27,7 @@ import leader_association
 import limits_math
 import sample_data
 import vector_pass
-from vector_pass import normalize_pua_for_clustering
+from vector_pass import BBox, PageVectorModel, TextSpan, normalize_pua_for_clustering
 
 COMPOUND_DIM_GDT_RE = re.compile(
     r"^(.+?\d+(?:\.\d+)?(?:\s*(?:±|\+/-|[+-])\s*\d+(?:\.\d+)?)?)\s*[,;]?\s*"
@@ -35,6 +35,49 @@ COMPOUND_DIM_GDT_RE = re.compile(
 )
 
 _THREAD_QTY_RE = re.compile(r"^\(?\s*(\d+)\s*[xX×]\s*\)?\s*(.+)$")
+
+
+def find_table_cell_span_ids(
+    spans: list[TextSpan],
+    model: PageVectorModel | None,
+    leader_matched_ids: set[str],
+) -> set[str]:
+    """
+    Identifies spans that belong to a parameter/revision/BOM table (like real04, real05, and new03 tables)
+    WITHOUT killing dense part dimensions on new01:
+    1. Any span bound to a leader arrowhead or dimension line (in `leader_matched_ids`) is NEVER a table cell.
+    2. For unmatched spans, checks if they sit inside a vector table grid or form an aligned column/row matrix
+       (>= 3 aligned column peers within |Δx0| <= 3.5 pt or |Δx_center| <= 3.5 pt AND >= 2 row peers within |Δy| <= 3.5 pt).
+    """
+    table_ids: set[str] = set()
+    unmatched = [s for s in spans if s.span_id not in leader_matched_ids]
+    for s in unmatched:
+        # Check column alignment (vertical stack of tabular cells)
+        col_peers = [
+            o for o in unmatched
+            if o.span_id != s.span_id
+            and (abs(o.bbox.x0 - s.bbox.x0) <= 3.5 or abs(o.bbox.center.x - s.bbox.center.x) <= 3.5)
+            and 6.0 <= abs(o.bbox.center.y - s.bbox.center.y) <= 140.0
+        ]
+        # Check row alignment (horizontal row of parameter cells: e.g. 'd1' | 'Pin' | '6')
+        row_peers = [
+            o for o in unmatched
+            if o.span_id != s.span_id
+            and abs(o.bbox.center.y - s.bbox.center.y) <= 4.0
+            and 8.0 <= abs(o.bbox.center.x - s.bbox.center.x) <= 220.0
+        ]
+        if (len(col_peers) >= 2 and len(row_peers) >= 1) or len(row_peers) >= 2:
+            table_ids.add(s.span_id)
+    return table_ids
+
+
+def preserve_full_raw_callout_on_threads(orig_cluster_text: str, parsed_dim: Any = None) -> str:
+    """
+    Fixes Issue 3 (Thread regression on '4X M10x1.5 - 6H'):
+    Always keeps the full original clustered text (including '4X ' or '2 x ') in `raw_callout`,
+    never overwriting it with the stripped thread body 'M10x1.5 - 6H'.
+    """
+    return " ".join(orig_cluster_text.strip().split())
 
 
 def _norm_alnum(s: str) -> str:
@@ -104,21 +147,23 @@ def suppress_fragments_and_resolve_multiview(
     expanded: list[dict[str, Any]] = []
     for r in recs:
         if r.get("kind") == "THREAD":
-            callout = str(r.get("raw_callout", ""))
-            m_qty = _THREAD_QTY_RE.match(callout.strip())
+            orig_callout = preserve_full_raw_callout_on_threads(str(r.get("raw_callout", "")), r)
+            r = copy.deepcopy(r)
+            r["raw_callout"] = orig_callout
+            r["rawCallout"] = orig_callout
+            m_qty = _THREAD_QTY_RE.match(orig_callout.strip())
             qty = 1
+            stripped_callout = orig_callout
             if m_qty:
                 qty = int(m_qty.group(1))
-                callout = m_qty.group(2)
-                r = copy.deepcopy(r)
-                r["raw_callout"] = callout
+                stripped_callout = m_qty.group(2)
             # If '2 x M3' (2 <= qty <= 4), emit the additional thread instances for FAI accountability
-            if 2 <= qty <= 4 and "m3" in callout.lower():
+            if 2 <= qty <= 4 and "m3" in orig_callout.lower():
                 for _ in range(qty):
                     expanded.append(copy.deepcopy(r))
                 continue
             # Deduplicate identical quantity == 1 thread callouts ('M4') within 65 pt
-            key = _norm_alnum(callout)
+            key = _norm_alnum(stripped_callout)
             bbox = r.get("bbox") or {}
             if isinstance(bbox, dict):
                 cx = float(bbox.get("x0", bbox.get("x", 0.0))) + float(bbox.get("x1", bbox.get("x", 0.0) + bbox.get("width", 0.0)))
@@ -563,6 +608,7 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                         "usl": usl,
                         "units": units,
                         "kind": dim.kind,
+                        "raw_callout": preserve_full_raw_callout_on_threads(raw_t, dim) if dim.kind == "THREAD" else raw_t,
                         "prefix_symbol": getattr(dim, "prefix_symbol", None),
                         "tolerance_kind": dim.tolerance_kind,
                         "designator": designator,
@@ -709,41 +755,30 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
         )
         placed_by_id = {p.callout_id: p for p in placed_balloons}
 
-        # 3b. Table gate: a bare untoleranced number with no leader is a
-        # dimension only when it stands alone (or with one neighbour). A
-        # dense cluster of such numbers is a table, not balloonable
-        # geometry — drop the whole cluster. Toleranced, prefixed,
-        # angled, or leader-matched records are never gated, so a
-        # spread-out set of general dims (synthetic case 4) survives.
-        _bare_general = []
-        for _node in callout_nodes:
-            _rec = parsed_records.get(_node.callout_id, {})
-            _assoc = assoc_by_id.get(_node.callout_id)
-            if (
-                _rec.get("kind") in ("LINEAR", "DIAMETER", "RADIUS", "ANGULAR")
-                and _rec.get("tolerance_kind") == "GENERAL_TOL"
-                and _rec.get("prefix_symbol", "Ø") == ""
-                and _rec.get("units") != "deg"
-                and (_assoc.association_kind if _assoc else "UNMATCHED") == "UNMATCHED"
-            ):
-                _bare_general.append(_node.callout_id)
-        _gated: set[str] = set()
-        for _cid in _bare_general:
-            _node = _nodes_by_id.get(_cid)
-            if _node is None:
-                continue
-            _cx, _cy = _node.bbox.center.x, _node.bbox.center.y
-            _neighbours = 0
-            for _oid in _bare_general:
-                if _oid == _cid:
-                    continue
-                _onode = _nodes_by_id.get(_oid)
-                if _onode is None:
-                    continue
-                if ((_onode.bbox.center.x - _cx) ** 2 + (_onode.bbox.center.y - _cy) ** 2) ** 0.5 <= 80.0:
-                    _neighbours += 1
-            if _neighbours >= 2:
-                _gated.add(_cid)
+        # 3b. Table gate: true table-grid detection replacing naive 80pt neighbour gate
+        leader_matched_ids = {
+            a.callout.callout_id
+            for a in associated
+            if a.association_kind != "UNMATCHED"
+        }
+        all_leader_ids = set(leader_matched_ids)
+        for lid in leader_matched_ids:
+            if "_p" in lid:
+                all_leader_ids.add(lid.split("_p")[0])
+
+        _table_span_ids = find_table_cell_span_ids(
+            v_model.clustered_spans,
+            v_model,
+            all_leader_ids,
+        )
+        if v_model.raw_spans:
+            _table_span_ids.update(
+                find_table_cell_span_ids(
+                    v_model.raw_spans,
+                    v_model,
+                    all_leader_ids,
+                )
+            )
 
         # 4. Confidence & Character Record Synthesis
         characteristics: list[dict[str, Any]] = []
@@ -752,7 +787,8 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
 
         for node in callout_nodes:
             cid = node.callout_id
-            if cid in _gated:
+            base_id = cid.split("_p")[0] if "_p" in cid else cid
+            if cid in _table_span_ids or base_id in _table_span_ids:
                 # Table cell, not a balloonable feature.
                 continue
             rec = parsed_records.get(cid, {})
@@ -876,8 +912,16 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 "zone": zone,
                 "kind": rec.get("kind", ""),
                 "designator": rec.get("designator", "Standard"),
-                "raw_callout": node.raw_text,
-                "rawCallout": node.raw_text,
+                "raw_callout": (
+                    preserve_full_raw_callout_on_threads(node.raw_text, rec)
+                    if rec.get("kind") == "THREAD"
+                    else node.raw_text
+                ),
+                "rawCallout": (
+                    preserve_full_raw_callout_on_threads(node.raw_text, rec)
+                    if rec.get("kind") == "THREAD"
+                    else node.raw_text
+                ),
                 "featureDescription": rec.get("featureDescription", "Characteristic Callout"),
                 "nominal_text": node.raw_text.split()[0],
                 "nominal": rec.get("nominal", 0.0),

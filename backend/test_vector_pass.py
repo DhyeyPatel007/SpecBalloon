@@ -13,10 +13,12 @@ is kept as the v1 regression (arrowheads + slash formatting).
 """
 from vector_pass import (
     BBox,
+    LineSegment,
     Point2D,
     TextSpan,
     assemble_boxed_gdt_frames,
     classify_span_token,
+    cluster_spans_rotation_aware,
     cluster_split_tolerance_spans,
     resolve_cluster_v2_claims,
     test_vector_pass,
@@ -186,4 +188,70 @@ def test_cluster_v2_pua_and_precedence() -> None:
     assembled_spans = assemble_boxed_gdt_frames([s1, s2, s3, s4])
     assert len(assembled_spans) == 1
     assert assembled_spans[0].text == "|◎|Ø 0.1|B| (4x)"
+
+
+def test_rotation_and_mutual_tolerance_clustering() -> None:
+    # 1. Vertical rotated dimension (-90 deg) on new01: 'Ø' + '57' + 'f7' along -Y axis
+    s_pre = TextSpan("v1", "Ø", BBox(100, 300, 112, 310), Point2D(110, 310), "CAD", 10.0, -90.0)
+    s_num = TextSpan("v2", "57", BBox(100, 282, 112, 298), Point2D(110, 298), "CAD", 10.0, -90.0)
+    s_fit = TextSpan("v3", "f7", BBox(100, 265, 112, 280), Point2D(110, 280), "CAD", 10.0, -90.0)
+    res_vert = cluster_spans_rotation_aware([s_pre, s_num, s_fit])
+    assert any(s.text == "Ø 57 f7" for s in res_vert), f"Got {[s.text for s in res_vert]}"
+    # 2. Stacked asymmetric tolerance retention ('4.7 +0.10 / -0.05' & '2 +0.2 / -0.4')
+    b_nom = TextSpan("n1", "4.7", BBox(200, 100, 220, 110), Point2D(200, 108), "CAD", 10.0, 0.0)
+    b_top = TextSpan("t1", "+0.10", BBox(223, 95, 245, 103), Point2D(223, 102), "CAD", 7.0, 0.0)
+    b_bot = TextSpan("t2", "-0.05", BBox(223, 104, 245, 112), Point2D(223, 111), "CAD", 7.0, 0.0)
+    res_stack = cluster_spans_rotation_aware([b_nom, b_top, b_bot])
+    assert any(s.text == "4.7 +0.10 / -0.05" for s in res_stack), f"Got {[s.text for s in res_stack]}"
+    # 3. Cross-dimension tolerance stealing prevention ('Ø 2 ±0.05' and '6.8 ±0.1' nearby)
+    d1_nom = TextSpan("d1", "Ø 2", BBox(100, 200, 120, 210), Point2D(100, 208), "CAD", 10.0, 0.0)
+    d1_tol = TextSpan("dt1", "±0.05", BBox(122, 200, 145, 210), Point2D(122, 208), "CAD", 9.0, 0.0)
+    d2_nom = TextSpan("d2", "6.8", BBox(105, 216, 125, 226), Point2D(105, 224), "CAD", 10.0, 0.0)
+    d2_tol = TextSpan("dt2", "±0.1", BBox(127, 216, 148, 226), Point2D(127, 224), "CAD", 9.0, 0.0)
+    res_crowd = cluster_spans_rotation_aware([d1_nom, d1_tol, d2_nom, d2_tol])
+    texts = {s.text for s in res_crowd}
+    assert "Ø 2 ±0.05" in texts and "6.8 ±0.1" in texts, f"Got {texts}"
+    # 4. Vector boxed FCF with stroked symbol + internal '0.005' and 'A' (new03)
+    fcf_rects = [BBox(300, 400, 314, 414), BBox(314, 400, 348, 414), BBox(348, 400, 362, 414)]
+    runout_segs = [LineSegment(Point2D(302, 412), Point2D(312, 402), 0.7)]
+    sp_tol = TextSpan("f1", "0.005", BBox(316, 402, 345, 412), Point2D(316, 410), "CAD", 9.0, 0.0)
+    sp_dat = TextSpan("f2", "A", BBox(350, 402, 360, 412), Point2D(350, 410), "CAD", 9.0, 0.0)
+    res_fcf = cluster_spans_rotation_aware([sp_tol, sp_dat], rectangles=fcf_rects, segments=runout_segs)
+    assert len(res_fcf) == 1 and res_fcf[0].text == "|↗|0.005|A|", f"Got {[s.text for s in res_fcf]}"
+
+
+def test_no_datum_fcf_stroked_symbol() -> None:
+    # Proves FIX 1: vector FCF box with no datum letter and no font symbol (stroked arrow)
+    # does not crash with TypeError (from len() of generator) and correctly assembles into |↗|0.05|
+    fcf_rects = [BBox(300, 400, 314, 414), BBox(314, 400, 348, 414)]
+    runout_segs = [LineSegment(Point2D(302, 412), Point2D(312, 402), 0.7)]
+    sp_tol = TextSpan("f1", "0.05", BBox(316, 402, 345, 412), Point2D(316, 410), "CAD", 9.0, 0.0)
+    res_fcf = cluster_spans_rotation_aware([sp_tol], rectangles=fcf_rects, segments=runout_segs)
+    assert len(res_fcf) == 1
+    assert res_fcf[0].text == "|↗|0.05|"
+
+
+def test_thread_composite_prefix_join() -> None:
+    # Proves FIX 3: thread-OTHER composite claims an immediately-left PREFIX token
+    # '4X' + 'M10x1.5 - 6H' -> '4X M10x1.5 - 6H'
+    sp_pre = TextSpan("p1", "4X", BBox(100, 200, 115, 212), Point2D(100, 210), "CAD", 9.0, 0.0)
+    sp_th = TextSpan("th1", "M10x1.5 - 6H", BBox(118, 200, 190, 212), Point2D(118, 210), "CAD", 9.0, 0.0)
+    res = cluster_spans_rotation_aware([sp_pre, sp_th])
+    assert any(s.text == "4X M10x1.5 - 6H" for s in res)
+
+    # '2 x' + 'M3' -> '2 x M3'
+    sp_pre2 = TextSpan("p2", "2 x", BBox(100, 250, 115, 262), Point2D(100, 260), "CAD", 9.0, 0.0)
+    sp_th2 = TextSpan("th2", "M3", BBox(118, 250, 135, 262), Point2D(118, 260), "CAD", 9.0, 0.0)
+    res2 = cluster_spans_rotation_aware([sp_pre2, sp_th2])
+    assert any(s.text == "2 x M3" for s in res2)
+
+
+def test_m_digit_is_not_fit() -> None:
+    # Proves FIX 2: M+digit is a thread, never a fit class; '10' + 'M4' stay separate
+    s_num = TextSpan("n1", "10", BBox(100, 200, 115, 212), Point2D(100, 210), "CAD", 10.0, 0.0)
+    s_th = TextSpan("th", "M4", BBox(118, 200, 135, 212), Point2D(118, 210), "CAD", 10.0, 0.0)
+    res = cluster_spans_rotation_aware([s_num, s_th])
+    texts = {s.text for s in res}
+    assert "10" in texts and "M4" in texts
+    assert not any("10 M4" in s.text or "10M4" in s.text for s in res)
 

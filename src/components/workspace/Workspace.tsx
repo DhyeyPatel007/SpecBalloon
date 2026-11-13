@@ -31,6 +31,7 @@ import { CadCanvasViewport } from './CadCanvasViewport';
 import { StudioRightDock } from './StudioRightDock';
 import { exportMultiPagePdfDeck } from '../../utils/pdfDeckExporter';
 import { extractVectorDimensionsFromPdf } from '../../utils/pdfDimensionExtractor';
+import { isCharacteristicFlagged, normalizeConfidencePct, getDisplacedBalloonCoords } from '../../lib/reviewUtils';
 import { ZoomIn, ZoomOut } from 'lucide-react';
 
 interface WorkspaceProps {
@@ -212,8 +213,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           clearInterval(interval);
           setIsStreaming(false);
 
-          // Identify flagged items (<85% confidence)
-          const flagged = extractedBalloons.filter((c) => c.confidence < 85);
+          // Identify flagged items (<85% confidence or in review)
+          const flagged = extractedBalloons.filter((c) => isCharacteristicFlagged(c));
 
           // Summary message
           const summaryMsg: ChatMessage = {
@@ -823,7 +824,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
     // 8. Show flagged
     if (q.includes('flagged') || q.includes('out of spec') || q.includes('low confidence')) {
-      const flagged = characteristics.filter((c) => c.confidence < 85 || c.status === 'out_of_spec');
+      const flagged = characteristics.filter((c) => isCharacteristicFlagged(c) || c.status === 'out_of_spec');
       setMessages((prev) => [
         ...prev,
         {

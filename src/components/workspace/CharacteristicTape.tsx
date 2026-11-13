@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Characteristic, InspectionStatus } from '../../types/metrology';
 import { Trash2, AlertCircle, CheckCircle2, XCircle, Gauge, Check } from 'lucide-react';
 import { fmt3, parseCalloutAndCalculateLimits } from '../../utils/metrologyMath';
+import { isCharacteristicFlagged } from '../../lib/reviewUtils';
 
 interface CharacteristicTapeProps {
   characteristics: Characteristic[];
@@ -29,13 +30,14 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
 
   const filteredChars = characteristics.filter((c) => {
     if (statusFilter === 'all') return true;
+    if (statusFilter === 'needs_review') return isCharacteristicFlagged(c);
     return c.status === statusFilter;
   });
 
   const counts = {
     all: characteristics.length,
     in_spec: characteristics.filter((c) => c.status === 'in_spec').length,
-    needs_review: characteristics.filter((c) => c.status === 'needs_review').length,
+    needs_review: characteristics.filter((c) => isCharacteristicFlagged(c)).length,
     out_of_spec: characteristics.filter((c) => c.status === 'out_of_spec').length,
   };
 
@@ -208,7 +210,7 @@ export const CharacteristicTape: React.FC<CharacteristicTapeProps> = ({
             const isActive = char.id === activeBalloonId;
             const isPass = char.status === 'in_spec';
             const isFail = char.status === 'out_of_spec';
-            const isReview = char.status === 'needs_review';
+            const isReview = isCharacteristicFlagged(char);
 
             const lslVal = char.lower_limit ?? char.lsl;
             const uslVal = char.upper_limit ?? char.usl;

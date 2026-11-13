@@ -1,6 +1,7 @@
 import React from 'react';
 import { Characteristic, DrawingSpec, Point } from '../../types/metrology';
 import { ZoomIn, ZoomOut, ShieldCheck } from 'lucide-react';
+import { isCharacteristicFlagged } from '../../lib/reviewUtils';
 
 interface StudioStatusBarProps {
   currentDrawing: DrawingSpec | null;
@@ -33,7 +34,7 @@ export const StudioStatusBar: React.FC<StudioStatusBarProps> = ({
 }) => {
   const inSpecCount = characteristics.filter((c) => c.status === 'in_spec').length;
   const outOfSpecCount = characteristics.filter((c) => c.status === 'out_of_spec').length;
-  const reviewCount = characteristics.filter((c) => c.confidence < 85).length;
+  const reviewCount = characteristics.filter((c) => isCharacteristicFlagged(c)).length;
   const hasDrawing = Boolean(currentDrawing && (characteristics.length > 0 || isStreaming));
 
   return (

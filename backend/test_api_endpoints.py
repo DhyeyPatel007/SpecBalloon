@@ -7,9 +7,12 @@ from fastapi.testclient import TestClient
 
 from main import (
     app,
+    find_table_cell_span_ids,
+    preserve_full_raw_callout_on_threads,
     split_compound_dim_and_gdt_text,
     suppress_fragments_and_resolve_multiview,
 )
+from vector_pass import BBox, Point2D, TextSpan
 from test_pipeline_e2e import generate_synthetic_as4092_pdf
 
 client = TestClient(app)
@@ -302,4 +305,29 @@ def test_fragment_suppression_and_multiview() -> None:
     cleaned = suppress_fragments_and_resolve_multiview(mock_recs)
     assert len(cleaned) == 3  # 1x (12.35 ±0.3) + 2x (2 x M3 instances)
     assert cleaned[0]["lsl"] == 12.05 and cleaned[0]["usl"] == 12.65
+
+
+def test_table_cell_detection_and_thread_raw_callout():
+    # 1. preserve_full_raw_callout_on_threads preserves full callout with prefix
+    assert preserve_full_raw_callout_on_threads("4X M10x1.5 - 6H", None) == "4X M10x1.5 - 6H"
+    assert preserve_full_raw_callout_on_threads("  2 x  M3  ", None) == "2 x M3"
+
+    # 2. find_table_cell_span_ids flags 3x3 table grid and protects leader-matched span
+    # 3x3 grid: x at 100, 150, 200; y at 100, 120, 140
+    spans = []
+    for r_idx, y in enumerate([100.0, 120.0, 140.0]):
+        for c_idx, x in enumerate([100.0, 150.0, 200.0]):
+            spans.append(
+                TextSpan(f"cell_{r_idx}_{c_idx}", f"val_{r_idx}_{c_idx}", BBox(x, y, x + 20, y + 10), Point2D(x, y + 8), "CAD", 9.0, 0.0)
+            )
+    # Add a leader-matched dimension span inside the grid area
+    ldr_span = TextSpan("ldr_dim", "Ø15 ±0.1", BBox(100.0, 120.0, 125.0, 130.0), Point2D(100, 128), "CAD", 9.0, 0.0)
+    spans.append(ldr_span)
+    table_ids = find_table_cell_span_ids(spans, None, leader_matched_ids={"ldr_dim"})
+    # All 9 table cells must be flagged
+    for r_idx in range(3):
+        for c_idx in range(3):
+            assert f"cell_{r_idx}_{c_idx}" in table_ids
+    # The leader-matched dimension MUST be protected
+    assert "ldr_dim" not in table_ids
 

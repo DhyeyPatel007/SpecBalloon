@@ -22,6 +22,24 @@ def _clean(value: Any) -> Any:
     )
 
 
+def format_excel_callout_and_confidence(ch: dict) -> tuple[str, str]:
+    """
+    1. Resolves callout text across all frontend/backend field aliases so Column 8 is never blank.
+    2. Normalizes confidence whether passed as 0..1 (0.994) or 0..100 (99.4) so it never prints 9940.0%.
+    """
+    raw_callout = (
+        ch.get("raw_callout")
+        or ch.get("callout")
+        or ch.get("requirement")
+        or ch.get("text")
+        or ""
+    ).replace("\x00", "")
+    raw_conf = float(ch.get("confidence") or 0.0)
+    conf_pct = raw_conf * 100.0 if raw_conf <= 1.0 else raw_conf
+    conf_str = f"Confidence: {conf_pct:.1f}%"
+    return raw_callout, conf_str
+
+
 def build_as9102_workbook_bytes(
     drawing_meta: dict[str, Any],
     characteristics: list[dict[str, Any]],
@@ -149,12 +167,13 @@ def build_as9102_workbook_bytes(
         else:
             status = "FAIL (OUT OF SPEC)"
 
-        notes = "; ".join(ch.get("review_reasons", [])) or f"Confidence: {conf * 100:.1f}%"
+        callout_text, conf_str = format_excel_callout_and_confidence(ch)
+        notes = "; ".join(ch.get("review_reasons", [])) or conf_str
         row_data = [
             ch.get("char_no", r_offset - 3),
             ch.get("zone", "B2"),
             ch.get("designator", "Major"),
-            ch.get("raw_callout", ""),
+            callout_text,
             float(ch.get("nominal", 0.0)),
             float(ch.get("plus_tol", 0.0)),
             float(ch.get("minus_tol", 0.0)),
@@ -207,7 +226,8 @@ def build_as9102_workbook_bytes(
         lsl = float(ch.get("lsl", 0.0))
         usl = float(ch.get("usl", 0.0))
         samples: list[float] = ch.get("lot_measurements") or []
-        base_cols = [_clean(v) for v in [ch.get("char_no", r_offset - 3), ch.get("raw_callout", ""), lsl, usl]]
+        callout_text, _ = format_excel_callout_and_confidence(ch)
+        base_cols = [_clean(v) for v in [ch.get("char_no", r_offset - 3), callout_text, lsl, usl]]
         for c_idx, val in enumerate(base_cols, start=1):
             cell = ws4.cell(r_offset, c_idx, val)
             cell.border = grid_border

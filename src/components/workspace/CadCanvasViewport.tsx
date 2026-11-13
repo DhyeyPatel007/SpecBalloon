@@ -14,6 +14,7 @@ import {
   analyzeCalloutCropWithGemini,
   applyDeterministicMetrologyGuardrails
 } from '../../lib/geminiVision';
+import { isCharacteristicFlagged, normalizeConfidencePct, getDisplacedBalloonCoords } from '../../lib/reviewUtils';
 import {
   Upload
 } from 'lucide-react';
@@ -201,17 +202,20 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
   const simRef = useRef<ForceDirectedSimulator | null>(null);
 
   useEffect(() => {
-    const physicsBalloons: PhysicsBalloon[] = characteristics.map((c) => ({
-      id: c.id,
-      label: c.balloonNumber < 10 ? `0${c.balloonNumber}` : `${c.balloonNumber}`,
-      x: c.balloonPosition.x,
-      y: c.balloonPosition.y,
-      vx: 0,
-      vy: 0,
-      anchorX: c.bbox.x + c.bbox.width / 2,
-      anchorY: c.bbox.y + c.bbox.height / 2,
-      radius: 12
-    }));
+    const physicsBalloons: PhysicsBalloon[] = characteristics.map((c) => {
+      const coords = getDisplacedBalloonCoords(c);
+      return {
+        id: c.id,
+        label: c.balloonNumber < 10 ? `0${c.balloonNumber}` : `${c.balloonNumber}`,
+        x: coords.bx,
+        y: coords.by,
+        vx: 0,
+        vy: 0,
+        anchorX: coords.anchorX,
+        anchorY: coords.anchorY,
+        radius: 12,
+      };
+    });
 
     if (!simRef.current) {
       simRef.current = new ForceDirectedSimulator(physicsBalloons);
@@ -484,10 +488,11 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
 
     characteristics.forEach((char) => {
       const isSelected = char.id === activeBalloonId;
-      const bX = char.balloonPosition.x;
-      const bY = char.balloonPosition.y;
-      const anchorX = char.bbox.x + char.bbox.width / 2;
-      const anchorY = char.bbox.y + char.bbox.height / 2;
+      const coords = getDisplacedBalloonCoords(char);
+      const bX = coords.bx;
+      const bY = coords.by;
+      const anchorX = coords.anchorX;
+      const anchorY = coords.anchorY;
 
       const isDatumMatch = selectedDatumHighlight && char.datumFeature === selectedDatumHighlight;
 
@@ -636,7 +641,7 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
       }
 
       // Amber attention ring for unreviewed / low-confidence callouts
-      const isNeedsReview = char.status === 'needs_review' || (!char.reviewed && (char.confidence ?? 100) < 85);
+      const isNeedsReview = isCharacteristicFlagged(char);
       if (isNeedsReview && !isSelected && !isDatumMatch) {
         ctx.strokeStyle = 'rgba(217, 119, 6, 0.65)';
         ctx.lineWidth = 1.75;
@@ -707,7 +712,8 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
         ? '#DC2626'
         : '#D97706';
       mCtx.beginPath();
-      mCtx.arc(char.balloonPosition.x * scaleX, char.balloonPosition.y * scaleY, isSel ? 3.5 : 2, 0, Math.PI * 2);
+      const coords = getDisplacedBalloonCoords(char);
+      mCtx.arc(coords.bx * scaleX, coords.by * scaleY, isSel ? 3.5 : 2, 0, Math.PI * 2);
       mCtx.fill();
     });
 
@@ -765,8 +771,9 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     // 1. Balloon or Translucent Highlight Pill Hit Test
     const clickedChar = characteristics.find((c) => {
       // Check circular balloon (16px radius)
-      const dx = c.balloonPosition.x - coords.x;
-      const dy = c.balloonPosition.y - coords.y;
+      const bCoords = getDisplacedBalloonCoords(c);
+      const dx = bCoords.bx - coords.x;
+      const dy = bCoords.by - coords.y;
       if (Math.sqrt(dx * dx + dy * dy) <= 16) return true;
 
       // Check translucent highlight pill / corner tag bounding box
@@ -781,8 +788,9 @@ export const CadCanvasViewport: React.FC<CadCanvasViewportProps> = ({
     if (clickedChar) {
       onSelectCharacteristic(clickedChar.id);
       // If clicked near balloon circle, allow dragging balloon position
-      const dx = clickedChar.balloonPosition.x - coords.x;
-      const dy = clickedChar.balloonPosition.y - coords.y;
+      const bCoords = getDisplacedBalloonCoords(clickedChar);
+      const dx = bCoords.bx - coords.x;
+      const dy = bCoords.by - coords.y;
       if (Math.sqrt(dx * dx + dy * dy) <= 20) {
         setDraggedBalloonId(clickedChar.id);
       }

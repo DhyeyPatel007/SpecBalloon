@@ -31,6 +31,7 @@ import {
   applyDeterministicMetrologyGuardrails,
   GeminiCropAnalysis
 } from '../../lib/geminiVision';
+import { isCharacteristicFlagged, normalizeConfidencePct } from '../../lib/reviewUtils';
 
 export type RightDockTab = 'characteristics' | 'inspector' | 'excel';
 
@@ -88,9 +89,9 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
 }) => {
   const activeChar = characteristics.find((c) => c.id === activeBalloonId) || characteristics[0] || null;
 
-  // Filter flagged queue: ONLY unreviewed low-confidence items (< 85%)
+  // Filter flagged queue: ONLY unreviewed low-confidence items (< 85% or in review)
   const flaggedItems = characteristics.filter(
-    (c) => !c.reviewed && c.confidence < 85
+    (c) => !c.reviewed && isCharacteristicFlagged(c)
   );
 
   // Gemini state for inspector
@@ -247,7 +248,7 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
               <div className="space-y-3">
                 {flaggedItems.map((item) => {
                   const isSelected = item.id === activeBalloonId;
-                  const flagLabel = `${Math.round(item.confidence)}% — check this one`;
+                  const flagLabel = `${Math.round(normalizeConfidencePct(item.confidence))}% — check this one`;
 
                   return (
                     <div
@@ -461,7 +462,7 @@ export const StudioRightDock: React.FC<StudioRightDockProps> = ({
                     />
                     <div className="flex items-center justify-between w-full text-[10px] font-mono text-[var(--text-muted)]">
                       <span>300 DPI Vector Crop</span>
-                      <span>Confidence: {activeChar.confidence.toFixed(1)}%</span>
+                      <span>Confidence: {normalizeConfidencePct(activeChar.confidence).toFixed(1)}%</span>
                     </div>
                   </div>
                 )}
