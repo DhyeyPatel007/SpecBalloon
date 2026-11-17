@@ -9,7 +9,7 @@ from leader_association import AssociationKind
 
 @dataclass(frozen=True)
 class EvidenceSignals:
-    text_source: Literal["NATIVE_VECTOR", "CLUSTERED_VECTOR", "GEMINI_PATCH_OCR"]
+    text_source: Literal["NATIVE_VECTOR", "CLUSTERED_VECTOR", "GEMINI_PATCH_OCR", "HYDROGEN_FULL_PAGE"]
     grammar_match: Literal["EXACT_EXPLICIT_TOL", "ISO_FIT_OR_THREAD", "GDT_FRAME", "GENERAL_UNTOLERANCED"]
     leader_association: AssociationKind
     leader_distance_pt: float
@@ -42,6 +42,10 @@ def compute_honest_confidence(signals: EvidenceSignals) -> ConfidenceAssessment:
     elif signals.text_source == "CLUSTERED_VECTOR":
         text_pts = 0.36
         reasons.append("Merged split superscript/subscript tolerance tokens")
+    elif signals.text_source == "HYDROGEN_FULL_PAGE":
+        v_conf = signals.vision_confidence if signals.vision_confidence is not None else 0.75
+        text_pts = round(0.32 * max(0.3, min(0.98, v_conf)), 3)
+        reasons.append("Primary extraction by Gemini 4 Hydrogen (full-page vision)")
     else:
         v_conf = signals.vision_confidence if signals.vision_confidence is not None else 0.75
         text_pts = round(0.32 * max(0.3, min(0.98, v_conf)), 3)

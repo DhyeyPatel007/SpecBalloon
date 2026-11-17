@@ -124,7 +124,24 @@ def reconcile_vision_with_vector(
             source_standard="ASME Y14.5 Unilateral Zone",
         )
     elif fit_cls:
-        limits = calculate_iso_286_limits(nom, fit_cls)
+        # An unsupported fit letter (e.g. ISO 286 has no deviation 'R')
+        # must not raise here: the caller keeps the vector result when the
+        # reconciler errors, so return an explicit error instead of a 500.
+        try:
+            limits = calculate_iso_286_limits(nom, fit_cls)
+        except ValueError:
+            return VisionPatchExtraction(
+                status="ERROR",
+                raw_callout=v_raw,
+                characteristic_type=c_type,
+                nominal=nom,
+                plus_tol=0.0,
+                minus_tol=0.0,
+                fit_class=fit_cls,
+                vision_confidence=0.0,
+                vector_conflict_detected=False,
+                conflict_notes=[f"Unsupported ISO 286 fit class '{fit_cls}' — limits unknown"],
+            )
         p_tol, m_tol = limits.plus_tol, limits.minus_tol
     elif p_tol == 0.0 and m_tol == 0.0:
         limits = calculate_iso_2768_limits(nom, general_tol_class)

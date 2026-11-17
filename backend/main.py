@@ -26,6 +26,7 @@ import dimension_grammar
 import excel_export
 import gdt_parser
 import gemini_vision
+import hydrogen_vision
 import leader_association
 import limits_math
 import sample_data
@@ -133,6 +134,13 @@ def suppress_fragments_and_resolve_multiview(
     for i, r in enumerate(recs):
         if id(r) in dropped_ids:
             continue
+        # Hydrogen-primary records are never dropped here: they carry no
+        # tolerance_kind, so they can never be the GENERAL_TOL echo this
+        # step removes — and a Hydrogen record is a complete callout, not
+        # a vector echo of the explicit record sharing its nominal.
+        if r.get("source") == "HYDROGEN":
+            out.append(r)
+            continue
         key = (r.get("kind"), r.get("nominal"))
         same = [x for x in recs if (x.get("kind"), x.get("nominal")) == key]
         if r.get("tolerance_kind") == "GENERAL_TOL" and any(x.get("tolerance_kind") not in ("GENERAL_TOL", None) for x in same):
@@ -149,6 +157,13 @@ def suppress_fragments_and_resolve_multiview(
     seen_threads: dict[str, float] = {}
     expanded: list[dict[str, Any]] = []
     for r in recs:
+        # Hydrogen threads arrive exactly as the A/B scorer saw them
+        # (deduped by the fusion layer); neither the quantity expansion
+        # nor the 65 pt dedup applies — a Hydrogen thread stacked on a
+        # vector thread's bbox would otherwise be eaten as a duplicate.
+        if r.get("source") == "HYDROGEN":
+            expanded.append(r)
+            continue
         if r.get("kind") == "THREAD":
             orig_callout = preserve_full_raw_callout_on_threads(str(r.get("raw_callout", "")), r)
             r = copy.deepcopy(r)
@@ -182,6 +197,14 @@ def suppress_fragments_and_resolve_multiview(
     # Step 4: Fragment suppression (35 pt overlap / 65 pt strict-substring / UNMATCHED PUA-angular fragments)
     kept: list[dict[str, Any]] = []
     for r in recs:
+        # Hydrogen records are complete callouts, not vector fragments:
+        # a short Hydrogen callout ('1', '5°', '≥ 8') is a real GT row
+        # whose normalized text happens to be a substring of a longer
+        # anchor — the fragment heuristic was built for split vector
+        # tokens and must never eat a vision record.
+        if r.get("source") == "HYDROGEN":
+            kept.append(r)
+            continue
         # FIX (Muse-verified): NEVER suppress a THREAD record here. The
         # substring check below eats the "2 x M3" instances Step 3 just
         # expanded ("m3" is a substring of the "2xm3" anchor), which is why
@@ -450,6 +473,113 @@ async def _vision_resolve_symbol(
     return vis
 
 
+def _hydrogen_record_fields(h: dict[str, Any]) -> dict[str, Any]:
+    """Backend record fields for a Hydrogen-adapted record (hydrogen_vision).
+    Limits rule: explicit Hydrogen tolerances win; an ISO 286 fit class is
+    recomputed deterministically in the adapter; limit callouts keep their
+    stated bounds (range -> midpoint nominal, one-sided min -> [v, v],
+    one-sided max -> [0, v]); anything else with no printed tolerance
+    falls back to ISO 2768-m from the Hydrogen nominal (same fallback the
+    vector path uses today — Stage 2 will mark those unknown instead).
+    Grammar match drives honest confidence: no explicit tolerance means
+    GENERAL_UNTOLERANCED (review), never EXACT."""
+    kind = h["kind"]
+    nominal = h["nominal"]
+    lsl, usl = h.get("lsl"), h.get("usl")
+    tol_type = str(h.get("tolerance_type") or "").strip().lower()
+    if kind == "GDT_FRAME":
+        lsl, usl = 0.0, usl if usl is not None else 0.0
+        explicit = True
+    elif kind == "SURFACE_ROUGHNESS":
+        lsl, usl = 0.0, usl if usl is not None else 0.0
+        explicit = True
+    elif tol_type == "limit":
+        # Limit callouts (min/max), not tolerances: a one-sided bound is
+        # NOT a unilateral tolerance. Range -> midpoint nominal; one-sided
+        # min -> [value, value]; one-sided max -> [0, value] (vector
+        # MAX_LIMIT convention).
+        if lsl is not None and usl is not None:
+            explicit = True
+            if nominal == 0.0:
+                nominal = round((float(lsl) + float(usl)) / 2, 4)
+        elif lsl is not None:
+            usl = lsl
+            nominal = float(lsl)
+            explicit = True
+        elif usl is not None:
+            lsl = 0.0
+            nominal = float(usl)
+            explicit = True
+        else:
+            explicit = False
+            fb = limits_math.calculate_iso_2768_limits(float(nominal), "m", "LINEAR")
+            lsl, usl = fb.lsl, fb.usl
+    elif lsl is not None and usl is not None:
+        # Tolerance callouts (bilateral or unilateral, completed by the
+        # adapter): both bounds are printed values.
+        explicit = True
+    else:
+        explicit = False
+        fb = limits_math.calculate_iso_2768_limits(float(nominal), "m", "LINEAR")
+        lsl, usl = fb.lsl, fb.usl
+    if kind == "GDT_FRAME":
+        plus_tol, minus_tol = float(usl), 0.0
+        feature_desc = (
+            f"{h['featureDescription']} GD&T Control"
+            if h.get("featureDescription")
+            else "GD&T Control"
+        )
+        grammar = "GDT_FRAME"
+        designator = "Critical" if h.get("featureDescription") == "Position" else "Major"
+        units = h.get("units", "mm")
+    elif kind == "SURFACE_ROUGHNESS":
+        plus_tol, minus_tol = 0.0, 0.0
+        feature_desc = "Surface Roughness Ra"
+        grammar = "EXACT_EXPLICIT_TOL"
+        designator = "Critical"
+        units = "µm"
+    else:
+        plus_tol = round(float(usl) - float(nominal), 4)
+        minus_tol = round(float(nominal) - float(lsl), 4)
+        if h.get("fit_class"):
+            grammar = "ISO_FIT_OR_THREAD"
+            feature_desc = (
+                f"ISO 286-1 Fit ({h['fit_class']})"
+                if kind == "ISO_FIT"
+                else f"Metric Thread M{h['nominal']}"
+            )
+            designator = "Critical"
+        elif kind == "THREAD":
+            grammar = "ISO_FIT_OR_THREAD"
+            feature_desc = f"Metric Thread M{h['nominal']}"
+            designator = "Critical"
+        else:
+            grammar = "EXACT_EXPLICIT_TOL" if explicit else "GENERAL_UNTOLERANCED"
+            feature_desc = (
+                f"Diameter Ø{h['nominal']}"
+                if kind == "DIAMETER"
+                else f"Linear Dimension {h['nominal']}"
+            )
+            designator = "Major"
+        units = h.get("units", "mm")
+    return {
+        "nominal": nominal,
+        "plus_tol": plus_tol,
+        "minus_tol": minus_tol,
+        "lsl": lsl,
+        "usl": usl,
+        "units": units,
+        "kind": kind,
+        "raw_callout": h["raw_callout"],
+        "designator": designator,
+        "featureDescription": feature_desc,
+        "grammar_match": grammar,
+        "source": "HYDROGEN",
+        "hydrogen_confidence": h["confidence"],
+        "page": h["page"],
+    }
+
+
 @app.post("/api/v1/drawings")
 async def upload_drawing(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -555,6 +685,9 @@ def _extract_page_characteristics(
     drawing_id: str,
     general_tol_class: str = "m",
     vision_calls_state: dict[str, int] | None = None,
+    hydrogen_records: list[dict[str, Any]] | None = None,
+    hydrogen_status: str = "UNAVAILABLE",
+    hydrogen_notes: list[str] | None = None,
 ) -> tuple[list[dict], dict]:
     """Run the full extraction pipeline on ONE page (page_idx). Returns
     (page_characteristics, page_meta). Zero state leaks across pages:
@@ -609,13 +742,27 @@ def _extract_page_characteristics(
                 designator = "Standard"
                 feature_desc = "Dimensional Feature"
                 units = dim.units
+                # Set when an ISO 286 fit class has no table values
+                # (e.g. deviation letter 'R' — new03 used to 500 the
+                # whole extraction). Limits stay unknown, never invented.
+                _fit_unknown = False
 
                 if dim.kind == "ISO_FIT" and dim.fit_class:
-                    lim = limits_math.calculate_iso_286_limits(dim.nominal, dim.fit_class)
-                    lsl, usl = lim.lsl, lim.usl
-                    p_tol, m_tol = lim.plus_tol, lim.minus_tol
-                    designator = "Critical"
-                    feature_desc = f"ISO 286-1 Fit ({dim.fit_class})"
+                    try:
+                        lim = limits_math.calculate_iso_286_limits(dim.nominal, dim.fit_class)
+                    except ValueError:
+                        lim = None
+                    if lim is None:
+                        lsl, usl = dim.nominal, dim.nominal
+                        p_tol, m_tol = 0.0, 0.0
+                        designator = "Critical"
+                        feature_desc = f"ISO 286-1 Fit ({dim.fit_class}) — limits unknown"
+                        _fit_unknown = True
+                    else:
+                        lsl, usl = lim.lsl, lim.usl
+                        p_tol, m_tol = lim.plus_tol, lim.minus_tol
+                        designator = "Critical"
+                        feature_desc = f"ISO 286-1 Fit ({dim.fit_class})"
                 elif dim.kind == "THREAD":
                     pitch = dim.thread_pitch or limits_math.coarse_pitch_mm(dim.nominal)
                     t_lims = limits_math.calculate_iso_965_thread_limits(dim.nominal, pitch, dim.thread_class or "6H")
@@ -681,9 +828,17 @@ def _extract_page_characteristics(
                     "tolerance_kind": dim.tolerance_kind,
                     "designator": designator,
                     "featureDescription": feature_desc,
-                    "review_reasons": ["Minimum limit only — no upper bound stated"] if dim.tolerance_kind == "MIN_LIMIT" else [],
+                    "review_reasons": (
+                        [f"Unsupported ISO 286 fit class '{dim.fit_class}' — limits unknown, verify before sign-off"]
+                        if _fit_unknown
+                        else ["Minimum limit only — no upper bound stated"] if dim.tolerance_kind == "MIN_LIMIT" else []
+                    ),
                     "grammar_match": (
-                        "ISO_FIT_OR_THREAD"
+                        # An unsupported fit class is untoleranced, not exact:
+                        # its limits are unknown, so it stays in review.
+                        "GENERAL_UNTOLERANCED"
+                        if _fit_unknown
+                        else "ISO_FIT_OR_THREAD"
                         if dim.kind in ("ISO_FIT", "THREAD")
                         else "GENERAL_UNTOLERANCED"
                         if dim.kind == "CHAMFER" or dim.tolerance_kind == "GENERAL_TOL"
@@ -794,6 +949,100 @@ def _extract_page_characteristics(
     if _drop_dup:
         callout_nodes[:] = [n for n in callout_nodes if n.callout_id not in set(_drop_dup)]
 
+    # 2c. HYDROGEN PRIMARY EXTRACTION (fusion: vision reads, vector places).
+    # Hydrogen reads this page as a full-page image and extracts all
+    # callouts (the exact A/B prompt that scored 321/331); the records for
+    # this page were fetched once by extract_all_pages and passed in.
+    # Each Hydrogen record is matched to a vector callout by nominal +
+    # limits + GD&T signature; the VECTOR bbox is kept for balloon
+    # placement. A vector record already claimed by a Hydrogen record is
+    # NOT reused for a second override — the second Hydrogen record
+    # becomes a new node stacked on the same bbox, because distinct
+    # characteristics legitimately share one nominal (new01 nominal 2.0
+    # is three rows). Unmatched Hydrogen records (table drawings, vector
+    # misses) are kept as Hydrogen-only records with a fallback bbox and
+    # a review flag — never dropped: the offline fusion prototype measured
+    # that dropping them costs 20 correct rows (303/331, below the Stage
+    # 1 bar), while keeping them scores 323/331. Dedup is exact-duplicate
+    # only (hydrogen_vision.dedup_hydrogen_records). Any failure here
+    # leaves the vector result unchanged.
+    if hydrogen_records:
+        try:
+            _h_records = hydrogen_vision.dedup_hydrogen_records(hydrogen_records)
+            _vector_recs = [
+                {
+                    "cid": _n.callout_id,
+                    "raw_text": _n.raw_text,
+                    "nominal": parsed_records[_n.callout_id].get("nominal"),
+                    "lsl": parsed_records[_n.callout_id].get("lsl"),
+                    "usl": parsed_records[_n.callout_id].get("usl"),
+                    "kind": parsed_records[_n.callout_id].get("kind", ""),
+                    "featureDescription": parsed_records[_n.callout_id].get("featureDescription", ""),
+                }
+                for _n in callout_nodes
+                if _n.callout_id in parsed_records
+            ]
+            _nodes_by_id = {n.callout_id: n for n in callout_nodes}
+            _overridden: set[str] = set()
+            _fallback_i = 0
+            for _i, _h in enumerate(_h_records):
+                _match = hydrogen_vision.match_hydrogen_to_vector(_h, _vector_recs)
+                _new_node_bbox: BBox | None = None
+                if _match is not None and _match["cid"] not in _overridden:
+                    # Hydrogen is primary for WHAT; vector keeps WHERE.
+                    _overridden.add(_match["cid"])
+                    _rec = parsed_records[_match["cid"]]
+                    _rec.update(_hydrogen_record_fields(_h))
+                    _rec["review_reasons"] = list(
+                        dict.fromkeys(
+                            list(_rec.get("review_reasons", []))
+                            + ["Primary extraction by Gemini 4 Hydrogen (full-page vision)"]
+                        )
+                    )
+                else:
+                    # Unmatched, or a second distinct callout sharing one
+                    # vector cluster: new node, stacked on the matched
+                    # cluster's bbox when there is one, else a STAGGERED
+                    # sheet-corner fallback — every fallback node gets its
+                    # own position, so proximity-based post-processing
+                    # never eats them as duplicates. (Multi-page records
+                    # sit on page-0 coordinates until the Stage 3 sheet
+                    # switcher places them on their own page.)
+                    if _match is not None:
+                        _new_node_bbox = _nodes_by_id[_match["cid"]].bbox
+                    else:
+                        _same_nom = next(
+                            (
+                                _nodes_by_id[_v["cid"]].bbox
+                                for _v in _vector_recs
+                                if _v.get("nominal") is not None
+                                and _h.get("nominal") is not None
+                                and abs(float(_v["nominal"]) - float(_h["nominal"])) <= 0.02
+                            ),
+                            None,
+                        )
+                        if _same_nom is not None:
+                            _new_node_bbox = _same_nom
+                        else:
+                            _fx = 24.0 + (_fallback_i % 8) * 80.0
+                            _fy = 24.0 + (_fallback_i // 8) * 40.0
+                            _new_node_bbox = BBox(_fx, _fy, _fx + 60.0, _fy + 12.0)
+                            _fallback_i += 1
+                    _cid = f"h_{page_idx + 1}_{_i}"
+                    callout_nodes.append(
+                        leader_association.CalloutNode(
+                            _cid, _h["raw_callout"], _new_node_bbox, 0.0,
+                            quantity=_h.get("quantity", 1),
+                        )
+                    )
+                    parsed_records[_cid] = {
+                        **_hydrogen_record_fields(_h),
+                        "needs_review": True,
+                        "review_reasons": ["Hydrogen-only callout — no vector placement; verify before sign-off"],
+                    }
+        except Exception as exc:  # Hydrogen must never fail an extraction
+            print(f"[hydrogen] fusion failed on page {page_idx + 1} ({type(exc).__name__}: {exc}) — keeping vector result")
+
     # 3. Balloon Layout & Numbering
     placed_balloons = balloon_layout.layout_and_number_balloons(
         [(n.callout_id, n.bbox) for n in callout_nodes],
@@ -823,7 +1072,8 @@ def _extract_page_characteristics(
         vision_conflict = False
         vision_symbol = None
         if (
-            rec.get("kind") == "GDT_FRAME"
+            rec.get("source") != "HYDROGEN"
+            and rec.get("kind") == "GDT_FRAME"
             and rec.get("needs_review")
             and any("unreadable" in r.lower() for r in rec.get("review_reasons", []))
             and page_fcf_calls < 4
@@ -899,8 +1149,14 @@ def _extract_page_characteristics(
             and math.hypot(other.bbox.center.x - node_center.x, other.bbox.center.y - node_center.y) <= 35.0
         )
 
+        # Hydrogen-primary records carry their own provenance: the
+        # full-page vision confidence, not the cropped-patch one.
+        if rec.get("source") == "HYDROGEN":
+            vision_used = True
+            vision_conf = rec.get("hydrogen_confidence")
+
         signals = confidence.EvidenceSignals(
-            text_source="CLUSTERED_VECTOR",
+            text_source="HYDROGEN_FULL_PAGE" if rec.get("source") == "HYDROGEN" else "CLUSTERED_VECTOR",
             grammar_match=rec.get("grammar_match", "EXACT_EXPLICIT_TOL"),
             leader_association=lead_kind,
             leader_distance_pt=lead_dist,
@@ -965,6 +1221,8 @@ def _extract_page_characteristics(
             },
             "balloonPosition": {"x": pos_x, "y": pos_y},
             "crop_base64": crop_b64,
+            "page": rec.get("page", page_idx + 1),
+            "source": rec.get("source", "VECTOR"),
             "is_sample_data": False,
             "isDemo": False,
             "vision_used": vision_used,
@@ -1160,6 +1418,8 @@ def _extract_page_characteristics(
         "width": float(v_model.width_pt),
         "height": float(v_model.height_pt),
         "count": len(page_characteristics),
+        "hydrogen_status": hydrogen_status,
+        "hydrogen_notes": list(hydrogen_notes or []),
     }
 
     return page_characteristics, page_meta
@@ -1180,9 +1440,30 @@ def extract_all_pages(
     all_characteristics: list[dict] = []
     pages_meta: list[dict] = []
     vision_calls_state = {"calls": 0}
+    # Hydrogen primary extraction: one full-page call per page, run
+    # concurrently, BEFORE the per-page vector passes so each page's
+    # fusion has its records ready. Any failure -> vector-only for all
+    # pages; vision must never fail an extraction.
+    hydrogen_by_page: dict[int, list[dict]] = {}
+    hydrogen_status = "UNAVAILABLE"
+    hydrogen_notes: list[str] = []
+    try:
+        _h_all, hydrogen_status, hydrogen_notes = _run_coroutine_sync(
+            hydrogen_vision.extract_drawing_with_hydrogen(doc)
+        )
+        for _h in _h_all:
+            hydrogen_by_page.setdefault(int(_h.get("page") or 1), []).append(_h)
+    except Exception as exc:  # noqa: BLE001 - vision must never fail extraction
+        print(f"[hydrogen] primary extraction failed ({type(exc).__name__}: {exc}) — keeping vector result")
+        hydrogen_status = "ERROR"
+        hydrogen_notes = [f"Hydrogen primary extraction failed: {exc}"]
     for page_idx in range(max_pages):
         page_chars, p_meta = _extract_page_characteristics(
-            doc, page_idx, drawing_id, general_tol_class, vision_calls_state=vision_calls_state
+            doc, page_idx, drawing_id, general_tol_class,
+            vision_calls_state=vision_calls_state,
+            hydrogen_records=hydrogen_by_page.get(page_idx + 1, []),
+            hydrogen_status=hydrogen_status,
+            hydrogen_notes=hydrogen_notes,
         )
         all_characteristics.extend(page_chars)
         pages_meta.append(p_meta)
@@ -1253,6 +1534,13 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
         doc = fitz.open(temp_path)
         characteristics, pages_meta = extract_all_pages(doc, id)
 
+        _h_statuses = [p.get("hydrogen_status", "UNAVAILABLE") for p in pages_meta]
+        hydrogen_status = (
+            "OK" if _h_statuses and all(s == "OK" for s in _h_statuses)
+            else (_h_statuses[0] if _h_statuses else "UNAVAILABLE")
+        )
+        hydrogen_notes = [n for p in pages_meta for n in p.get("hydrogen_notes", [])]
+
         if len(characteristics) == 0:
             is_raster = any(len(doc[p].get_images()) > 0 for p in range(min(len(doc), 5)))
             doc.close()
@@ -1263,6 +1551,8 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
                 "count": 0,
                 "pages": pages_meta,
                 "is_sample_data": False,
+                "hydrogen_status": hydrogen_status,
+                "hydrogen_notes": hydrogen_notes,
                 "extraction_mode": "raster_or_empty_warning",
                 "warning_banner": "No vector dimensional callouts detected (page contains rasterized/scanned imagery or non-dimensional tables). The PDF is rendered below for manual inspection.",
             }
@@ -1279,6 +1569,8 @@ async def extract_drawing(id: str, demo: bool = Query(default=False)):
             "count": len(characteristics),
             "pages": pages_meta,
             "is_sample_data": False,
+            "hydrogen_status": hydrogen_status,
+            "hydrogen_notes": hydrogen_notes,
         }
 
     finally:
