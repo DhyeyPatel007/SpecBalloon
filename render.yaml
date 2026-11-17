@@ -18,4 +18,8 @@ services:
         sync: false
       - key: GEMINI_HYDROGEN_LATCH_TTL_HOURS
         value: "4"
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: TOKEN_FACTORY_MODEL
+        value: "meta-models/muse-spark-open"
 

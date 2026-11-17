@@ -343,9 +343,13 @@ def gdt_display_name(symbol: Any) -> str:
     return s
 
 
-def adapt_hydrogen_balloon(b: dict[str, Any], units: str, page: int) -> dict[str, Any] | None:
+def adapt_hydrogen_balloon(b: dict[str, Any], units: str, page: int,
+                           source: str = "HYDROGEN") -> dict[str, Any] | None:
     """Hydrogen balloon -> matcher/backend record. Returns None when the
-    balloon carries no usable content."""
+    balloon carries no usable content. `source` is the internal provider
+    label ("HYDROGEN" or "SPARK"); the API response normalises it to the
+    generic vision label in main.py, so the frontend never sees a
+    provider switch."""
     raw = str(b.get("raw_callout") or "").strip()
     if not raw:
         return None
@@ -406,7 +410,7 @@ def adapt_hydrogen_balloon(b: dict[str, Any], units: str, page: int) -> dict[str
         "tolerance_type": tol_type,
         "quantity": int(b.get("quantity") or 1),
         "confidence": _CONFIDENCE_VALUE.get(str(b.get("confidence") or "").lower(), 0.75),
-        "source": "HYDROGEN",
+        "source": source,
     }
 
 

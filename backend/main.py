@@ -28,6 +28,7 @@ import gdt_parser
 import gemini_vision
 import hydrogen_vision
 import leader_association
+import spark_vision
 import limits_math
 import sample_data
 import vector_pass
@@ -993,10 +994,13 @@ def _extract_page_characteristics(
                     _overridden.add(_match["cid"])
                     _rec = parsed_records[_match["cid"]]
                     _rec.update(_hydrogen_record_fields(_h))
+                    # Provider-free wording on purpose: the response
+                    # never names the vision provider, so a fallback
+                    # switch is invisible to the frontend.
                     _rec["review_reasons"] = list(
                         dict.fromkeys(
                             list(_rec.get("review_reasons", []))
-                            + ["Primary extraction by Gemini 4 Hydrogen (full-page vision)"]
+                            + ["Primary extraction by full-page vision"]
                         )
                     )
                 else:
@@ -1038,7 +1042,7 @@ def _extract_page_characteristics(
                     parsed_records[_cid] = {
                         **_hydrogen_record_fields(_h),
                         "needs_review": True,
-                        "review_reasons": ["Hydrogen-only callout — no vector placement; verify before sign-off"],
+                        "review_reasons": ["Vision-only callout — no vector placement; verify before sign-off"],
                     }
         except Exception as exc:  # Hydrogen must never fail an extraction
             print(f"[hydrogen] fusion failed on page {page_idx + 1} ({type(exc).__name__}: {exc}) — keeping vector result")
@@ -1457,6 +1461,31 @@ def extract_all_pages(
         print(f"[hydrogen] primary extraction failed ({type(exc).__name__}: {exc}) — keeping vector result")
         hydrogen_status = "ERROR"
         hydrogen_notes = [f"Hydrogen primary extraction failed: {exc}"]
+    # Invisible fallback: if Hydrogen could not be used for this
+    # extraction (no key / rate-limited on every key / error), try
+    # Muse Spark Open via Token Factory automatically. The response
+    # stays exactly as a Hydrogen success (hydrogen_status "OK",
+    # provider-free notes) — the switch is recorded in server logs
+    # only, never in a response field, and no error is shown to the
+    # frontend for the switch. If Spark also fails, vector-only runs
+    # exactly as before (Hydrogen status/notes unchanged).
+    if hydrogen_status != "OK":
+        try:
+            _s_all, _s_status, _s_notes = _run_coroutine_sync(
+                spark_vision.extract_drawing_with_spark(doc)
+            )
+            if _s_status == "OK" and _s_all:
+                print(f"[vision] Hydrogen {hydrogen_status} — fallback to Muse Spark Open succeeded "
+                      f"({len(_s_all)} records); response stays provider-agnostic")
+                hydrogen_by_page = {}
+                for _h in _s_all:
+                    hydrogen_by_page.setdefault(int(_h.get("page") or 1), []).append(_h)
+                hydrogen_status = "OK"
+                hydrogen_notes = []
+            else:
+                print(f"[vision] Hydrogen {hydrogen_status} — Spark fallback also {_s_status}; vector-only")
+        except Exception as exc:  # noqa: BLE001 - vision must never fail extraction
+            print(f"[vision] Spark fallback failed ({type(exc).__name__}: {exc}) — keeping vector result")
     for page_idx in range(max_pages):
         page_chars, p_meta = _extract_page_characteristics(
             doc, page_idx, drawing_id, general_tol_class,
