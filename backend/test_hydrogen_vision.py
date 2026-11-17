@@ -208,9 +208,11 @@ def test_parse_number_european_decimal_comma():
 # ---------------------------------------------------------------------------
 
 class _FakeResp:
-    def __init__(self, status_code=200, payload=None):
+    def __init__(self, status_code=200, payload=None, reason_phrase=None):
         self.status_code = status_code
         self._payload = payload or {}
+        self.reason_phrase = reason_phrase or {200: "OK", 429: "Too Many Requests",
+                                                503: "Service Unavailable"}.get(status_code, "Error")
 
     def json(self):
         return self._payload
@@ -219,6 +221,24 @@ class _FakeResp:
         if self.status_code >= 400:
             raise hydrogen_vision.httpx.HTTPStatusError(
                 f"{self.status_code}", request=None, response=self)
+
+
+class _SequencedFakeAsyncClient:
+    """Returns canned responses in order (for retry tests)."""
+
+    def __init__(self, resps):
+        self._resps = list(resps)
+        self.calls = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, *args, **kwargs):
+        self.calls += 1
+        return self._resps[min(self.calls - 1, len(self._resps) - 1)]
 
 
 class _FakeAsyncClient:
@@ -253,6 +273,23 @@ def test_call_page_ok(monkeypatch):
     assert len(res.records) == 1
     assert res.records[0]["nominal"] == 30.0
     assert res.records[0]["usl"] == 30.05
+
+
+def test_call_page_503_retries_then_succeeds(monkeypatch):
+    # Live Render 503'd twice on 2026-11-17 before succeeding: a 503 is
+    # transient overload, so the call retries (unlike a 429, which latches).
+    envelope = {"candidates": [{"content": {"parts": [{"text": json.dumps({
+        "drawing_metadata": {"units": "mm"},
+        "balloons": [{"raw_callout": "Ø 30.00 ±0.05", "characteristic_type": "diameter",
+                      "nominal_value": 30.0, "upper_tolerance": 0.05,
+                      "lower_tolerance": 0.05, "confidence": "high"}],
+    })}]}}]}
+    seq = _SequencedFakeAsyncClient([_FakeResp(503, {}), _FakeResp(200, envelope)])
+    monkeypatch.setattr(hydrogen_vision.httpx, "AsyncClient", lambda **kw: seq)
+    res = asyncio.run(hydrogen_vision.call_hydrogen_page("iVBORw0", "fake-key", 1))
+    assert res.status == "OK"
+    assert len(res.records) == 1
+    assert seq.calls == 2
 
 
 def test_call_page_429_latches_and_stops(monkeypatch):

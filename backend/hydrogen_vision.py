@@ -20,7 +20,9 @@ Design (committed): vision reads, vector places.
     vector-record at 303/331 (fails Stage 1) vs 323/331 with this rule.
   - Safety: no key -> UNAVAILABLE (vector-only path unchanged, never fake
     data). HTTP 429 -> RATE_LIMITED latch: all further Hydrogen calls in
-    this process stop, no retries. Any other error -> ERROR, vector stands.
+    this process stop, no retries. 5xx (500/502/503/504) -> up to 3
+    attempts with 10s/20s backoff (same policy as the A/B runner; a 503
+    is usually transient overload). Any other error -> ERROR, vector stands.
     Vision must never fail an extraction.
 """
 from __future__ import annotations
@@ -382,8 +384,13 @@ async def call_hydrogen_page(
     page: int,
     model: str | None = None,
 ) -> HydrogenPageResult:
-    """One full-page Hydrogen call. No retries on 429 (rate-limit latch);
-    no retries on other errors either — vision must never fail extraction."""
+    """One full-page Hydrogen call. 429 -> rate-limit latch, NO retry (the
+    user's rule: stop API use if a rate limit hits 100%). 5xx (500/502/
+    503/504) and transient network errors -> up to 3 attempts with 10s/20s
+    backoff, the same retry policy as the A/B runner that produced the
+    321/331 score: a 503 is usually transient overload, and the live
+    backend 503'd twice in a row on 2026-11-17 before succeeding on the
+    third attempt. Any other error -> ERROR, vector stands."""
     if _RATE_LIMITED:
         return HydrogenPageResult(status="RATE_LIMITED", page=page,
                                   notes=["Hydrogen rate-limit latch active — no further API calls."])
@@ -400,38 +407,50 @@ async def call_hydrogen_page(
         ]}],
         "generationConfig": {"temperature": 0, "response_mime_type": "application/json"},
     }
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
-                url, headers={"x-goog-api-key": resolved_key, "Content-Type": "application/json"},
-                json=body)
-            if resp.status_code == 429:
-                _set_rate_limited()
-                return HydrogenPageResult(status="RATE_LIMITED", page=page,
-                                          notes=["Gemini rate limit (429) — Hydrogen disabled for this process, no retry."])
-            resp.raise_for_status()
-            parsed, err = parse_hydrogen_envelope(resp.json())
-            if err is not None or parsed is None:
-                return HydrogenPageResult(status="ERROR", page=page, notes=[err or "Empty Hydrogen response."])
-    except httpx.HTTPStatusError as exc:
-        if exc.response is not None and exc.response.status_code == 429:
+    last_note = "Gemini Vision API error: unknown failure"
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                resp = await client.post(
+                    url, headers={"x-goog-api-key": resolved_key, "Content-Type": "application/json"},
+                    json=body)
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            last_note = f"Gemini Vision API error: {_scrub_key(str(exc))}"
+            if attempt < 2:
+                await asyncio.sleep(10 * (attempt + 1))
+                continue
+            return HydrogenPageResult(status="ERROR", page=page, notes=[last_note])
+        except Exception as exc:  # noqa: BLE001
+            return HydrogenPageResult(status="ERROR", page=page,
+                                      notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"])
+        if resp.status_code == 429:
             _set_rate_limited()
             return HydrogenPageResult(status="RATE_LIMITED", page=page,
                                       notes=["Gemini rate limit (429) — Hydrogen disabled for this process, no retry."])
-        return HydrogenPageResult(status="ERROR", page=page,
-                                  notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"])
-    except Exception as exc:  # noqa: BLE001
-        return HydrogenPageResult(status="ERROR", page=page,
-                                  notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"])
-
-    meta = (parsed or {}).get("drawing_metadata") or {}
-    units = meta.get("units") if meta.get("units") in ("mm", "in") else "mm"
-    records: list[dict[str, Any]] = []
-    for balloon in (parsed or {}).get("balloons", []) or []:
-        rec = adapt_hydrogen_balloon(balloon, units, page)
-        if rec is not None:
-            records.append(rec)
-    return HydrogenPageResult(status="OK", page=page, records=records, units=units)
+        if resp.status_code in (500, 502, 503, 504):
+            last_note = (f"Gemini Vision API error: Server error '{resp.status_code} "
+                         f"{resp.reason_phrase}' for url '{url}'")
+            if attempt < 2:
+                await asyncio.sleep(10 * (attempt + 1))
+                continue
+            return HydrogenPageResult(status="ERROR", page=page, notes=[last_note])
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            return HydrogenPageResult(status="ERROR", page=page,
+                                      notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"])
+        parsed, err = parse_hydrogen_envelope(resp.json())
+        if err is not None or parsed is None:
+            return HydrogenPageResult(status="ERROR", page=page, notes=[err or "Empty Hydrogen response."])
+        meta = (parsed or {}).get("drawing_metadata") or {}
+        units = meta.get("units") if meta.get("units") in ("mm", "in") else "mm"
+        records: list[dict[str, Any]] = []
+        for balloon in (parsed or {}).get("balloons", []) or []:
+            rec = adapt_hydrogen_balloon(balloon, units, page)
+            if rec is not None:
+                records.append(rec)
+        return HydrogenPageResult(status="OK", page=page, records=records, units=units)
+    return HydrogenPageResult(status="ERROR", page=page, notes=[last_note])
 
 
 async def extract_drawing_with_hydrogen(doc: Any, api_key: str | None = None) -> tuple[list[dict[str, Any]], str, list[str]]:
