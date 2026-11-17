@@ -19,10 +19,13 @@ Design (committed): vision reads, vector places.
     `2 ±0.2` / `M2 (3x)` / `R2 (6x)`). The prototype measured dedup-on-shared-
     vector-record at 303/331 (fails Stage 1) vs 323/331 with this rule.
   - Safety: no key -> UNAVAILABLE (vector-only path unchanged, never fake
-    data). HTTP 429 -> RATE_LIMITED latch: all further Hydrogen calls in
-    this process stop, no retries. 5xx (500/502/503/504) -> up to 3
-    attempts with 10s/20s backoff (same policy as the A/B runner; a 503
-    is usually transient overload). Any other error -> ERROR, vector stands.
+    data). HTTP 429 -> that key is latched for the TTL (default 4h,
+    GEMINI_HYDROGEN_LATCH_TTL_HOURS) and the call falls back to the next
+    configured key (GEMINI_API_KEY_2 / GEMINI_API_KEY_3 / GEMINI_API_KEYS)
+    automatically; a latched key is retried automatically once its TTL
+    expires. 5xx (500/502/503/504) -> up to 3 attempts with 10s/20s
+    backoff (same policy as the A/B runner; a 503 is usually transient
+    overload). Any other error -> ERROR, vector stands.
     Vision must never fail an extraction.
 """
 from __future__ import annotations
@@ -46,23 +49,94 @@ from limits_math import calculate_iso_286_limits
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_HYDROGEN_MODEL = "gemini-4-hydrogen"
 
-# Latch: once a rate limit (429) is seen, stop ALL Hydrogen use in this
-# process. The user's rule: stop API use if a rate limit hits 100%, no
-# retries after that.
-_RATE_LIMITED = False
+# Multi-key fallback + TTL latch (added 2026-11-17, user order):
+# - Keys, in order: an explicitly passed api_key, then GEMINI_API_KEY,
+#   GEMINI_API_KEY_2, GEMINI_API_KEY_3, then GEMINI_API_KEYS (comma list).
+#   A second key is only used if the first is rate-limited (429) — the
+#   fallback is automatic, per page call, no user action at call time.
+# - Latch is PER KEY, not global, and expires after a TTL (default 4h,
+#   GEMINI_HYDROGEN_LATCH_TTL_HOURS). After the TTL the key is tried
+#   again automatically. A 429 never retries the SAME key in the same
+#   call; it only moves to the next key. If every key is latched,
+#   Hydrogen is off until a latch expires.
+# - Keys are identified by a short fingerprint (first 8 chars) in the
+#   latch dict only — never log or return a full key value.
+import hashlib
+import time as _time
+
+_RATE_LIMITED_UNTIL: dict[str, float] = {}
+
+
+def latch_ttl_seconds() -> float:
+    try:
+        hours = float(os.getenv("GEMINI_HYDROGEN_LATCH_TTL_HOURS", "4") or "4")
+    except ValueError:
+        hours = 4.0
+    return max(0.1, hours * 3600.0)
+
+
+def _key_fingerprint(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
+def hydrogen_api_keys(explicit_key: str | None = None) -> list[str]:
+    keys: list[str] = []
+    for candidate in [
+        explicit_key,
+        os.getenv("GEMINI_API_KEY"),
+        os.getenv("GEMINI_API_KEY_2"),
+        os.getenv("GEMINI_API_KEY_3"),
+    ]:
+        if candidate and candidate.strip() and candidate.strip() not in keys:
+            keys.append(candidate.strip())
+    for candidate in (os.getenv("GEMINI_API_KEYS") or "").split(","):
+        if candidate.strip() and candidate.strip() not in keys:
+            keys.append(candidate.strip())
+    return keys
 
 
 def hydrogen_model() -> str:
     return os.getenv("GEMINI_HYDROGEN_MODEL", DEFAULT_HYDROGEN_MODEL).strip() or DEFAULT_HYDROGEN_MODEL
 
 
-def is_rate_limited() -> bool:
-    return _RATE_LIMITED
+def _is_key_latched(key: str) -> bool:
+    until = _RATE_LIMITED_UNTIL.get(_key_fingerprint(key))
+    if until is None:
+        return False
+    if _time.monotonic() >= until:
+        del _RATE_LIMITED_UNTIL[_key_fingerprint(key)]
+        return False
+    return True
 
 
-def _set_rate_limited() -> None:
-    global _RATE_LIMITED
-    _RATE_LIMITED = True
+def is_rate_limited(keys: list[str] | None = None) -> bool:
+    if keys is None:
+        keys = hydrogen_api_keys()
+    if not keys:
+        # No configured keys: rate-limited only if some explicitly-passed
+        # key was latched (e.g. tests calling with a fake key). The latch
+        # dict is keyed by fingerprint, so check expiry directly here.
+        now = _time.monotonic()
+        live = False
+        for fp in list(_RATE_LIMITED_UNTIL):
+            if now >= _RATE_LIMITED_UNTIL[fp]:
+                del _RATE_LIMITED_UNTIL[fp]
+            else:
+                live = True
+        return live
+    return all(_is_key_latched(k) for k in keys)
+
+
+def _set_rate_limited(key: str | None = None) -> None:
+    # Latch one key (or, with no key given, every configured key).
+    targets = [key] if key else hydrogen_api_keys()
+    for k in targets:
+        if k:
+            _RATE_LIMITED_UNTIL[_key_fingerprint(k)] = _time.monotonic() + latch_ttl_seconds()
+
+
+def _clear_rate_limit_latch() -> None:
+    _RATE_LIMITED_UNTIL.clear()
 
 
 def _scrub_key(text: str) -> str:
@@ -384,20 +458,19 @@ async def call_hydrogen_page(
     page: int,
     model: str | None = None,
 ) -> HydrogenPageResult:
-    """One full-page Hydrogen call. 429 -> rate-limit latch, NO retry (the
-    user's rule: stop API use if a rate limit hits 100%). 5xx (500/502/
-    503/504) and transient network errors -> up to 3 attempts with 10s/20s
+    """One full-page Hydrogen call. Keys are tried in order; a 429 latches
+    THAT key only (TTL, default 4h) and the call moves to the next key
+    automatically — it never retries the same key. 5xx (500/502/503/504)
+    and transient network errors -> up to 3 attempts per key with 10s/20s
     backoff, the same retry policy as the A/B runner that produced the
-    321/331 score: a 503 is usually transient overload, and the live
-    backend 503'd twice in a row on 2026-11-17 before succeeding on the
-    third attempt. Any other error -> ERROR, vector stands."""
-    if _RATE_LIMITED:
-        return HydrogenPageResult(status="RATE_LIMITED", page=page,
-                                  notes=["Hydrogen rate-limit latch active — no further API calls."])
-    resolved_key = (api_key or "").strip()
-    if not resolved_key:
+    321/331 score. Any other error -> ERROR, vector stands."""
+    keys = hydrogen_api_keys(api_key)
+    if not keys:
         return HydrogenPageResult(status="UNAVAILABLE", page=page,
                                   notes=["GEMINI_API_KEY is not configured; skipped Hydrogen page call."])
+    if is_rate_limited(keys):
+        return HydrogenPageResult(status="RATE_LIMITED", page=page,
+                                  notes=["Hydrogen rate-limit latch active on all keys — no further API calls until a latch expires."])
     model = (model or hydrogen_model()).strip()
     url = f"{GEMINI_BASE}/{model}:generateContent"
     body = {
@@ -408,48 +481,55 @@ async def call_hydrogen_page(
         "generationConfig": {"temperature": 0, "response_mime_type": "application/json"},
     }
     last_note = "Gemini Vision API error: unknown failure"
-    for attempt in range(3):
-        try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                resp = await client.post(
-                    url, headers={"x-goog-api-key": resolved_key, "Content-Type": "application/json"},
-                    json=body)
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            last_note = f"Gemini Vision API error: {_scrub_key(str(exc))}"
-            if attempt < 2:
-                await asyncio.sleep(10 * (attempt + 1))
-                continue
-            return HydrogenPageResult(status="ERROR", page=page, notes=[last_note])
-        except Exception as exc:  # noqa: BLE001
-            return HydrogenPageResult(status="ERROR", page=page,
-                                      notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"])
-        if resp.status_code == 429:
-            _set_rate_limited()
-            return HydrogenPageResult(status="RATE_LIMITED", page=page,
-                                      notes=["Gemini rate limit (429) — Hydrogen disabled for this process, no retry."])
-        if resp.status_code in (500, 502, 503, 504):
-            last_note = (f"Gemini Vision API error: Server error '{resp.status_code} "
-                         f"{resp.reason_phrase}' for url '{url}'")
-            if attempt < 2:
-                await asyncio.sleep(10 * (attempt + 1))
-                continue
-            return HydrogenPageResult(status="ERROR", page=page, notes=[last_note])
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            return HydrogenPageResult(status="ERROR", page=page,
-                                      notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"])
-        parsed, err = parse_hydrogen_envelope(resp.json())
-        if err is not None or parsed is None:
-            return HydrogenPageResult(status="ERROR", page=page, notes=[err or "Empty Hydrogen response."])
-        meta = (parsed or {}).get("drawing_metadata") or {}
-        units = meta.get("units") if meta.get("units") in ("mm", "in") else "mm"
-        records: list[dict[str, Any]] = []
-        for balloon in (parsed or {}).get("balloons", []) or []:
-            rec = adapt_hydrogen_balloon(balloon, units, page)
-            if rec is not None:
-                records.append(rec)
-        return HydrogenPageResult(status="OK", page=page, records=records, units=units)
+    for key_index, resolved_key in enumerate(keys):
+        if _is_key_latched(resolved_key):
+            continue
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    resp = await client.post(
+                        url, headers={"x-goog-api-key": resolved_key, "Content-Type": "application/json"},
+                        json=body)
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                last_note = f"Gemini Vision API error: {_scrub_key(str(exc))}"
+                if attempt < 2:
+                    await asyncio.sleep(10 * (attempt + 1))
+                    continue
+                return HydrogenPageResult(status="ERROR", page=page, notes=[last_note])
+            except Exception as exc:  # noqa: BLE001
+                return HydrogenPageResult(status="ERROR", page=page,
+                                          notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"])
+            if resp.status_code == 429:
+                _set_rate_limited(resolved_key)
+                last_note = (f"Gemini rate limit (429) on key {key_index + 1}/{len(keys)} — "
+                             "latched for the TTL, trying next key." if key_index + 1 < len(keys)
+                             else "Gemini rate limit (429) on all keys — Hydrogen disabled until a latch expires.")
+                break  # move to next key, never retry this one
+            if resp.status_code in (500, 502, 503, 504):
+                last_note = (f"Gemini Vision API error: Server error '{resp.status_code} "
+                             f"{resp.reason_phrase}' for url '{url}'")
+                if attempt < 2:
+                    await asyncio.sleep(10 * (attempt + 1))
+                    continue
+                return HydrogenPageResult(status="ERROR", page=page, notes=[last_note])
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                return HydrogenPageResult(status="ERROR", page=page,
+                                          notes=[f"Gemini Vision API error: {_scrub_key(str(exc))}"])
+            parsed, err = parse_hydrogen_envelope(resp.json())
+            if err is not None or parsed is None:
+                return HydrogenPageResult(status="ERROR", page=page, notes=[err or "Empty Hydrogen response."])
+            meta = (parsed or {}).get("drawing_metadata") or {}
+            units = meta.get("units") if meta.get("units") in ("mm", "in") else "mm"
+            records: list[dict[str, Any]] = []
+            for balloon in (parsed or {}).get("balloons", []) or []:
+                rec = adapt_hydrogen_balloon(balloon, units, page)
+                if rec is not None:
+                    records.append(rec)
+            return HydrogenPageResult(status="OK", page=page, records=records, units=units)
+    if is_rate_limited(keys):
+        return HydrogenPageResult(status="RATE_LIMITED", page=page, notes=[last_note])
     return HydrogenPageResult(status="ERROR", page=page, notes=[last_note])
 
 
@@ -459,14 +539,14 @@ async def extract_drawing_with_hydrogen(doc: Any, api_key: str | None = None) ->
     returned OK; UNAVAILABLE when no key is configured (vector-only path
     then runs unchanged); RATE_LIMITED / ERROR otherwise (records from the
     pages that did succeed are still returned)."""
-    key = (api_key or os.getenv("GEMINI_API_KEY") or "").strip()
-    if not key:
+    keys = hydrogen_api_keys(api_key)
+    if not keys:
         return [], "UNAVAILABLE", ["GEMINI_API_KEY is not configured; Hydrogen primary extraction skipped."]
-    if _RATE_LIMITED:
-        return [], "RATE_LIMITED", ["Hydrogen rate-limit latch active — no further API calls."]
+    if is_rate_limited(keys):
+        return [], "RATE_LIMITED", ["Hydrogen rate-limit latch active on all keys — no further API calls until a latch expires."]
     page_count = len(doc)
     results = await asyncio.gather(*(
-        _extract_one_page(doc, i, key) for i in range(page_count)
+        _extract_one_page(doc, i, keys[0]) for i in range(page_count)
     ))
     records: list[dict[str, Any]] = []
     notes: list[str] = []

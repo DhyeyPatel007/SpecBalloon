@@ -293,7 +293,7 @@ def test_call_page_503_retries_then_succeeds(monkeypatch):
 
 
 def test_call_page_429_latches_and_stops(monkeypatch):
-    monkeypatch.setattr(hydrogen_vision, "_RATE_LIMITED", False)
+    hydrogen_vision._clear_rate_limit_latch()
     _FakeAsyncClient.calls = 0
     monkeypatch.setattr(
         hydrogen_vision.httpx, "AsyncClient",
@@ -307,7 +307,66 @@ def test_call_page_429_latches_and_stops(monkeypatch):
         assert res2.status == "RATE_LIMITED"
         assert _FakeAsyncClient.calls == 1
     finally:
-        monkeypatch.setattr(hydrogen_vision, "_RATE_LIMITED", False)
+        hydrogen_vision._clear_rate_limit_latch()
+
+
+def test_call_page_429_falls_back_to_second_key(monkeypatch):
+    # Key 1 429s, key 2 (GEMINI_API_KEY_2) succeeds — automatic fallback.
+    hydrogen_vision._clear_rate_limit_latch()
+    envelope = {"candidates": [{"content": {"parts": [{"text": json.dumps({
+        "drawing_metadata": {"units": "mm"},
+        "balloons": [{"raw_callout": "Ø 30.00 ±0.05", "characteristic_type": "diameter",
+                      "nominal_value": 30.0, "upper_tolerance": 0.05,
+                      "lower_tolerance": 0.05, "confidence": "high"}],
+    })}]}}]}
+    calls: list[str] = []
+
+    class _KeyAwareClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, headers=None, **kw):
+            calls.append(headers.get("x-goog-api-key"))
+            if headers.get("x-goog-api-key") == "key-one":
+                return _FakeResp(429, {})
+            return _FakeResp(200, envelope)
+
+    monkeypatch.setattr(hydrogen_vision.httpx, "AsyncClient", _KeyAwareClient)
+    monkeypatch.setenv("GEMINI_API_KEY", "key-one")
+    monkeypatch.setenv("GEMINI_API_KEY_2", "key-two")
+    try:
+        res = asyncio.run(hydrogen_vision.call_hydrogen_page("iVBORw0", None, 1))
+        assert res.status == "OK"
+        assert len(res.records) == 1
+        assert calls == ["key-one", "key-two"]
+        # Key 1 is latched, key 2 is not — overall not rate-limited.
+        assert hydrogen_vision.is_rate_limited() is False
+    finally:
+        hydrogen_vision._clear_rate_limit_latch()
+
+
+def test_rate_limit_latch_expires_after_ttl(monkeypatch):
+    # A latched key is tried again automatically once its TTL expires.
+    hydrogen_vision._clear_rate_limit_latch()
+    monkeypatch.setenv("GEMINI_HYDROGEN_LATCH_TTL_HOURS", "0.0001")  # ~0.36s
+    monkeypatch.setattr(
+        hydrogen_vision.httpx, "AsyncClient",
+        lambda **kw: _FakeAsyncClient(_FakeResp(429, {})))
+    try:
+        res1 = asyncio.run(hydrogen_vision.call_hydrogen_page("iVBORw0", "fake-key", 1))
+        assert res1.status == "RATE_LIMITED"
+        assert hydrogen_vision.is_rate_limited() is True
+        import time as _t
+        _t.sleep(0.5)
+        assert hydrogen_vision.is_rate_limited() is False
+    finally:
+        hydrogen_vision._clear_rate_limit_latch()
 
 
 def test_extract_no_key_is_unavailable(monkeypatch):
